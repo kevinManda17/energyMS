@@ -1,0 +1,86 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ems_db
+      POSTGRES_USER: ems_user
+      POSTGRES_PASSWORD: ems_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ems_user -d ems_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    volumes:
+      - ./mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+
+  backend:
+    build: ./ems-backend
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py seed_initial_data &&
+             python manage.py runserver 0.0.0.0:8000"
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.development
+      DATABASE_URL: postgresql://ems_user:ems_password@db:5432/ems_db
+      MQTT_BROKER: mqtt
+      MQTT_PORT: "1883"
+      DJANGO_DEBUG: "True"
+    volumes:
+      - ./ems-backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      mqtt:
+        condition: service_started
+
+  mqtt_worker:
+    build: ./ems-backend
+    command: python manage.py run_mqtt
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.development
+      DATABASE_URL: postgresql://ems_user:ems_password@db:5432/ems_db
+      MQTT_BROKER: mqtt
+      MQTT_PORT: "1883"
+    volumes:
+      - ./ems-backend:/app
+    depends_on:
+      - backend
+      - mqtt
+
+  frontend:
+    build:
+      context: ./ems-frontend
+      args:
+        VITE_API_BASE_URL: http://localhost:8000/api
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+  edge-gateway:
+    build: ./edge-gateway
+    environment:
+      EDGE_MQTT_BROKER: mqtt
+      EDGE_MQTT_PORT: "1883"
+      EDGE_BACKEND_API_URL: http://backend:8000/api
+    ports:
+      - "8001:8001"
+    depends_on:
+      - mqtt
+      - backend
+    profiles: ["edge"]
+
+volumes:
+  pgdata:

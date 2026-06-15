@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "EMS Mobile",
+    "slug": "ems-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#0B1220"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": { "supportsTablet": true },
+    "android": {
+      "adaptiveIcon": { "backgroundColor": "#0B1220" }
+    },
+    "web": { "bundler": "metro" },
+    "plugins": ["expo-notifications"],
+    "extra": {
+      "apiBaseUrl": "http://172.20.10.2:8000/api"
+    }
+  }
+}

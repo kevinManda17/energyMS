@@ -1,0 +1,22 @@
+Django>=4.2,<5.1
+djangorestframework>=3.15
+djangorestframework-simplejwt>=5.3
+django-cors-headers>=4.4
+django-filter>=24.0
+drf-spectacular>=0.27
+psycopg2-binary>=2.9
+dj-database-url>=2.2
+python-dotenv>=1.0
+paho-mqtt>=1.6
+pandas>=2.2
+scikit-learn>=1.5
+numpy>=1.26
+# Optionnel : le moteur flou est en Python pur (cf. cahier des charges).
+# Décommentez pour une variante basée scikit-fuzzy.
+# scikit-fuzzy>=0.4.2
+joblib>=1.4
+gunicorn>=22.0
+# dev / tests
+pytest>=8.0
+pytest-django>=4.8
+factory_boy>=3.3
