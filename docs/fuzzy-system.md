@@ -1,52 +1,67 @@
-# Système expert flou
+# Systeme expert flou
 
-Implémenté dans `apps/fuzzy_engine/engine.py` — règles floues Python structurées
-(fonctions d'appartenance triangulaires/trapézoïdales + agrégation par action).
+Le backend utilise maintenant le moteur avance integre dans
+`apps/fuzzy_engine/core/`, appele depuis `apps/fuzzy_engine/engine.py`.
 
-## Variables linguistiques (entrées)
+## Entrees principales
 
-| Variable        | Termes flous                       |
-|-----------------|------------------------------------|
-| `production_pv` | faible · moyenne · élevée          |
-| `consommation`  | faible · modérée · élevée          |
-| `batterie_soc`  | déchargée · moyenne · chargée      |
-| charges non critiques actives | booléen           |
+Le mapper Django construit un `EnergyFacts` a partir des donnees EMS:
 
-## Actions possibles (sorties)
-`CHARGER_BATTERIE` · `UTILISER_BATTERIE` · `ALIMENTER_CHARGES` ·
-`DELESTER_NON_PRIORITAIRES` · `NOTIFIER_UTILISATEUR` · `ATTENDRE`
+| Champ | Source |
+|-------|--------|
+| `current_pv_power_kw` | Derniere mesure `production` |
+| `current_load_power_kw` | Derniere mesure `consumption` |
+| `forecast_pv_energy_kwh` | Previsions stockees, sinon fallback prudent |
+| `forecast_load_energy_kwh` | Previsions stockees, sinon fallback prudent |
+| `battery_soc_percent` | Derniere mesure `battery_soc` |
+| `battery_temperature_c` | Derniere mesure `temperature`, sinon 25 C |
+| `load_priority` | Equipements actifs, sinon `NON_PRIORITY` |
+| `data_quality` | `GOOD`, `PARTIAL` ou `BAD` selon les mesures disponibles |
+| `pv_nominal_power_kw` | Capacite PV du micro-reseau, sinon 5.0 |
 
-## Règles
-| ID | Condition | Action |
-|----|-----------|--------|
-| R1 | prod faible ET batterie déchargée ET conso élevée | DELESTER_NON_PRIORITAIRES |
-| R2 | prod élevée ET batterie non chargée | CHARGER_BATTERIE |
-| R3 | prod moyenne ET conso élevée ET batterie moyenne | UTILISER_BATTERIE |
-| R4 | prod élevée ET conso faible | ALIMENTER_CHARGES |
-| R5 | prod faible ET conso faible ET batterie moyenne | ATTENDRE |
-| R6 | batterie très faible (<15 %) | NOTIFIER_UTILISATEUR |
-| R7 | conso élevée ET charges non prioritaires actives | DELESTER_NON_PRIORITAIRES |
+## Decisions possibles
 
-## Sortie du moteur
+Le moteur retourne notamment:
+
+- `PROTECT_BATTERY`
+- `SHED_NON_PRIORITY_LOAD`
+- `RECOMMEND_REDUCE_PRIORITY_LOAD`
+- `USE_BATTERY`
+- `CHARGE_BATTERY`
+- `NORMAL_OPERATION`
+- `ECO_MODE`
+- `BLOCK_AUTOMATIC_ACTION`
+- `DATA_QUALITY_ALERT`
+
+## Sortie API
+
+Les anciens champs restent disponibles pour compatibilite:
+
+- `action`
+- `reason`
+- `confidence_score`
+- `input_snapshot`
+- `activated_rules`
+
+Les nouveaux champs exposes par `/api/decisions/` sont:
+
+- `decision_code`, `decision_label`, `execution_mode`, `alert_level`
+- `risk_score`, `shedding_level`, `charge_battery_score`
+- `discharge_battery_score`, `protect_battery_score`
+- `recommendation_score`, `automatic_score`, `blocked_score`
+- `battery_action`, `explanation`
+- `fired_rules`, `input_facts`, `fuzzy_values`
+
+## Exemple
+
 ```json
 {
-  "action": "DELESTER_NON_PRIORITAIRES",
-  "reason": "Production faible, batterie déchargée et consommation élevée.",
-  "confidence_score": 0.71,
-  "input_snapshot": { "production_pv": 0.4, "consommation": 4.0,
-                      "batterie_soc": 18, "memberships": { ... } },
-  "activated_rules": [ { "id": "R1", "strength": 0.8, ... } ],
-  "timestamp": "..."
+  "decision_code": "SHED_NON_PRIORITY_LOAD",
+  "decision_label": "Delester une charge non prioritaire",
+  "execution_mode": "AUTOMATIC",
+  "alert_level": "CRITICAL",
+  "risk_score": 95.0,
+  "battery_action": "PRESERVE",
+  "confidence_score": 0.95
 }
 ```
-
-`confidence_score` = force de l'action dominante / somme des forces de toutes les
-règles activées.
-
-## Exemples de cas
-| Production | Conso | SoC | Action attendue |
-|-----------|-------|-----|-----------------|
-| 0.3 kW    | 5 kW  | 20% | Délester non prioritaires |
-| 6 kW      | 1.5 kW| 50% | Charger batterie / Alimenter |
-| 2.5 kW    | 4.2 kW| 50% | Utiliser batterie |
-| 0.3 kW    | 0.5 kW| 10% | Notifier utilisateur |

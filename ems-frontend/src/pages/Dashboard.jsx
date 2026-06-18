@@ -99,7 +99,7 @@ export default function Dashboard() {
             {decision ? (
               <>
                 <div className="text-lg font-bold text-electric">
-                  {ACTION_LABELS[decision.action] || decision.action}
+                  {decision.decision_label || ACTION_LABELS[decision.action] || decision.action}
                 </div>
                 <p className="mt-1 text-sm text-slate-500">{decision.reason}</p>
                 <div className="mt-3 text-xs text-slate-400">

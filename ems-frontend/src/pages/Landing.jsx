@@ -4,7 +4,7 @@ import PublicHeader from "../components/PublicHeader";
 
 const FEATURES = [
   { icon: Activity, title: "Supervision temps réel", text: "Production, consommation, batterie et état des équipements en direct via IoT/MQTT." },
-  { icon: LineChart, title: "Prévisions par ML", text: "Random Forest pour anticiper la production photovoltaïque et la consommation." },
+  { icon: LineChart, title: "Prévisions horaires", text: "Anticipation de la production photovoltaïque et de la consommation dans les prochaines heures." },
   { icon: Workflow, title: "Système expert flou", text: "Décisions automatiques : charger, délester, alimenter, notifier." },
   { icon: Bell, title: "Alertes intelligentes", text: "Notifications critiques sur le web et le mobile en cas d'anomalie." },
   { icon: Cpu, title: "Edge computing", text: "Passerelle locale Raspberry Pi avec cache et synchronisation cloud." },
@@ -17,12 +17,12 @@ export default function Landing() {
       <PublicHeader />
 
       <section className="mx-auto max-w-7xl px-6 py-20 text-center">
-        <span className="badge bg-blue-50 text-electric">⚡ Micro-réseau domestique intelligent</span>
+        <span className="badge bg-blue-50 text-electric">Micro-reseau domestique intelligent</span>
         <h1 className="mx-auto mt-6 max-w-3xl text-5xl font-extrabold leading-tight text-navy">
           Supervisez, prévoyez et optimisez votre énergie solaire
         </h1>
         <p className="mx-auto mt-5 max-w-2xl text-lg text-slate-600">
-          EMS combine IoT, Machine Learning et système expert flou pour gérer
+          EMS combine IoT, prévisions horaires et système expert flou pour gérer
           intelligemment la production, le stockage et la consommation de votre
           micro-réseau domestique.
         </p>

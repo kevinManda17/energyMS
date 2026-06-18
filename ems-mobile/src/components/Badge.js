@@ -5,6 +5,15 @@ const COLORS = {
   CRITICAL: palette.danger,
   WARNING: palette.solar,
   INFO: palette.blue,
+  NONE: palette.slate,
+  VALID: palette.green,
+  ACTIVE: palette.green,
+  INACTIVE: palette.slate,
+  FAULT: palette.danger,
+  SHEDDED: palette.solar,
+  AUTOMATIC: palette.green,
+  RECOMMENDATION: palette.solar,
+  BLOCKED: palette.danger,
 };
 
 export function Badge({ value }) {

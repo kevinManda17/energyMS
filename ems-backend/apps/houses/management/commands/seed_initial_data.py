@@ -16,6 +16,8 @@ from apps.alerts.models import Alert
 from apps.devices.models import Equipment, Sensor
 from apps.fuzzy_engine.engine import evaluate
 from apps.fuzzy_engine.models import Decision
+from apps.forecasting.models import ForecastModel, Prediction
+from apps.forecasting.services import BASELINE_ALGORITHM, seed_predictions_for_house
 from apps.houses.models import House
 from apps.measurements.models import Measurement
 
@@ -50,6 +52,7 @@ class Command(BaseCommand):
         admin = self._user("admin", "admin@ems.local", "admin12345", role="ADMIN", staff=True)
         demo = self._user("demo", "demo@ems.local", "demo12345")
         self.stdout.write(self.style.SUCCESS("Utilisateurs: admin / demo (mdp: admin12345 / demo12345)"))
+        self._forecasting_base()
 
         for name, loc, lat, lon, pv, batt in HOUSES:
             owner = demo if name != "Ferme PV Goma" else admin
@@ -65,9 +68,10 @@ class Command(BaseCommand):
             self._sensors(house)
             self._equipment(house)
             self._measurements(house, days, pv)
+            self._predictions(house)
             self._decisions(house)
             self._alerts(house)
-            self.stdout.write(f"  ✓ {house.name}")
+            self.stdout.write(f"  OK {house.name}")
 
         self.stdout.write(self.style.SUCCESS("Seed terminé."))
 
@@ -81,6 +85,14 @@ class Command(BaseCommand):
             user.set_password(password)
             user.save()
         return user
+
+    def _forecasting_base(self):
+        Prediction.objects.filter(house__isnull=True).delete()
+        ForecastModel.objects.exclude(algorithm=BASELINE_ALGORITHM).delete()
+        ForecastModel.objects.filter(
+            algorithm=BASELINE_ALGORITHM,
+            is_active=False,
+        ).delete()
 
     def _sensors(self, house):
         specs = [
@@ -135,6 +147,9 @@ class Command(BaseCommand):
                 ))
         Measurement.objects.bulk_create(objs)
 
+    def _predictions(self, house):
+        seed_predictions_for_house(house, hours=48, replace=True)
+
     def _decisions(self, house):
         if Decision.objects.filter(house=house).exists():
             return
@@ -148,11 +163,7 @@ class Command(BaseCommand):
         ]
         for j, (p, c, s, nc) in enumerate(scenarios):
             r = evaluate(p, c, s, nc)
-            Decision.objects.create(
-                house=house, action=r.action, reason=r.reason,
-                confidence_score=r.confidence_score,
-                input_snapshot=r.input_snapshot, activated_rules=r.activated_rules,
-            )
+            Decision.objects.create(house=house, **r.decision_payload())
 
     def _alerts(self, house):
         if Alert.objects.filter(house=house).exists():

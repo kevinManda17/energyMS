@@ -1,7 +1,7 @@
 # EMS — Energy Management System
 
 Plateforme de **gestion énergétique pour micro-réseau domestique intelligent** :
-supervision IoT, prévision par Machine Learning, système expert flou, supervision
+supervision IoT, prévisions horaires production/consommation, système expert flou, supervision
 web React, application mobile React Native et passerelle Edge.
 
 > L'agent conversationnel n'est **pas** développé dans cette version (perspective
@@ -40,7 +40,7 @@ docker compose up --build
 - Comptes seedés : `admin / admin12345` et `demo / demo12345`
 
 Le service backend exécute automatiquement `migrate` + `seed_initial_data`
-(données réalistes : maisons, capteurs, équipements, mesures, décisions, alertes).
+(données réalistes : maisons, capteurs, équipements, mesures, prévisions, décisions, alertes).
 
 ## Démarrage manuel (sans Docker)
 

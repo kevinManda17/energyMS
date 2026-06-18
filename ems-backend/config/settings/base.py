@@ -131,7 +131,7 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
-# Directory where trained ML models are stored (forecasting app)
+# Optional directory kept for legacy forecasting artifacts.
 ML_MODELS_DIR = BASE_DIR / "ml_models"
 ML_MODELS_DIR.mkdir(exist_ok=True)
 
@@ -188,6 +188,13 @@ MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 MQTT_USERNAME = os.getenv("MQTT_USERNAME", "")
 MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
+
+# ---------------------------------------------------------------------------
+# SMS / phone verification
+# ---------------------------------------------------------------------------
+SMS_PROVIDER = os.getenv("SMS_PROVIDER", "console")
+SMS_API_KEY = os.getenv("SMS_API_KEY", "")
+SMS_SENDER = os.getenv("SMS_SENDER", "EMS")
 
 LOGGING = {
     "version": 1,

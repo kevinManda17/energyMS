@@ -4,23 +4,18 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from apps.houses.models import House
-from apps.measurements.models import Measurement
 
-from .engine import evaluate
+from .engine import evaluate_house
 from .models import Decision
 from .serializers import DecisionSerializer, TriggerSerializer
 
-# Actions that should also raise an alert.
-CRITICAL_ACTIONS = {"DELESTER_NON_PRIORITAIRES", "NOTIFIER_UTILISATEUR"}
 
-
-def _latest_value(house, mtype, default=0.0):
-    m = (
-        Measurement.objects.filter(house=house, measurement_type=mtype)
-        .order_by("-timestamp")
-        .first()
-    )
-    return m.value if m else default
+CRITICAL_ACTIONS = {
+    "PROTECT_BATTERY",
+    "SHED_NON_PRIORITY_LOAD",
+    "BLOCK_AUTOMATIC_ACTION",
+    "DATA_QUALITY_ALERT",
+}
 
 
 class DecisionViewSet(
@@ -29,14 +24,14 @@ class DecisionViewSet(
     viewsets.GenericViewSet,
 ):
     """
-    GET  /api/decisions/            history
-    GET  /api/decisions/latest/     most recent decision
-    GET  /api/decisions/{id}/       detail
-    POST /api/decisions/trigger/    run the fuzzy engine
+    GET  /api/decisions/
+    GET  /api/decisions/latest/
+    GET  /api/decisions/{id}/
+    POST /api/decisions/trigger/
     """
 
     serializer_class = DecisionSerializer
-    filterset_fields = ["house", "action"]
+    filterset_fields = ["house", "action", "decision_code", "alert_level"]
 
     def get_queryset(self):
         user = self.request.user
@@ -49,7 +44,7 @@ class DecisionViewSet(
     def latest(self, request):
         decision = self.get_queryset().first()
         if decision is None:
-            return Response({"detail": "Aucune décision."}, status=404)
+            return Response({"detail": "Aucune decision."}, status=404)
         return Response(self.get_serializer(decision).data)
 
     @drf_action(detail=False, methods=["post"])
@@ -64,32 +59,8 @@ class DecisionViewSet(
         ):
             raise PermissionDenied("House not found or not accessible.")
 
-        # Use provided values, otherwise fall back to latest measurements.
-        production = data.get("production_pv")
-        if production is None:
-            production = _latest_value(house, "production")
-        consommation = data.get("consommation")
-        if consommation is None:
-            consommation = _latest_value(house, "consumption")
-        soc = data.get("batterie_soc")
-        if soc is None:
-            soc = _latest_value(house, "battery_soc", default=50.0)
-
-        result = evaluate(
-            production_pv=production,
-            consommation=consommation,
-            batterie_soc=soc,
-            non_critiques_actives=data.get("non_critiques_actives", False),
-        )
-
-        decision = Decision.objects.create(
-            house=house,
-            action=result.action,
-            reason=result.reason,
-            confidence_score=result.confidence_score,
-            input_snapshot=result.input_snapshot,
-            activated_rules=result.activated_rules,
-        )
+        result = evaluate_house(house, overrides=data)
+        decision = Decision.objects.create(house=house, **result.decision_payload())
 
         if result.action in CRITICAL_ACTIONS:
             self._raise_alert(house, decision)
@@ -101,16 +72,16 @@ class DecisionViewSet(
 
     @staticmethod
     def _raise_alert(house, decision):
-        from apps.alerts.models import Alert  # local import (avoid cycle)
+        from apps.alerts.models import Alert
 
         severity = (
             Alert.Severity.CRITICAL
-            if decision.action == "NOTIFIER_UTILISATEUR"
+            if decision.alert_level == "CRITICAL"
             else Alert.Severity.WARNING
         )
         Alert.objects.create(
             house=house,
             severity=severity,
             alert_type="DECISION",
-            message=f"Décision EMS: {decision.action} — {decision.reason}",
+            message=f"Decision EMS: {decision.decision_label or decision.action} - {decision.reason}",
         )

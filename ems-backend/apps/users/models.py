@@ -1,5 +1,6 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.utils import timezone
 
 
 class User(AbstractUser):
@@ -14,6 +15,8 @@ class User(AbstractUser):
         max_length=10, choices=Role.choices, default=Role.USER
     )
     phone = models.CharField(max_length=30, blank=True)
+    phone_verified = models.BooleanField(default=False)
+    preferences = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     USERNAME_FIELD = "username"
@@ -25,3 +28,32 @@ class User(AbstractUser):
 
     def __str__(self) -> str:
         return f"{self.username} ({self.role})"
+
+
+class PhoneVerificationCode(models.Model):
+    """Short-lived verification code for phone ownership checks."""
+
+    phone = models.CharField(max_length=30, db_index=True)
+    code_hash = models.CharField(max_length=128)
+    expires_at = models.DateTimeField()
+    attempts = models.PositiveIntegerField(default=0)
+    used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    @property
+    def is_used(self) -> bool:
+        return self.used_at is not None
+
+    @property
+    def is_expired(self) -> bool:
+        return timezone.now() >= self.expires_at
+
+    def mark_used(self):
+        self.used_at = timezone.now()
+        self.save(update_fields=["used_at"])
+
+    def __str__(self) -> str:
+        return f"{self.phone} ({'used' if self.is_used else 'pending'})"

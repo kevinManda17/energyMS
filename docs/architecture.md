@@ -26,8 +26,8 @@
 | `houses`       | Maisons / micro-réseaux                                 |
 | `devices`      | Capteurs et équipements (charges)                       |
 | `measurements` | Mesures IoT (production, conso, batterie, tension…)     |
-| `datasets`     | Import CSV/JSON pour l'entraînement ML                  |
-| `forecasting`  | Random Forest (production PV + consommation)            |
+| `datasets`     | Import CSV/JSON admin/interne, hors parcours utilisateur |
+| `forecasting`  | Prévisions horaires production PV + consommation        |
 | `fuzzy_engine` | Système expert flou + décisions                         |
 | `alerts`       | Alertes critiques / warning / info                      |
 | `reports`      | Rapports journaliers + export CSV                       |
@@ -39,9 +39,9 @@
 3. Le frontend/mobile lisent les mesures via l'API REST.
 
 ## Flux prédiction
-1. `POST /api/forecasting/train/` entraîne un Random Forest (dataset ou données synthétiques).
-2. Le modèle est sauvegardé via `joblib` (`ml_models/`).
-3. `GET /api/forecasting/predict/` renvoie les prévisions horaires + métriques (MAE/RMSE/R²).
+1. `GET /api/forecasting/predict/?target=production&hours=24&house=ID` calcule les horizons à venir.
+2. Les points sont enregistrés dans `Prediction` pour alimenter le mobile, le web et le moteur flou.
+3. `POST /api/forecasting/train/` reste un endpoint admin/interne de compatibilité, sans entraînement depuis la plateforme.
 
 ## Flux décision
 1. `POST /api/decisions/trigger/` lit les dernières mesures (ou valeurs fournies).

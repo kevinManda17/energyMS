@@ -3,7 +3,7 @@ from django.db import models
 
 
 class Dataset(models.Model):
-    """A CSV/JSON dataset imported for training the forecasting models."""
+    """Internal/admin CSV/JSON import kept outside the user forecast workflow."""
 
     class Kind(models.TextChoices):
         PRODUCTION = "production", "PV Production"

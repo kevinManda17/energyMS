@@ -27,6 +27,12 @@ export const useAuthStore = create((set) => ({
     return user;
   },
 
+  async updateUser(payload) {
+    const user = await authApi.updateMe(payload);
+    set({ user });
+    return user;
+  },
+
   logout() {
     authApi.logout();
     set({ user: null, isAuthenticated: false });

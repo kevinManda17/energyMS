@@ -25,7 +25,7 @@ export function KpiCard({ label, value, unit, color }) {
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 16,
+    borderRadius: 8,
     borderWidth: 1,
     padding: 16,
     marginBottom: 12,

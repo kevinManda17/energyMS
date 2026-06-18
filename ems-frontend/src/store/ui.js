@@ -4,7 +4,13 @@ const storedTheme = localStorage.getItem("ems_theme") || "light";
 const storedHouse = Number(localStorage.getItem("ems_house")) || null;
 
 function applyTheme(theme) {
-  document.documentElement.classList.toggle("dark", theme === "dark");
+  const resolved =
+    theme === "system" && window.matchMedia
+      ? window.matchMedia("(prefers-color-scheme: dark)").matches
+        ? "dark"
+        : "light"
+      : theme;
+  document.documentElement.classList.toggle("dark", resolved === "dark");
 }
 applyTheme(storedTheme);
 
@@ -15,6 +21,11 @@ export const useUIStore = create((set, get) => ({
 
   toggleTheme() {
     const theme = get().theme === "dark" ? "light" : "dark";
+    localStorage.setItem("ems_theme", theme);
+    applyTheme(theme);
+    set({ theme });
+  },
+  setTheme(theme) {
     localStorage.setItem("ems_theme", theme);
     applyTheme(theme);
     set({ theme });

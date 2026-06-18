@@ -1,10 +1,10 @@
-"""Lightweight dataset validation / cleaning helpers."""
+"""Lightweight internal dataset validation / cleaning helpers."""
 import pandas as pd
 
-# Minimal expected columns per dataset kind.
-EXPECTED_COLUMNS = {
-    "production": {"timestamp", "production"},
-    "consumption": {"timestamp", "consumption"},
+# Accepted columns for optional admin imports.
+EXPECTED_COLUMN_SETS = {
+    "production": ({"horizon", "production"}, {"timestamp", "production"}),
+    "consumption": ({"horizon", "consumption"}, {"timestamp", "consumption"}),
 }
 
 
@@ -22,17 +22,19 @@ def validate_and_clean(df: pd.DataFrame, kind: str):
     Returns (is_valid, message, cleaned_df, columns).
     """
     columns = list(df.columns)
-    expected = EXPECTED_COLUMNS.get(kind, set())
-    missing = expected - set(columns)
-    if missing:
-        return False, f"Colonnes manquantes: {sorted(missing)}", df, columns
+    expected_sets = EXPECTED_COLUMN_SETS.get(kind, ())
+    present = set(columns)
+    if expected_sets and not any(expected <= present for expected in expected_sets):
+        choices = [" + ".join(sorted(expected)) for expected in expected_sets]
+        return False, f"Colonnes attendues: {' ou '.join(choices)}", df, columns
 
     # Basic cleaning: drop fully empty rows, forward-fill, drop duplicates.
     cleaned = df.dropna(how="all").drop_duplicates()
-    if "timestamp" in cleaned.columns:
-        cleaned["timestamp"] = pd.to_datetime(
-            cleaned["timestamp"], errors="coerce"
+    time_column = "horizon" if "horizon" in cleaned.columns else "timestamp"
+    if time_column in cleaned.columns:
+        cleaned[time_column] = pd.to_datetime(
+            cleaned[time_column], errors="coerce"
         )
-        cleaned = cleaned.dropna(subset=["timestamp"]).sort_values("timestamp")
+        cleaned = cleaned.dropna(subset=[time_column]).sort_values(time_column)
 
-    return True, "Dataset valide.", cleaned, columns
+    return True, "Import admin valide.", cleaned, columns

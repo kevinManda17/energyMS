@@ -1,11 +1,18 @@
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 
 from .models import Dataset
 from .serializers import DatasetSerializer
 from .services import load_dataframe, validate_and_clean
+
+
+class IsEMSAdmin(BasePermission):
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and user.is_admin)
 
 
 class DatasetViewSet(
@@ -14,12 +21,13 @@ class DatasetViewSet(
     viewsets.GenericViewSet,
 ):
     """
-    GET  /api/datasets/          list imported datasets
-    POST /api/datasets/import/   upload + validate a CSV/JSON dataset
+    Admin/internal CSV/JSON import.
+    It is not part of the end-user forecasting workflow.
     """
 
     serializer_class = DatasetSerializer
     queryset = Dataset.objects.all()
+    permission_classes = [IsEMSAdmin]
     parser_classes = [MultiPartParser, FormParser]
     filterset_fields = ["kind", "status"]
 

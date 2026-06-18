@@ -1,77 +1,78 @@
 # Endpoints API
 
-Base URL : `http://localhost:8000/api`
-Auth : `Authorization: Bearer <access_token>` (sauf register/login et pages publiques).
+Base URL: `http://localhost:8000/api`
+
+Auth: `Authorization: Bearer <access_token>`, sauf inscription, connexion et verification telephone.
 
 ## Auth
-| Méthode | Endpoint              | Description            |
-|---------|-----------------------|------------------------|
-| POST    | `/auth/register/`     | Création de compte     |
-| POST    | `/auth/login/`        | Login → access+refresh |
-| POST    | `/auth/refresh/`      | Rafraîchir le token    |
-| GET     | `/auth/me/`           | Profil courant         |
 
-**Login**
-```json
-POST /api/auth/login/
-{ "username": "demo", "password": "demo12345" }
-→ { "access": "...", "refresh": "..." }
-```
+| Methode | Endpoint | Description |
+|---------|----------|-------------|
+| POST | `/auth/register/` | Creation de compte avec confirmation de mot de passe |
+| POST | `/auth/login/` | Connexion JWT |
+| POST | `/auth/refresh/` | Rafraichir le token |
+| GET/PATCH | `/auth/me/` | Profil courant |
+| POST | `/auth/phone/send-code/` | Envoyer un code de verification telephone |
+| POST | `/auth/phone/verify-code/` | Verifier le code telephone |
+| POST | `/auth/password/change/` | Changer le mot de passe |
 
 ## Houses
-`GET/POST /api/houses/` · `GET/PUT/DELETE /api/houses/{id}/`
+
+`GET/POST /api/houses/`
+
+`GET/PUT/DELETE /api/houses/{id}/`
 
 ## Devices
-| Méthode | Endpoint                          |
-|---------|-----------------------------------|
-| GET/POST| `/houses/{id}/sensors/`           |
-| GET/POST| `/houses/{id}/equipment/`         |
-| PUT/DEL | `/equipment/{id}/`                |
+
+| Methode | Endpoint |
+|---------|----------|
+| GET/POST | `/houses/{id}/sensors/` |
+| GET/POST | `/houses/{id}/equipment/` |
+| GET/PUT/DELETE | `/equipment/{id}/` |
 
 ## Measurements
-| Méthode | Endpoint                     | Description                    |
-|---------|------------------------------|--------------------------------|
-| POST    | `/measurements/`             | Créer une mesure               |
-| GET     | `/measurements/`             | Liste (filtres house/type)     |
-| GET     | `/measurements/latest/`      | Dernières valeurs par type     |
-| GET     | `/measurements/history/`     | Historique paginé (start/end)  |
 
-```json
-POST /api/measurements/
-{ "house": 1, "measurement_type": "production", "value": 3.42, "unit": "kW",
-  "timestamp": "2026-05-17T19:40:00Z" }
-```
-
-## Datasets
-`POST /api/datasets/import/` (multipart : `name`, `kind`, `file`) · `GET /api/datasets/`
+| Methode | Endpoint | Description |
+|---------|----------|-------------|
+| POST | `/measurements/` | Creer une mesure |
+| GET | `/measurements/` | Liste filtree |
+| GET | `/measurements/latest/` | Dernieres valeurs par type |
+| GET | `/measurements/history/` | Historique pagine |
 
 ## Forecasting
-| Méthode | Endpoint                          | Description                 |
-|---------|-----------------------------------|-----------------------------|
-| POST    | `/forecasting/train/`             | `{ "target": "production" }`|
-| GET     | `/forecasting/predict/`           | `?target=&hours=&house=`    |
-| GET     | `/forecasting/predictions/`       | Historique des prévisions   |
-| GET     | `/forecasting/models/`            | Modèles + métriques         |
+
+| Methode | Endpoint | Description |
+|---------|----------|-------------|
+| POST | `/forecasting/train/` | Admin/interne uniquement, compatibilite |
+| GET | `/forecasting/predict/?target=&hours=&house=` | Previsions horaires a venir |
+| GET | `/forecasting/predictions/` | Historique des previsions |
+| GET | `/forecasting/models/` | Strategie active de prevision |
 
 ## Decisions
-| Méthode | Endpoint                  | Description                      |
-|---------|---------------------------|----------------------------------|
-| POST    | `/decisions/trigger/`     | Exécute le moteur flou           |
-| GET     | `/decisions/`             | Historique                       |
-| GET     | `/decisions/latest/`      | Dernière décision                |
-| GET     | `/decisions/{id}/`        | Détail (règles activées…)        |
 
-```json
-POST /api/decisions/trigger/
-{ "house": 1, "production_pv": 0.4, "consommation": 4.0, "batterie_soc": 18 }
-→ { "action": "DELESTER_NON_PRIORITAIRES", "confidence_score": 0.7, ... }
-```
+| Methode | Endpoint | Description |
+|---------|----------|-------------|
+| POST | `/decisions/trigger/` | Evaluation du systeme expert |
+| GET | `/decisions/` | Historique |
+| GET | `/decisions/latest/` | Derniere decision |
+| GET | `/decisions/{id}/` | Detail avec regles et faits d'entree |
 
 ## Alerts
-`GET /api/alerts/` · `GET /api/alerts/unread/` · `POST /api/alerts/{id}/acknowledge/`
+
+`GET /api/alerts/`
+
+`GET /api/alerts/unread/`
+
+`POST /api/alerts/{id}/acknowledge/`
 
 ## Reports
-`GET /api/reports/daily/?house=&date=` · `GET /api/reports/export/csv/`
+
+`GET /api/reports/daily/?house=&date=`
+
+`GET /api/reports/export/csv/`
 
 ## Documentation
-`GET /api/schema/` (OpenAPI) · `GET /api/docs/` (Swagger UI)
+
+`GET /api/schema/`
+
+`GET /api/docs/`

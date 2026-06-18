@@ -4,14 +4,14 @@ from apps.houses.models import House
 
 
 class ForecastModel(models.Model):
-    """Metadata for a trained Random Forest model (PV or consumption)."""
+    """Metadata for the forecasting strategy used by production/consumption."""
 
     class Target(models.TextChoices):
         PRODUCTION = "production", "PV Production"
         CONSUMPTION = "consumption", "Consumption"
 
     target = models.CharField(max_length=20, choices=Target.choices)
-    algorithm = models.CharField(max_length=40, default="RandomForest")
+    algorithm = models.CharField(max_length=40, default="HourlyProfileForecast")
     file_path = models.CharField(max_length=255)
     mae = models.FloatField(null=True, blank=True)
     rmse = models.FloatField(null=True, blank=True)
@@ -24,7 +24,7 @@ class ForecastModel(models.Model):
         ordering = ["-created_at"]
 
     def __str__(self) -> str:
-        return f"{self.target} RF (r2={self.r2})"
+        return f"{self.target} forecast ({self.algorithm})"
 
 
 class Prediction(models.Model):

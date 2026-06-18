@@ -4,7 +4,7 @@ import { fmt, ACTION_LABELS } from "../utils/format";
 describe("format utils", () => {
   it("formats numbers with fr locale", () => {
     expect(fmt(3.456)).toBe("3,46");
-    expect(fmt(null)).toBe("—");
+    expect(fmt(null)).toBe("-");
   });
 
   it("maps fuzzy actions to labels", () => {

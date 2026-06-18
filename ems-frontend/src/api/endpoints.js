@@ -9,7 +9,14 @@ export const authApi = {
     return data;
   },
   register: (payload) => api.post("/auth/register/", payload).then((r) => r.data),
+  sendPhoneCode: (payload) =>
+    api.post("/auth/phone/send-code/", payload).then((r) => r.data),
+  verifyPhoneCode: (payload) =>
+    api.post("/auth/phone/verify-code/", payload).then((r) => r.data),
   me: () => api.get("/auth/me/").then((r) => r.data),
+  updateMe: (payload) => api.patch("/auth/me/", payload).then((r) => r.data),
+  changePassword: (payload) =>
+    api.post("/auth/password/change/", payload).then((r) => r.data),
   logout() {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(REFRESH_KEY);
@@ -47,7 +54,6 @@ export const measurementsApi = {
 };
 
 export const forecastingApi = {
-  train: (target) => api.post("/forecasting/train/", { target }).then((r) => r.data),
   predict: (params) =>
     api.get("/forecasting/predict/", { params }).then((r) => r.data),
   predictions: (params) =>
@@ -71,7 +77,7 @@ export const alertsApi = {
 export const reportsApi = {
   daily: (params) => api.get("/reports/daily/", { params }).then((r) => r.data),
   exportCsvUrl: () =>
-    `${import.meta.env.VITE_API_BASE_URL}/reports/export/csv/`,
+    `${import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api"}/reports/export/csv/`,
 };
 
 export const datasetsApi = {

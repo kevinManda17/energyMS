@@ -10,6 +10,7 @@ import {
   FileText,
   Settings,
   Home,
+  Tags,
 } from "lucide-react";
 import Logo from "./Logo";
 import { useUIStore } from "../store/ui";
@@ -23,6 +24,7 @@ const NAV = [
   { to: "/decisions", label: "Décisions", icon: Workflow },
   { to: "/alerts", label: "Alertes", icon: Bell },
   { to: "/reports", label: "Rapports", icon: FileText },
+  // { to: "/pricing", label: "Tarifs", icon: Tags },
   { to: "/settings", label: "Paramètres", icon: Settings },
 ];
 

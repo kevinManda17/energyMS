@@ -1,17 +1,28 @@
 from rest_framework import status, viewsets
-from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.houses.models import House
+
 from .models import ForecastModel, Prediction
 from .serializers import ForecastModelSerializer, PredictionSerializer
-from .services import load_model, predict_future, train_model
+from .services import get_or_create_forecast_model, persist_predictions, predict_future
 
 VALID_TARGETS = {"production", "consumption"}
 
 
+class IsEMSAdmin(BasePermission):
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and user.is_admin)
+
+
 class TrainView(APIView):
-    """POST /api/forecasting/train/  body: {"target": "production"}"""
+    """Admin compatibility endpoint: returns the active internal forecast model."""
+
+    permission_classes = [IsEMSAdmin]
 
     def post(self, request):
         target = request.data.get("target", "production")
@@ -21,24 +32,10 @@ class TrainView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        metrics, path = train_model(target)
-
-        # Deactivate previous models for this target, keep latest active.
-        ForecastModel.objects.filter(target=target, is_active=True).update(
-            is_active=False
-        )
-        model = ForecastModel.objects.create(
-            target=target,
-            file_path=path,
-            mae=metrics["mae"],
-            rmse=metrics["rmse"],
-            r2=metrics["r2"],
-            n_samples=metrics["n_samples"],
-            is_active=True,
-        )
+        model = get_or_create_forecast_model(target)
         return Response(
             ForecastModelSerializer(model).data,
-            status=status.HTTP_201_CREATED,
+            status=status.HTTP_200_OK,
         )
 
 
@@ -52,34 +49,27 @@ class PredictView(APIView):
                 {"detail": f"target doit être un de {sorted(VALID_TARGETS)}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        hours = int(request.query_params.get("hours", 24))
-        house_id = request.query_params.get("house")
-
-        model_meta = (
-            ForecastModel.objects.filter(target=target, is_active=True)
-            .first()
-        )
-        if model_meta is None:
+        try:
+            hours = int(request.query_params.get("hours", 24))
+        except (TypeError, ValueError):
             return Response(
-                {"detail": "Aucun modèle entraîné. Lancez /train/ d'abord."},
-                status=status.HTTP_404_NOT_FOUND,
+                {"detail": "hours doit etre un nombre entier."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
+        house_id = request.query_params.get("house") or request.query_params.get(
+            "house_id"
+        )
 
-        model = load_model(model_meta.file_path)
-        points = predict_future(model, hours=hours)
+        house = None
+        if house_id:
+            house = House.objects.filter(pk=house_id).first()
+            if house is None or (
+                not request.user.is_admin and house.owner_id != request.user.id
+            ):
+                raise PermissionDenied("House not found or not accessible.")
 
-        # Persist predictions for history.
-        objs = [
-            Prediction(
-                house_id=house_id,
-                model=model_meta,
-                target=target,
-                horizon=p["horizon"],
-                value=p["value"],
-            )
-            for p in points
-        ]
-        Prediction.objects.bulk_create(objs)
+        points = predict_future(target, house=house, hours=hours)
+        model_meta = persist_predictions(target, points, house=house)
 
         return Response(
             {
@@ -94,8 +84,16 @@ class PredictionViewSet(viewsets.ReadOnlyModelViewSet):
     """GET /api/forecasting/predictions/"""
 
     serializer_class = PredictionSerializer
-    queryset = Prediction.objects.select_related("model")
     filterset_fields = ["target", "house", "model"]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = Prediction.objects.select_related("model", "house")
+        if not user.is_authenticated:
+            return qs.none()
+        if user.is_admin:
+            return qs
+        return qs.filter(house__owner=user)
 
 
 class ModelViewSet(viewsets.ReadOnlyModelViewSet):

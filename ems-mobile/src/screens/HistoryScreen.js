@@ -1,56 +1,89 @@
-import { useEffect, useState } from "react";
-import { View, Text, FlatList, StyleSheet } from "react-native";
+import { useCallback, useEffect, useState } from "react";
+import { View, Text, FlatList, StyleSheet, TouchableOpacity } from "react-native";
+import { Card } from "../components/Card";
+import { Screen, PageTitle } from "../components/Screen";
 import { useTheme } from "../hooks/useTheme";
-import { dataApi } from "../api/endpoints";
+import { useActiveHouse } from "../hooks/useActiveHouse";
+import { measurementsApi } from "../api/endpoints";
 import { fmt, fmtDate } from "../utils/format";
+import { palette } from "../theme/colors";
+
+const TYPES = ["all", "production", "consumption", "battery_soc", "voltage", "current", "temperature"];
+const PERIODS = [
+  ["24h", 1],
+  ["7j", 7],
+  ["30j", 30],
+];
 
 export default function HistoryScreen() {
   const t = useTheme();
+  const { houseId, activeHouse } = useActiveHouse();
   const [rows, setRows] = useState([]);
+  const [type, setType] = useState("all");
+  const [period, setPeriod] = useState(PERIODS[0]);
+  const [fromCache, setFromCache] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!houseId) return;
+    const start = new Date(Date.now() - period[1] * 24 * 60 * 60 * 1000).toISOString();
+    const params = { house: houseId, ordering: "-timestamp", page_size: 120, start };
+    if (type !== "all") params.measurement_type = type;
+    const res = await measurementsApi.history(params);
+    setRows(res.data?.results || []);
+    setFromCache(!!res.fromCache);
+  }, [houseId, period, type]);
 
   useEffect(() => {
-    dataApi
-      .history({ ordering: "-timestamp", page_size: 80 })
-      .then((r) => setRows(r.data.results || []))
-      .catch(() => {});
-  }, []);
+    load().catch(() => {});
+  }, [load]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: t.bg, padding: 12 }}>
-      <Text style={[styles.h1, { color: t.text }]}>Historique</Text>
+    <Screen>
+      <PageTitle title="Mesures IoT" subtitle={activeHouse?.name || "Aucun micro-reseau"} />
+      {fromCache ? <Text style={styles.cache}>Donnees en cache</Text> : null}
+
+      <View style={styles.filters}>
+        {TYPES.map((item) => (
+          <TouchableOpacity key={item} onPress={() => setType(item)} style={[styles.chip, type === item && styles.chipActive]}>
+            <Text style={{ color: type === item ? "#fff" : t.text, fontSize: 12 }}>{item}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      <View style={styles.filters}>
+        {PERIODS.map((item) => (
+          <TouchableOpacity key={item[0]} onPress={() => setPeriod(item)} style={[styles.chip, period[0] === item[0] && styles.chipActive]}>
+            <Text style={{ color: period[0] === item[0] ? "#fff" : t.text, fontSize: 12 }}>{item[0]}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
       <FlatList
         data={rows}
         keyExtractor={(i) => String(i.id)}
         renderItem={({ item }) => (
-          <View style={[styles.row, { borderColor: t.border }]}>
-            <View>
-              <Text style={{ color: t.text, fontWeight: "600" }}>
-                {item.measurement_type}
+          <Card style={styles.measureCard}>
+            <View style={styles.row}>
+              <View>
+                <Text style={{ color: t.text, fontWeight: "700" }}>{item.measurement_type}</Text>
+                <Text style={{ color: t.sub, fontSize: 12 }}>{fmtDate(item.timestamp)}</Text>
+              </View>
+              <Text style={{ color: t.text, fontWeight: "800" }}>
+                {fmt(item.value)} {item.unit}
               </Text>
-              <Text style={{ color: t.sub, fontSize: 12 }}>{fmtDate(item.timestamp)}</Text>
             </View>
-            <Text style={{ color: t.text, fontWeight: "700" }}>
-              {fmt(item.value)} {item.unit}
-            </Text>
-          </View>
+          </Card>
         )}
-        ListEmptyComponent={
-          <Text style={{ color: t.sub, textAlign: "center", marginTop: 40 }}>
-            Aucune donnée.
-          </Text>
-        }
+        ListEmptyComponent={<Text style={{ color: t.sub, textAlign: "center", marginTop: 40 }}>Aucune mesure.</Text>}
       />
-    </View>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  h1: { fontSize: 24, fontWeight: "800", marginBottom: 12, marginTop: 8 },
-  row: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-  },
+  filters: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
+  chip: { borderWidth: 1, borderColor: palette.border, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 },
+  chipActive: { backgroundColor: palette.blue, borderColor: palette.blue },
+  row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 },
+  measureCard: { marginBottom: 8 },
+  cache: { color: palette.solar, marginBottom: 8, fontWeight: "700" },
 });

@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, StyleSheet } from "react-native";
+import { Text, TouchableOpacity, StyleSheet, View } from "react-native";
+import { LockKeyhole, LogIn, User, UserPlus } from "lucide-react-native";
+import { FormInput } from "../components/FormInput";
+import { Screen } from "../components/Screen";
 import { useAuthStore } from "../store/auth";
 import { useTheme } from "../hooks/useTheme";
 import { palette } from "../theme/colors";
@@ -25,61 +28,65 @@ export default function LoginScreen({ navigation }) {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: t.bg }]}>
-      <Text style={styles.logo}>⚡ EMS</Text>
-      <Text style={[styles.subtitle, { color: t.sub }]}>
-        Energy Management System
-      </Text>
+    <Screen style={styles.container}>
+      <View style={styles.brand}>
+        <Text style={styles.logo}>EMS</Text>
+        <Text style={[styles.subtitle, { color: t.sub }]}>Energy Management System</Text>
+      </View>
 
-      <View style={{ marginTop: 32 }}>
-        <Text style={[styles.label, { color: t.text }]}>Identifiant</Text>
-        <TextInput
-          style={[styles.input, { color: t.text, borderColor: t.border }]}
+      <View style={styles.form}>
+        <FormInput
+          label="Identifiant"
+          icon={User}
           value={username}
           onChangeText={setUsername}
-          autoCapitalize="none"
-          placeholderTextColor={t.sub}
+          placeholder="ex: demo"
+          textContentType="username"
         />
-        <Text style={[styles.label, { color: t.text }]}>Mot de passe</Text>
-        <TextInput
-          style={[styles.input, { color: t.text, borderColor: t.border }]}
+        <FormInput
+          label="Mot de passe"
+          icon={LockKeyhole}
           value={password}
           onChangeText={setPassword}
+          placeholder="ex: demo12345"
           secureTextEntry
+          textContentType="password"
         />
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <TouchableOpacity style={styles.button} onPress={onSubmit} disabled={loading}>
-          <Text style={styles.buttonText}>
-            {loading ? "Connexion…" : "Se connecter"}
-          </Text>
+          <LogIn color="#fff" size={18} strokeWidth={2.4} />
+          <Text style={styles.buttonText}>{loading ? "Connexion..." : "Se connecter"}</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => navigation.navigate("Register")}>
-          <Text style={[styles.link, { color: palette.blue }]}>
-            Pas de compte ? S'inscrire
-          </Text>
+        <TouchableOpacity style={styles.secondaryLink} onPress={() => navigation.navigate("Register")}>
+          <UserPlus color={palette.blue} size={17} strokeWidth={2.4} />
+          <Text style={[styles.link, { color: palette.blue }]}>Creer un compte</Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: "center", padding: 24 },
-  logo: { fontSize: 40, fontWeight: "800", color: palette.blue, textAlign: "center" },
+  container: { justifyContent: "center", paddingHorizontal: 24 },
+  brand: { alignItems: "center", marginBottom: 22 },
+  logo: { fontSize: 42, fontWeight: "800", color: palette.blue, textAlign: "center" },
   subtitle: { textAlign: "center", marginTop: 4 },
-  label: { fontSize: 13, fontWeight: "600", marginBottom: 6, marginTop: 12 },
-  input: { borderWidth: 1, borderRadius: 12, padding: 12, fontSize: 15 },
+  form: { width: "100%" },
   button: {
     backgroundColor: palette.blue,
     padding: 14,
-    borderRadius: 12,
-    marginTop: 20,
+    borderRadius: 8,
+    marginTop: 22,
     alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
   },
-  buttonText: { color: "#fff", fontWeight: "700", fontSize: 15 },
-  link: { textAlign: "center", marginTop: 16 },
+  buttonText: { color: "#fff", fontWeight: "800", fontSize: 15 },
+  secondaryLink: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, marginTop: 18 },
+  link: { textAlign: "center", fontWeight: "800" },
   error: { color: palette.danger, marginTop: 12 },
 });

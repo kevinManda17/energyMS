@@ -23,7 +23,7 @@ const PLANS = [
     popular: true,
     features: [
       "Tout dans Starter",
-      "Prévisions énergétiques (IA)",
+      "Prévisions horaires production / consommation",
       "Gestion de batterie & stockage",
       "Historique des données (24 mois)",
       "Rapports PDF avancés",
