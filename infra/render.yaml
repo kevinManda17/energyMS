@@ -1,0 +1,32 @@
+databases:
+  - name: energy-ms-db
+    plan: free
+    databaseName: ems_db
+    user: ems_user
+
+services:
+  - type: web
+    name: energy-ms-backend
+    runtime: python
+    plan: free
+    rootDir: ems-backend
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
+    startCommand: python manage.py migrate && python manage.py seed_initial_data && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.production
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: energy-ms-db
+          property: connectionString
+      - key: DJANGO_ALLOWED_HOSTS
+        value: .onrender.com
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://energy-ms-kevin-manda-s-projects.vercel.app,https://energy-ms-git-main-kevin-manda-s-projects.vercel.app
+      - key: SMS_PROVIDER
+        value: console
