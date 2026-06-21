@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Bell, Eye, KeyRound, Lock, Server, Shield, User } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { PageHeader, Badge } from "../components/ui";
 import { authApi, reportsApi } from "../api/endpoints";
 import { useAuthStore } from "../store/auth";
@@ -25,9 +26,13 @@ const defaultPreferences = {
 };
 
 export default function SettingsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user, updateUser } = useAuthStore();
   const { theme, setTheme } = useUIStore();
-  const [tab, setTab] = useState("profile");
+  const initialTab = TABS.some(([id]) => id === searchParams.get("tab"))
+    ? searchParams.get("tab")
+    : "profile";
+  const [tab, setTabState] = useState(initialTab);
   const [profile, setProfile] = useState({});
   const [preferences, setPreferences] = useState(defaultPreferences);
   const [passwords, setPasswords] = useState({
@@ -47,6 +52,18 @@ export default function SettingsPage() {
     });
     setPreferences({ ...defaultPreferences, ...(user?.preferences || {}) });
   }, [user]);
+
+  useEffect(() => {
+    const nextTab = searchParams.get("tab");
+    if (TABS.some(([id]) => id === nextTab)) {
+      setTabState(nextTab);
+    }
+  }, [searchParams]);
+
+  function setTab(nextTab) {
+    setTabState(nextTab);
+    setSearchParams({ tab: nextTab });
+  }
 
   function setProfileField(key, value) {
     setProfile((current) => ({ ...current, [key]: value }));

@@ -33,6 +33,11 @@ export const useUIStore = create((set, get) => ({
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   closeSidebar: () => set({ sidebarOpen: false }),
   setHouse(id) {
+    if (id === null || id === undefined || id === "") {
+      localStorage.removeItem("ems_house");
+      set({ currentHouseId: null });
+      return;
+    }
     localStorage.setItem("ems_house", String(id));
     set({ currentHouseId: id });
   },
