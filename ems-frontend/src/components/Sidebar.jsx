@@ -10,7 +10,7 @@ import {
   FileText,
   Settings,
   Home,
-  Tags,
+  X,
 } from "lucide-react";
 import Logo from "./Logo";
 import { useUIStore } from "../store/ui";
@@ -40,15 +40,22 @@ export default function Sidebar() {
         />
       )}
       <aside
-        className={`fixed z-40 flex h-full w-64 flex-col bg-[#0B1220] text-slate-200 transition-transform lg:static lg:translate-x-0 ${
+        className={`fixed z-40 flex h-dvh w-[82vw] max-w-72 flex-col bg-[#0B1220] text-slate-200 shadow-2xl transition-transform lg:static lg:h-screen lg:w-64 lg:shadow-none lg:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="px-5 py-6">
+        <div className="flex items-start justify-between gap-3 px-5 py-6">
           <Logo light />
+          <button
+            className="rounded-xl border border-white/10 p-2 text-slate-300 lg:hidden"
+            onClick={closeSidebar}
+            aria-label="Fermer le menu"
+          >
+            <X size={18} />
+          </button>
         </div>
 
-        <nav className="flex-1 space-y-1 px-3">
+        <nav className="flex-1 space-y-1 overflow-y-auto px-3">
           {NAV.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
