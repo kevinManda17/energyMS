@@ -1,6 +1,16 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { CheckCircle2, ChevronLeft, ChevronRight, Send, ShieldCheck, UserPlus } from "lucide-react";
+import {
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  EyeOff,
+  Lock,
+  Send,
+  ShieldCheck,
+  UserPlus,
+} from "lucide-react";
 import AuthShell from "../components/AuthShell";
 import { authApi } from "../api/endpoints";
 import { useAuthStore } from "../store/auth";
@@ -48,6 +58,8 @@ export default function Register() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
@@ -186,8 +198,22 @@ export default function Register() {
 
           {step === 3 && (
             <>
-              <Field label="Mot de passe" type="password" value={form.password} onChange={set("password")} />
-              <Field label="Confirmation du mot de passe" type="password" value={form.password_confirm} onChange={set("password_confirm")} />
+              <PasswordField
+                label="Mot de passe"
+                value={form.password}
+                onChange={set("password")}
+                placeholder="ex: Energie2026"
+                visible={showPassword}
+                onToggle={() => setShowPassword((current) => !current)}
+              />
+              <PasswordField
+                label="Confirmation du mot de passe"
+                value={form.password_confirm}
+                onChange={set("password_confirm")}
+                placeholder="Repetez le mot de passe"
+                visible={showConfirmPassword}
+                onToggle={() => setShowConfirmPassword((current) => !current)}
+              />
               <p className="text-xs text-slate-500">Minimum 8 caracteres avec une lettre et un chiffre.</p>
               <StepActions onBack={() => setStep(2)} onNext={nextPassword} />
             </>
@@ -243,6 +269,35 @@ function Field({ label, type = "text", value, onChange, placeholder }) {
         placeholder={placeholder}
         autoComplete="off"
       />
+    </div>
+  );
+}
+
+function PasswordField({ label, value, onChange, placeholder, visible, onToggle }) {
+  const Icon = visible ? EyeOff : Eye;
+
+  return (
+    <div>
+      <label className="mb-1 block text-sm font-medium">{label}</label>
+      <div className="relative">
+        <Lock className="absolute left-3 top-3 text-slate-400" size={16} />
+        <input
+          type={visible ? "text" : "password"}
+          className="input pl-9 pr-11 text-slate-900 placeholder:text-slate-400 dark:text-white dark:placeholder:text-slate-500"
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          autoComplete="new-password"
+        />
+        <button
+          type="button"
+          aria-label={visible ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+          className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-electric dark:hover:bg-white/10"
+          onClick={onToggle}
+        >
+          <Icon size={17} />
+        </button>
+      </div>
     </div>
   );
 }

@@ -35,6 +35,7 @@ def push_pending():
         payload = json.loads(row["payload"])
         body = {
             "house": row["house_id"],
+            "sensor": payload.get("sensor_id"),
             "measurement_type": payload.get("type"),
             "value": payload.get("value"),
             "unit": payload.get("unit", "kW"),

@@ -6,12 +6,16 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .serializers import (
     ChangePasswordSerializer,
+    EmailVerificationConfirmSerializer,
+    EmailVerificationRequestSerializer,
+    PasswordResetConfirmSerializer,
+    PasswordResetRequestSerializer,
     RegisterSerializer,
     SendPhoneCodeSerializer,
     UserSerializer,
     VerifyPhoneCodeSerializer,
 )
-from .services import create_phone_verification
+from .services import create_email_verification, create_password_reset, create_phone_verification
 
 
 class RegisterView(generics.CreateAPIView):
@@ -81,6 +85,69 @@ class ChangePasswordView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response({"detail": "Mot de passe modifie."})
+
+
+class EmailVerificationRequestView(APIView):
+    """POST /api/auth/email/verify/request/."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = EmailVerificationRequestSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data["user"]
+        payload = {"detail": "Si le compte existe, un e-mail de verification est envoye."}
+        if user:
+            verification, token = create_email_verification(user)
+            payload["expires_at"] = verification.expires_at
+            if settings.DEBUG:
+                payload["dev_token"] = token
+        return Response(payload, status=status.HTTP_201_CREATED)
+
+
+class EmailVerificationConfirmView(APIView):
+    """POST /api/auth/email/verify/confirm/."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = EmailVerificationConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response({"verified": True, "email": user.email})
+
+
+class PasswordResetRequestView(APIView):
+    """POST /api/auth/password/reset/request/."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data["user"]
+        payload = {"detail": "Si le compte existe, un e-mail de reinitialisation est envoye."}
+        if user:
+            reset, token = create_password_reset(user)
+            payload["expires_at"] = reset.expires_at
+            if settings.DEBUG:
+                payload["dev_token"] = token
+        return Response(payload, status=status.HTTP_201_CREATED)
+
+
+class PasswordResetConfirmView(APIView):
+    """POST /api/auth/password/reset/confirm/."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response({"detail": "Mot de passe reinitialise."})
 
 
 # JWT views (login + refresh) come from SimpleJWT.

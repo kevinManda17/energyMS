@@ -32,6 +32,11 @@ class HouseSensorListCreateView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         house = _get_house_or_403(self.request.user, self.kwargs["house_id"])
+        energy_asset = serializer.validated_data.get("energy_asset")
+        if energy_asset is not None and energy_asset.house_id != house.id:
+            raise PermissionDenied(
+                "EnergyAsset must belong to the same house as the sensor."
+            )
         serializer.save(house=house)
 
 

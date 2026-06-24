@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from django.utils import timezone
 
 from apps.devices.models import Equipment
-from apps.forecasting.models import Prediction
+from apps.energy_assets.models import EnergyAsset
+from apps.forecasting.models import Forecast
 from apps.measurements.models import Measurement
 
 from .core import EnergyDecisionResult, EnergyFacts, FuzzyExpertEngine
@@ -21,13 +22,27 @@ def _latest_value(house, measurement_type: str, default: float | None = None):
 
 
 def _prediction_energy(house, target: str, fallback_power_kw: float) -> float:
-    qs = Prediction.objects.filter(target=target, horizon__gte=timezone.now())
+    qs = Forecast.objects.filter(target=target, horizon__gte=timezone.now())
     if house is not None:
         qs = qs.filter(house=house)
-    values = list(qs.order_by("horizon").values_list("value", flat=True)[:24])
+    values = list(qs.order_by("horizon").values_list("forecast_value", flat=True)[:24])
     if values:
         return float(sum(values))
     return max(float(fallback_power_kw or 0), 0.0) * 24.0
+
+
+def _pv_nominal_power_kw(house, fallback: float = 5.0) -> float:
+    values = (
+        EnergyAsset.objects.filter(
+            house=house,
+            asset_type=EnergyAsset.AssetType.PV_PANEL,
+            status=EnergyAsset.Status.ACTIVE,
+        )
+        .exclude(nominal_power_kw__isnull=True)
+        .values_list("nominal_power_kw", flat=True)
+    )
+    total = sum(float(value or 0) for value in values)
+    return total or fallback
 
 
 def _load_priority(house) -> str:
@@ -193,7 +208,7 @@ def facts_from_house(house, overrides: dict | None = None) -> EnergyFacts:
                 "battery_soc": raw["battery_soc"],
             }
         ),
-        pv_nominal_power_kw=house.pv_capacity_kw or 5.0,
+        pv_nominal_power_kw=_pv_nominal_power_kw(house),
     )
 
 

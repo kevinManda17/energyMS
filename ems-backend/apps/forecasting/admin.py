@@ -1,15 +1,18 @@
 from django.contrib import admin
 
-from .models import ForecastModel, Prediction
+from .models import Forecast, ImportedModel
 
 
-@admin.register(ForecastModel)
-class ForecastModelAdmin(admin.ModelAdmin):
-    list_display = ("target", "algorithm", "r2", "mae", "is_active", "created_at")
-    list_filter = ("target", "is_active")
+@admin.register(ImportedModel)
+class ImportedModelAdmin(admin.ModelAdmin):
+    list_display = ("name", "target", "model_type", "version", "is_active", "imported_at")
+    list_filter = ("target", "model_type", "is_active")
+    search_fields = ("name", "file_path", "version")
 
 
-@admin.register(Prediction)
-class PredictionAdmin(admin.ModelAdmin):
-    list_display = ("target", "value", "horizon", "house", "model")
-    list_filter = ("target",)
+@admin.register(Forecast)
+class ForecastAdmin(admin.ModelAdmin):
+    list_display = ("target", "house", "forecast_value", "horizon", "model")
+    list_filter = ("target", "model")
+    search_fields = ("house__name",)
+

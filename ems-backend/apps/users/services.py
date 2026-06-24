@@ -1,12 +1,14 @@
 import logging
 import random
+import secrets
 from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth.hashers import make_password
+from django.core.mail import send_mail
 from django.utils import timezone
 
-from .models import PhoneVerificationCode
+from .models import EmailVerificationToken, PasswordResetToken, PhoneVerificationCode
 
 logger = logging.getLogger(__name__)
 
@@ -30,3 +32,44 @@ def create_phone_verification(phone: str) -> tuple[PhoneVerificationCode, str]:
     )
     SMSProvider().send_code(phone, code)
     return verification, code
+
+
+def _new_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def create_email_verification(user) -> tuple[EmailVerificationToken, str]:
+    token = _new_token()
+    verification = EmailVerificationToken.objects.create(
+        user=user,
+        token_hash=make_password(token),
+        expires_at=timezone.now()
+        + timedelta(minutes=settings.EMAIL_VERIFICATION_TOKEN_MINUTES),
+    )
+    url = f"{settings.FRONTEND_URL}/verify-email?email={user.email}&token={token}"
+    send_mail(
+        "Verification de votre adresse e-mail EMS",
+        f"Bonjour {user.username},\n\nConfirmez votre adresse e-mail : {url}",
+        settings.DEFAULT_FROM_EMAIL,
+        [user.email],
+        fail_silently=True,
+    )
+    return verification, token
+
+
+def create_password_reset(user) -> tuple[PasswordResetToken, str]:
+    token = _new_token()
+    reset = PasswordResetToken.objects.create(
+        user=user,
+        token_hash=make_password(token),
+        expires_at=timezone.now() + timedelta(minutes=settings.PASSWORD_RESET_TOKEN_MINUTES),
+    )
+    url = f"{settings.FRONTEND_URL}/reset-password?email={user.email}&token={token}"
+    send_mail(
+        "Reinitialisation de votre mot de passe EMS",
+        f"Bonjour {user.username},\n\nReinitialisez votre mot de passe : {url}",
+        settings.DEFAULT_FROM_EMAIL,
+        [user.email],
+        fail_silently=True,
+    )
+    return reset, token

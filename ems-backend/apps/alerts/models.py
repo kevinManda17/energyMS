@@ -14,6 +14,13 @@ class Alert(models.Model):
     house = models.ForeignKey(
         House, on_delete=models.CASCADE, related_name="alerts"
     )
+    decision = models.ForeignKey(
+        "fuzzy_engine.Decision",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="alerts",
+    )
     severity = models.CharField(
         max_length=10, choices=Severity.choices, default=Severity.INFO
     )

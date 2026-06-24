@@ -15,6 +15,8 @@ class Measurement(models.Model):
         CURRENT = "current", "Current"
         POWER = "power", "Power"
         TEMPERATURE = "temperature", "Temperature"
+        LUMINOSITY = "luminosity", "Luminosity"
+        IRRADIANCE = "irradiance", "Irradiance"
 
     house = models.ForeignKey(
         House, on_delete=models.CASCADE, related_name="measurements"
@@ -36,6 +38,10 @@ class Measurement(models.Model):
         ordering = ["-timestamp"]
         indexes = [
             models.Index(fields=["house", "measurement_type", "-timestamp"]),
+            models.Index(
+                fields=["sensor", "-timestamp"],
+                name="measurement_sensor__8ce9f6_idx",
+            ),
         ]
 
     def __str__(self) -> str:

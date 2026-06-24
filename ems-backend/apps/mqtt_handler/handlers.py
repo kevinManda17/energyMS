@@ -19,6 +19,8 @@ VALID_TYPES = {
     "current",
     "power",
     "temperature",
+    "luminosity",
+    "irradiance",
 }
 
 
@@ -53,10 +55,23 @@ def handle_message(house_id: int, payload: dict):
         logger.warning("MQTT: maison %s introuvable.", house_id)
         return None
 
+    sensor_id = payload.get("sensor_id")
+    if sensor_id:
+        from apps.devices.models import Sensor
+
+        sensor_id = (
+            Sensor.objects.filter(pk=sensor_id, house=house)
+            .values_list("id", flat=True)
+            .first()
+        )
+        if sensor_id is None:
+            logger.warning("MQTT: capteur non accessible pour house=%s.", house_id)
+            return None
+
     ts = parse_datetime(payload["timestamp"]) if payload.get("timestamp") else None
     measurement = Measurement.objects.create(
         house=house,
-        sensor_id=payload.get("sensor_id"),
+        sensor_id=sensor_id,
         measurement_type=payload["type"],
         value=float(payload["value"]),
         unit=payload.get("unit", "kW"),

@@ -1,21 +1,27 @@
-# Agent conversationnel — perspective future (NON développé)
+﻿# Agent conversationnel - perspective future
 
-> ⚠️ L'agent conversationnel **n'est pas** développé dans la version actuelle.
-> Il est documenté ici uniquement comme **module futur / placeholder désactivé**
-> et ne doit pas être considéré comme une fonctionnalité centrale.
+L'agent conversationnel n'est pas developpe dans la version actuelle. Il reste une perspective future et ne doit pas etre presente comme une fonctionnalite centrale du systeme.
 
-## Idée
-Un assistant en langage naturel permettant de :
-- interroger l'état énergétique (« Quelle est ma production aujourd'hui ? »)
-- expliquer une décision du moteur flou
-- recommander des actions d'optimisation
+## Idee
 
-## Pourquoi désactivé maintenant
-La priorité v1 porte sur la supervision, la prévision et la décision. L'agent
-sera ajouté ultérieurement sans impacter l'architecture existante (il consommera
-les mêmes endpoints REST).
+Un assistant en langage naturel pourrait plus tard permettre de :
 
-## Emplacement prévu
-- Backend : future app `apps/assistant/` (placeholder).
-- Frontend / mobile : écran « Agent IA » déjà présent côté Paramètres, marqué
-  **Désactivé — perspective future**.
+- interroger l'etat energetique ;
+- expliquer une decision du moteur flou ;
+- recommander des actions d'optimisation ;
+- aider a interpreter les rapports.
+
+## Pourquoi il reste hors perimetre
+
+La version actuelle se concentre sur la chaine :
+
+```text
+IoT -> mesures -> prevision -> decision floue -> alerte -> supervision
+```
+
+L'agent pourra consommer les memes endpoints REST sans modifier le coeur metier.
+
+## Emplacement futur possible
+
+- Backend : future app `apps/assistant/`.
+- Frontend/mobile : ecran dedie, marque comme perspective future tant que non implemente.

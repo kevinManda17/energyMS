@@ -5,6 +5,6 @@ from .models import House
 
 @admin.register(House)
 class HouseAdmin(admin.ModelAdmin):
-    list_display = ("name", "owner", "status", "pv_capacity_kw", "created_at")
+    list_display = ("name", "owner", "status", "created_at")
     list_filter = ("status",)
     search_fields = ("name", "location")
