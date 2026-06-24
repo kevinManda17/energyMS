@@ -20,9 +20,6 @@ class House(models.Model):
     latitude = models.FloatField(null=True, blank=True)
     longitude = models.FloatField(null=True, blank=True)
     description = models.TextField(blank=True)
-    # Installed PV / battery capacity, useful for the dashboard.
-    pv_capacity_kw = models.FloatField(default=0)
-    battery_capacity_kwh = models.FloatField(default=0)
     status = models.CharField(
         max_length=15, choices=Status.choices, default=Status.ONLINE
     )

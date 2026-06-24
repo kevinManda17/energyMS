@@ -9,6 +9,13 @@ class Decision(models.Model):
     house = models.ForeignKey(
         House, on_delete=models.CASCADE, related_name="decisions"
     )
+    forecast = models.ForeignKey(
+        "forecasting.Forecast",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="decisions",
+    )
     action = models.CharField(max_length=80)
     reason = models.TextField(blank=True)
     confidence_score = models.FloatField(default=0)

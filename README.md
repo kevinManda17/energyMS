@@ -1,113 +1,146 @@
-# EMS — Energy Management System
+﻿# EMS - Energy Management System
 
-Plateforme de **gestion énergétique pour micro-réseau domestique intelligent** :
-supervision IoT, prévisions horaires production/consommation, système expert flou, supervision
-web React, application mobile React Native et passerelle Edge.
+Plateforme de gestion energetique pour micro-reseau domestique intelligent : supervision IoT, actifs energetiques, previsions par modeles importes/fallback horaire, systeme expert flou, dashboard React, application mobile React Native et passerelle Edge.
 
-> L'agent conversationnel n'est **pas** développé dans cette version (perspective
-> future — voir `docs/future-agent.md`).
+> L'agent conversationnel n'est pas developpe dans cette version. Il reste une perspective future, voir `docs/future-agent.md`.
 
 ## Stack
+
 | Couche | Technologies |
-|--------|--------------|
-| Backend | Django REST Framework, PostgreSQL, SimpleJWT, paho-mqtt, scikit-learn, scikit-fuzzy, drf-spectacular |
+| --- | --- |
+| Backend | Django REST Framework, PostgreSQL, SimpleJWT, paho-mqtt, scikit-learn/joblib, drf-spectacular |
 | Frontend | React 18, Vite, Tailwind, React Router, TanStack Query, Zustand, Recharts, Lucide |
 | Mobile | React Native Expo, React Navigation, Zustand, AsyncStorage, Expo Notifications |
 | Edge | Python, paho-mqtt, httpx, SQLite, FastAPI |
 | Infra | Docker, Docker Compose, Nginx, Mosquitto, Vercel, AWS |
 
 ## Structure
-```
+
+```text
 ems-platform/
-├── ems-backend/     # API Django REST (10 apps)
-├── ems-frontend/    # Dashboard React (Vite)
-├── ems-mobile/      # App Expo (cloud/edge/cache)
-├── edge-gateway/    # Passerelle Raspberry Pi
-├── mqtt/            # mosquitto.conf
-├── nginx/           # reverse proxy
-├── infra/           # notes AWS + Vercel
-├── docs/            # architecture, API, fuzzy, déploiement…
-├── docker-compose.yml / docker-compose.prod.yml
+  ems-backend/     API Django REST
+  ems-frontend/    Dashboard React Vite
+  ems-mobile/      App Expo cloud/edge/local
+  edge-gateway/    Passerelle Raspberry Pi
+  mqtt/            Configuration Mosquitto
+  nginx/           Reverse proxy
+  infra/           Notes AWS et Vercel
+  docs/            Architecture, API, fuzzy, deploiement
 ```
 
-## Démarrage rapide (Docker)
+## Modele EMS actuel
+
+Le backend suit la chaine :
+
+```text
+collecte IoT -> mesures -> modeles pre-entraines importes -> prevision -> decision floue -> alerte -> supervision
+```
+
+`House` represente le micro-reseau logique. Les panneaux PV, batteries, onduleurs et autres composants physiques sont dans `EnergyAsset`. Le forecasting n'entraine pas de modele depuis la plateforme : il importe des modeles pre-entraines et utilise `HourlyProfileForecast` comme fallback.
+
+## Demarrage rapide avec Docker
+
 ```bash
 cd ems-platform
 docker compose up --build
 ```
+
 - Frontend : http://localhost:5173
-- API : http://localhost:8000/api · Swagger : http://localhost:8000/api/docs/
-- Comptes seedés : `admin / admin12345` et `demo / demo12345`
+- API : http://localhost:8000/api
+- Swagger : http://localhost:8000/api/docs/
+- Comptes seedes : `admin / admin12345` et `demo / demo12345`
 
-Le service backend exécute automatiquement `migrate` + `seed_initial_data`
-(données réalistes : maisons, capteurs, équipements, mesures, prévisions, décisions, alertes).
+Le service backend execute automatiquement `migrate` + `seed_initial_data` avec donnees realistes : maisons, actifs energetiques, capteurs, equipements, mesures, previsions, decisions et alertes.
 
-## Démarrage manuel (sans Docker)
+## Demarrage manuel sans Docker
 
 ### Backend
+
 ```bash
 cd ems-backend
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv
+.venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env            # sans DATABASE_URL → SQLite
+copy .env.example .env
 python manage.py migrate
 python manage.py seed_initial_data
 python manage.py runserver
-# (autre terminal) souscripteur MQTT :
+```
+
+Souscripteur MQTT dans un autre terminal :
+
+```bash
 python manage.py run_mqtt
 ```
 
 ### Frontend
+
 ```bash
 cd ems-frontend
 npm install
-cp .env.example .env
-npm run dev          # http://localhost:5173
+copy .env.example .env
+npm run dev
 ```
 
 ### Mobile
+
 ```bash
 cd ems-mobile
 npm install
-cp .env.example .env
-npm start            # Expo
+copy .env.example .env
+npm start
 ```
 
 ### Edge gateway
+
 ```bash
 cd edge-gateway
 pip install -r requirements.txt
-cp .env.example .env
-python mqtt_subscriber.py            # cache MQTT → SQLite
-uvicorn sync_service:app --port 8001 # API locale + sync
+copy .env.example .env
+python mqtt_subscriber.py
+uvicorn sync_service:app --port 8001
 ```
 
-## Tester l'API
+## API rapide
+
+Login :
+
 ```bash
-# Login
 curl -X POST http://localhost:8000/api/auth/login/ \
   -H "Content-Type: application/json" \
   -d '{"username":"demo","password":"demo12345"}'
+```
 
-# Déclencher une décision (avec le token)
+Declencher une decision :
+
+```bash
 curl -X POST http://localhost:8000/api/decisions/trigger/ \
-  -H "Authorization: Bearer <ACCESS>" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <ACCESS>" \
+  -H "Content-Type: application/json" \
   -d '{"house":1,"production_pv":0.4,"consommation":4.0,"batterie_soc":18}'
 ```
 
 ## Tests
+
 ```bash
-cd ems-backend && pytest          # backend
-cd ems-frontend && npm test       # frontend (vitest)
-cd ems-mobile && npm test         # mobile (jest)
+cd ems-backend && pytest
+cd ems-frontend && npm test
+cd ems-mobile && npm test
 ```
 
-## Déploiement
-Voir `docs/deployment.md`, `infra/vercel/` (frontend) et `infra/aws/` (backend prod).
+## Documentation
+
+- `docs/architecture.md`
+- `docs/api-endpoints.md`
+- `docs/environment-variables.md`
+- `docs/fuzzy-system.md`
+- `docs/deployment.md`
+- `docs/development-roadmap.md`
 
 ## URLs utiles
+
 | Service | URL |
-|---------|-----|
+| --- | --- |
 | Frontend | http://localhost:5173 |
 | API | http://localhost:8000/api |
 | Swagger | http://localhost:8000/api/docs/ |

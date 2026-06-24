@@ -23,7 +23,7 @@ class AlertViewSet(
 
     def get_queryset(self):
         user = self.request.user
-        qs = Alert.objects.select_related("house")
+        qs = Alert.objects.select_related("house", "decision")
         if user.is_authenticated and not user.is_admin:
             qs = qs.filter(house__owner=user)
         return qs

@@ -9,6 +9,7 @@ class AlertSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "house",
+            "decision",
             "severity",
             "alert_type",
             "message",

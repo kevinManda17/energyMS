@@ -1,9 +1,9 @@
-# Variables d'environnement
+﻿# Variables d'environnement
 
 ## Backend (`ems-backend/.env`)
 
 | Variable | Exemple | Description |
-|----------|---------|-------------|
+| --- | --- | --- |
 | `DJANGO_SECRET_KEY` | `change-me-in-production` | Cle secrete Django |
 | `DJANGO_DEBUG` | `True` | Mode debug |
 | `DJANGO_ALLOWED_HOSTS` | `localhost,127.0.0.1,172.20.10.2` | Hotes autorises |
@@ -16,13 +16,21 @@
 | `SMS_PROVIDER` | `console` | Provider SMS, fallback dev |
 | `SMS_API_KEY` | | Cle provider SMS |
 | `SMS_SENDER` | `EMS` | Expediteur SMS |
+| `EMAIL_BACKEND` | `django.core.mail.backends.console.EmailBackend` | Backend e-mail |
+| `EMAIL_HOST` / `EMAIL_PORT` | `smtp.example.com` / `587` | Serveur SMTP |
+| `EMAIL_HOST_USER` / `EMAIL_HOST_PASSWORD` | | Identifiants SMTP |
+| `EMAIL_USE_TLS` | `True` | TLS SMTP |
+| `DEFAULT_FROM_EMAIL` | `noreply@ems.local` | Expediteur e-mail |
+| `FRONTEND_URL` | `http://localhost:5173` | URL utilisee dans les liens e-mail |
+| `PASSWORD_RESET_TOKEN_MINUTES` | `30` | Duree de validite reset password |
+| `EMAIL_VERIFICATION_TOKEN_MINUTES` | `60` | Duree de validite verification e-mail |
 
 Sans `DATABASE_URL`, le backend bascule sur SQLite en local.
 
 ## Frontend (`ems-frontend/.env`)
 
 | Variable | Exemple |
-|----------|---------|
+| --- | --- |
 | `VITE_API_BASE_URL` | `http://localhost:8000/api` |
 | `VITE_WS_URL` | `ws://localhost:8000/ws` |
 | `VITE_APP_NAME` | `EMS Dashboard` |
@@ -30,7 +38,7 @@ Sans `DATABASE_URL`, le backend bascule sur SQLite en local.
 ## Mobile (`ems-mobile/.env`)
 
 | Variable | Exemple |
-|----------|---------|
+| --- | --- |
 | `EXPO_PUBLIC_API_BASE_URL` | `http://172.20.10.2:8000/api` |
 | `EXPO_PUBLIC_EDGE_API_URL` | `http://172.20.10.2:8000/api` |
 | `EXPO_PUBLIC_APP_NAME` | `EMS Mobile` |
@@ -38,7 +46,7 @@ Sans `DATABASE_URL`, le backend bascule sur SQLite en local.
 ## Edge (`edge-gateway/.env`)
 
 | Variable | Exemple |
-|----------|---------|
+| --- | --- |
 | `EDGE_MQTT_BROKER` / `EDGE_MQTT_PORT` | `localhost` / `1883` |
 | `EDGE_BACKEND_API_URL` | `http://localhost:8000/api` |
 | `EDGE_SYNC_INTERVAL_SECONDS` | `30` |

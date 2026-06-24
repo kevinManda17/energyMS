@@ -12,9 +12,9 @@ urlpatterns = [
     path("api/auth/", include("apps.users.urls")),
     # Domain apps
     path("api/", include("apps.houses.urls")),
+    path("api/", include("apps.energy_assets.urls")),
     path("api/", include("apps.devices.urls")),
     path("api/", include("apps.measurements.urls")),
-    path("api/", include("apps.datasets.urls")),
     path("api/", include("apps.forecasting.urls")),
     path("api/", include("apps.fuzzy_engine.urls")),
     path("api/", include("apps.alerts.urls")),

@@ -3,50 +3,86 @@ from django.db import models
 from apps.houses.models import House
 
 
-class ForecastModel(models.Model):
-    """Metadata for the forecasting strategy used by production/consumption."""
+class ImportedModel(models.Model):
+    """Metadata for a pre-trained forecasting model imported into EMS."""
 
     class Target(models.TextChoices):
-        PRODUCTION = "production", "PV Production"
-        CONSUMPTION = "consumption", "Consumption"
+        PRODUCTION = "production", "Production"
+        CONSUMPTION = "consumption", "Consommation"
 
+    name = models.CharField(max_length=120)
     target = models.CharField(max_length=20, choices=Target.choices)
-    algorithm = models.CharField(max_length=40, default="HourlyProfileForecast")
-    file_path = models.CharField(max_length=255)
-    mae = models.FloatField(null=True, blank=True)
-    rmse = models.FloatField(null=True, blank=True)
-    r2 = models.FloatField(null=True, blank=True)
-    n_samples = models.PositiveIntegerField(default=0)
+    model_type = models.CharField(max_length=50, default="profile")
+    file = models.FileField(upload_to="models/", blank=True, null=True)
+    file_path = models.CharField(max_length=255, blank=True)
+    version = models.CharField(max_length=50, default="v1")
+    input_schema = models.JSONField(default=dict, blank=True)
+    metrics = models.JSONField(default=dict, blank=True)
     is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    imported_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["-imported_at"]
+        indexes = [
+            models.Index(
+                fields=["target", "is_active"],
+                name="forecasting_target_700456_idx",
+            ),
+            models.Index(fields=["model_type"], name="forecasting_model_t_9ea059_idx"),
+        ]
+
+    @property
+    def resolved_path(self) -> str:
+        if self.file:
+            return self.file.path
+        return self.file_path
 
     def __str__(self) -> str:
-        return f"{self.target} forecast ({self.algorithm})"
+        return f"{self.name} [{self.target}/{self.model_type}]"
 
 
-class Prediction(models.Model):
-    """A stored forecast point."""
+class Forecast(models.Model):
+    """Stored forecast generated from an imported model or a profile fallback."""
 
     house = models.ForeignKey(
         House,
         on_delete=models.CASCADE,
-        related_name="predictions",
+        related_name="forecasts",
         null=True,
         blank=True,
     )
     model = models.ForeignKey(
-        ForecastModel, on_delete=models.CASCADE, related_name="predictions"
+        ImportedModel,
+        on_delete=models.SET_NULL,
+        related_name="forecasts",
+        null=True,
+        blank=True,
     )
     target = models.CharField(max_length=20)
     horizon = models.DateTimeField()
-    value = models.FloatField()
+    horizon_minutes = models.PositiveIntegerField(default=60)
+    forecast_value = models.FloatField()
+    input_snapshot = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["horizon"]
+        indexes = [
+            models.Index(fields=["house", "created_at"], name="forecasting_house_i_c79370_idx"),
+            models.Index(
+                fields=["house", "target", "horizon"],
+                name="forecasting_house_i_e747a5_idx",
+            ),
+        ]
+
+    @property
+    def value(self) -> float:
+        return self.forecast_value
 
     def __str__(self) -> str:
-        return f"{self.target}={self.value} @ {self.horizon:%Y-%m-%d %H:%M}"
+        return f"{self.target}={self.forecast_value} @ {self.horizon:%Y-%m-%d %H:%M}"
+
+
+# Backward-compatible aliases for older imports inside the project/tests.
+ForecastModel = ImportedModel
+Prediction = Forecast
