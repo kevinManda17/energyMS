@@ -1,27 +1,32 @@
-# Systeme expert flou
+﻿# Systeme expert flou
 
-Le backend utilise maintenant le moteur avance integre dans
-`apps/fuzzy_engine/core/`, appele depuis `apps/fuzzy_engine/engine.py`.
+Le backend utilise le moteur avance integre dans `apps/fuzzy_engine/core/`, appele depuis `apps/fuzzy_engine/engine.py`.
 
 ## Entrees principales
 
-Le mapper Django construit un `EnergyFacts` a partir des donnees EMS:
+Le mapper Django construit un `EnergyFacts` a partir des donnees EMS :
 
 | Champ | Source |
-|-------|--------|
+| --- | --- |
 | `current_pv_power_kw` | Derniere mesure `production` |
 | `current_load_power_kw` | Derniere mesure `consumption` |
-| `forecast_pv_energy_kwh` | Previsions stockees, sinon fallback prudent |
-| `forecast_load_energy_kwh` | Previsions stockees, sinon fallback prudent |
+| `forecast_pv_energy_kwh` | `Forecast` stockes, sinon fallback prudent |
+| `forecast_load_energy_kwh` | `Forecast` stockes, sinon fallback prudent |
 | `battery_soc_percent` | Derniere mesure `battery_soc` |
 | `battery_temperature_c` | Derniere mesure `temperature`, sinon 25 C |
-| `load_priority` | Equipements actifs, sinon `NON_PRIORITY` |
+| `load_priority` | Equipements actifs et priorites |
 | `data_quality` | `GOOD`, `PARTIAL` ou `BAD` selon les mesures disponibles |
-| `pv_nominal_power_kw` | Capacite PV du micro-reseau, sinon 5.0 |
+| `pv_nominal_power_kw` | Somme des `EnergyAsset` actifs de type `PV_PANEL`, sinon 5.0 |
+
+## Relations sauvegardees
+
+Une `Decision` peut etre reliee a la derniere `Forecast` disponible pour la maison. Une `Alert` peut etre reliee a la `Decision` qui l'a declenchee.
+
+```text
+Forecast -> Decision -> Alert
+```
 
 ## Decisions possibles
-
-Le moteur retourne notamment:
 
 - `PROTECT_BATTERY`
 - `SHED_NON_PRIORITY_LOAD`
@@ -35,16 +40,14 @@ Le moteur retourne notamment:
 
 ## Sortie API
 
-Les anciens champs restent disponibles pour compatibilite:
+Champs principaux :
 
+- `forecast`
 - `action`
 - `reason`
 - `confidence_score`
 - `input_snapshot`
 - `activated_rules`
-
-Les nouveaux champs exposes par `/api/decisions/` sont:
-
 - `decision_code`, `decision_label`, `execution_mode`, `alert_level`
 - `risk_score`, `shedding_level`, `charge_battery_score`
 - `discharge_battery_score`, `protect_battery_score`
@@ -56,6 +59,7 @@ Les nouveaux champs exposes par `/api/decisions/` sont:
 
 ```json
 {
+  "forecast": 12,
   "decision_code": "SHED_NON_PRIORITY_LOAD",
   "decision_label": "Delester une charge non prioritaire",
   "execution_mode": "AUTOMATIC",
