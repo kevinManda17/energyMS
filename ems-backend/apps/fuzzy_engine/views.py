@@ -4,6 +4,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from apps.houses.models import House
+from apps.forecasting.models import Forecast
 
 from .engine import evaluate_house
 from .models import Decision
@@ -60,7 +61,16 @@ class DecisionViewSet(
             raise PermissionDenied("House not found or not accessible.")
 
         result = evaluate_house(house, overrides=data)
-        decision = Decision.objects.create(house=house, **result.decision_payload())
+        forecast = (
+            Forecast.objects.filter(house=house)
+            .order_by("-created_at")
+            .first()
+        )
+        decision = Decision.objects.create(
+            house=house,
+            forecast=forecast,
+            **result.decision_payload(),
+        )
 
         if result.action in CRITICAL_ACTIONS:
             self._raise_alert(house, decision)
@@ -81,6 +91,7 @@ class DecisionViewSet(
         )
         Alert.objects.create(
             house=house,
+            decision=decision,
             severity=severity,
             alert_type="DECISION",
             message=f"Decision EMS: {decision.decision_label or decision.action} - {decision.reason}",

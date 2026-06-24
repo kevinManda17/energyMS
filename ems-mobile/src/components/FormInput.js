@@ -10,10 +10,12 @@ export function FormInput({
   secureTextEntry,
   containerStyle,
   inputStyle,
+  textContentType,
   ...props
 }) {
   const t = useTheme();
   const [hidden, setHidden] = useState(!!secureTextEntry);
+  const isPassword = !!secureTextEntry;
 
   return (
     <View style={[styles.wrap, containerStyle]}>
@@ -21,9 +23,17 @@ export function FormInput({
       <View style={[styles.box, { borderColor: t.border, backgroundColor: t.card }]}>
         {Icon ? <Icon size={19} color={t.sub} strokeWidth={2.2} /> : null}
         <TextInput
-          style={[styles.input, { color: t.text }, inputStyle]}
+          key={isPassword ? (hidden ? "password-hidden" : "password-visible") : "plain"}
+          style={[
+            styles.input,
+            { color: t.text, backgroundColor: "transparent" },
+            inputStyle,
+          ]}
           placeholderTextColor={t.sub}
-          secureTextEntry={hidden}
+          secureTextEntry={isPassword ? hidden : false}
+          textContentType={textContentType || (isPassword ? "password" : "none")}
+          underlineColorAndroid="transparent"
+          selectionColor={palette.blue}
           autoCapitalize="none"
           {...props}
         />

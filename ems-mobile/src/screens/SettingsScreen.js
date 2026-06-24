@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ScrollView, View, Text, TextInput, TouchableOpacity, StyleSheet } from "react-native";
+import { Eye, EyeOff } from "lucide-react-native";
 import { Badge } from "../components/Badge";
 import { useTheme } from "../hooks/useTheme";
 import { palette } from "../theme/colors";
@@ -180,10 +181,37 @@ function Section({ title, children, t }) {
 }
 
 function Input({ label, t, ...props }) {
+  const [hidden, setHidden] = useState(!!props.secureTextEntry);
+  const isPassword = !!props.secureTextEntry;
   return (
     <View style={{ marginTop: 10 }}>
       <Text style={{ color: t.sub, fontSize: 12, marginBottom: 5 }}>{label}</Text>
-      <TextInput style={[styles.input, { color: t.text, borderColor: t.border }]} placeholderTextColor={t.sub} autoCapitalize="none" {...props} />
+      <View style={[styles.inputWrap, { borderColor: t.border }]}>
+        <TextInput
+          key={isPassword ? (hidden ? "password-hidden" : "password-visible") : "plain"}
+          style={[styles.input, { color: t.text }]}
+          placeholderTextColor={t.sub}
+          autoCapitalize="none"
+          underlineColorAndroid="transparent"
+          selectionColor={palette.blue}
+          {...props}
+          secureTextEntry={isPassword ? hidden : false}
+          textContentType={isPassword ? "password" : "none"}
+        />
+        {isPassword ? (
+          <TouchableOpacity
+            accessibilityLabel={hidden ? "Afficher le mot de passe" : "Masquer le mot de passe"}
+            style={styles.eyeButton}
+            onPress={() => setHidden((current) => !current)}
+          >
+            {hidden ? (
+              <Eye color={palette.blue} size={20} strokeWidth={2.2} />
+            ) : (
+              <EyeOff color={palette.blue} size={20} strokeWidth={2.2} />
+            )}
+          </TouchableOpacity>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -221,7 +249,16 @@ const styles = StyleSheet.create({
   h1: { fontSize: 24, fontWeight: "800", marginBottom: 8 },
   sectionBox: { borderWidth: 1, borderRadius: 8, padding: 14, marginTop: 14 },
   section: { fontWeight: "800", fontSize: 16, marginBottom: 4 },
-  input: { borderWidth: 1, borderRadius: 8, padding: 12 },
+  inputWrap: {
+    borderWidth: 1,
+    borderRadius: 8,
+    minHeight: 48,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  input: { flex: 1, paddingVertical: 12, backgroundColor: "transparent" },
+  eyeButton: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
   saveBtn: { backgroundColor: palette.blue, padding: 12, borderRadius: 8, alignItems: "center", marginTop: 12 },
   modeRow: { flexDirection: "row", justifyContent: "space-between", borderWidth: 1, borderRadius: 8, padding: 12, marginTop: 8 },
   hint: { fontSize: 11, marginTop: 6 },

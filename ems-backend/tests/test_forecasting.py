@@ -3,7 +3,8 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from apps.forecasting.models import Prediction
+from apps.energy_assets.models import EnergyAsset
+from apps.forecasting.models import Forecast
 from apps.houses.models import House
 from apps.measurements.models import Measurement
 
@@ -17,8 +18,18 @@ def forecast_client():
     house = House.objects.create(
         owner=user,
         name="Residence Forecast",
-        pv_capacity_kw=4.5,
-        battery_capacity_kwh=7.5,
+    )
+    EnergyAsset.objects.create(
+        house=house,
+        name="Panneaux PV",
+        asset_type=EnergyAsset.AssetType.PV_PANEL,
+        nominal_power_kw=4.5,
+    )
+    EnergyAsset.objects.create(
+        house=house,
+        name="Batterie",
+        asset_type=EnergyAsset.AssetType.BATTERY,
+        capacity_kwh=7.5,
     )
     now = timezone.now()
     for i in range(24):
@@ -54,7 +65,7 @@ def test_predict_returns_and_stores_hourly_forecasts(forecast_client):
     assert resp.data["target"] == "production"
     assert resp.data["model"]["algorithm"] == "HourlyProfileForecast"
     assert len(resp.data["predictions"]) == 2
-    assert Prediction.objects.filter(house=house, target="production").count() == 2
+    assert Forecast.objects.filter(house=house, target="production").count() == 2
     assert all(point["value"] >= 0 for point in resp.data["predictions"])
 
 
@@ -67,7 +78,7 @@ def test_predict_supports_consumption_target(forecast_client):
 
     assert resp.status_code == 200
     assert len(resp.data["predictions"]) == 3
-    assert Prediction.objects.filter(house=house, target="consumption").count() == 3
+    assert Forecast.objects.filter(house=house, target="consumption").count() == 3
 
 
 def test_predict_rejects_foreign_house(forecast_client):

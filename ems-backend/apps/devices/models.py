@@ -1,5 +1,6 @@
 from django.db import models
 
+from apps.energy_assets.models import EnergyAsset
 from apps.houses.models import House
 
 
@@ -14,9 +15,18 @@ class Sensor(models.Model):
         CURRENT = "current", "Current"
         POWER = "power", "Power"
         TEMPERATURE = "temperature", "Temperature"
+        LUMINOSITY = "luminosity", "Luminosity"
+        IRRADIANCE = "irradiance", "Irradiance"
 
     house = models.ForeignKey(
         House, on_delete=models.CASCADE, related_name="sensors"
+    )
+    energy_asset = models.ForeignKey(
+        EnergyAsset,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sensors",
     )
     name = models.CharField(max_length=120)
     sensor_type = models.CharField(max_length=20, choices=SensorType.choices)

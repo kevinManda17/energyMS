@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password
 from rest_framework import serializers
 
-from .models import PhoneVerificationCode
+from .models import EmailVerificationToken, PasswordResetToken, PhoneVerificationCode
 
 User = get_user_model()
 
@@ -21,6 +21,7 @@ class UserSerializer(serializers.ModelSerializer):
             "role",
             "phone",
             "phone_verified",
+            "email_verified",
             "preferences",
             "is_admin",
             "created_at",
@@ -29,6 +30,7 @@ class UserSerializer(serializers.ModelSerializer):
             "id",
             "role",
             "phone_verified",
+            "email_verified",
             "is_admin",
             "created_at",
         )
@@ -151,4 +153,93 @@ class ChangePasswordSerializer(serializers.Serializer):
         user = self.context["request"].user
         user.set_password(self.validated_data["new_password"])
         user.save(update_fields=["password"])
+        return user
+
+
+class EmailVerificationRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=False)
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        email = attrs.get("email")
+        if not email and request and request.user.is_authenticated:
+            email = request.user.email
+        if not email:
+            raise serializers.ValidationError({"email": "Adresse e-mail requise."})
+        attrs["email"] = email
+        attrs["user"] = User.objects.filter(email__iexact=email).first()
+        return attrs
+
+
+class EmailVerificationConfirmSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    token = serializers.CharField()
+
+    def validate(self, attrs):
+        user = User.objects.filter(email__iexact=attrs["email"]).first()
+        if not user:
+            raise serializers.ValidationError({"email": "Utilisateur introuvable."})
+        verification = (
+            EmailVerificationToken.objects.filter(user=user, used_at__isnull=True)
+            .order_by("-created_at")
+            .first()
+        )
+        if not verification or verification.is_expired:
+            raise serializers.ValidationError({"token": "Token expire ou introuvable."})
+        if not check_password(attrs["token"], verification.token_hash):
+            raise serializers.ValidationError({"token": "Token invalide."})
+        attrs["user"] = user
+        attrs["verification"] = verification
+        return attrs
+
+    def save(self, **kwargs):
+        user = self.validated_data["user"]
+        verification = self.validated_data["verification"]
+        verification.mark_used()
+        user.email_verified = True
+        user.save(update_fields=["email_verified"])
+        return user
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate(self, attrs):
+        attrs["user"] = User.objects.filter(email__iexact=attrs["email"]).first()
+        return attrs
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    token = serializers.CharField()
+    new_password = serializers.CharField(write_only=True, min_length=8)
+    password_confirm = serializers.CharField(write_only=True, min_length=8)
+
+    def validate(self, attrs):
+        if attrs["new_password"] != attrs["password_confirm"]:
+            raise serializers.ValidationError(
+                {"password_confirm": "Les mots de passe ne correspondent pas."}
+            )
+        user = User.objects.filter(email__iexact=attrs["email"]).first()
+        if not user:
+            raise serializers.ValidationError({"email": "Utilisateur introuvable."})
+        reset = (
+            PasswordResetToken.objects.filter(user=user, used_at__isnull=True)
+            .order_by("-created_at")
+            .first()
+        )
+        if not reset or reset.is_expired:
+            raise serializers.ValidationError({"token": "Token expire ou introuvable."})
+        if not check_password(attrs["token"], reset.token_hash):
+            raise serializers.ValidationError({"token": "Token invalide."})
+        attrs["user"] = user
+        attrs["reset"] = reset
+        return attrs
+
+    def save(self, **kwargs):
+        user = self.validated_data["user"]
+        reset = self.validated_data["reset"]
+        user.set_password(self.validated_data["new_password"])
+        user.save(update_fields=["password"])
+        reset.mark_used()
         return user

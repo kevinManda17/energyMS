@@ -9,6 +9,7 @@ class DecisionSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "house",
+            "forecast",
             "action",
             "reason",
             "confidence_score",
