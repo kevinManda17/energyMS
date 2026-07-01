@@ -17,6 +17,20 @@ class Measurement(models.Model):
         TEMPERATURE = "temperature", "Temperature"
         LUMINOSITY = "luminosity", "Luminosity"
         IRRADIANCE = "irradiance", "Irradiance"
+        # Electrical grid features (for consumption ML model)
+        REACTIVE_POWER = "reactive_power", "Reactive Power"
+        SUB_METERING_1 = "sub_metering_1", "Sub-metering 1 (kitchen)"
+        SUB_METERING_2 = "sub_metering_2", "Sub-metering 2 (laundry)"
+        SUB_METERING_3 = "sub_metering_3", "Sub-metering 3 (HVAC)"
+        # PV panel dedicated sensors
+        PV_VOLTAGE = "pv_voltage", "PV Voltage (Vmpp)"
+        PV_CURRENT = "pv_current", "PV Current (Impp)"
+        MODULE_TEMP = "module_temp", "Module Temperature"
+        # Weather (from API or sensor)
+        HUMIDITY = "humidity", "Relative Humidity"
+        AIR_PRESSURE = "air_pressure", "Air Pressure"
+        WIND_SPEED = "wind_speed", "Wind Speed"
+        WIND_DIRECTION = "wind_direction", "Wind Direction"
 
     house = models.ForeignKey(
         House, on_delete=models.CASCADE, related_name="measurements"

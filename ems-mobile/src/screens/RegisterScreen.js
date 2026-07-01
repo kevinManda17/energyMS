@@ -1,12 +1,40 @@
-import { useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
-import { ArrowRight, KeyRound, LockKeyhole, Mail, Phone, Send, ShieldCheck, User, UserPlus } from "lucide-react-native";
+import React, { useState } from "react";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle,
+  KeyRound,
+  LockKeyhole,
+  Mail,
+  Phone,
+  Send,
+  ShieldCheck,
+  User,
+  UserPlus,
+  Zap,
+} from "lucide-react-native";
 import { FormInput } from "../components/FormInput";
-import { ScreenScroll } from "../components/Screen";
 import { authApi } from "../api/endpoints";
 import { useAuthStore } from "../store/auth";
 import { useTheme } from "../hooks/useTheme";
 import { palette } from "../theme/colors";
+
+const STEPS = [
+  { label: "Identité" },
+  { label: "Téléphone" },
+  { label: "Vérif." },
+  { label: "Mot de passe" },
+  { label: "Confirmation" },
+];
 
 const initialForm = {
   first_name: "",
@@ -41,7 +69,7 @@ export default function RegisterScreen({ navigation }) {
 
   function nextPersonal() {
     if (!form.first_name || !form.last_name || !form.username || !form.email) {
-      setError("Completez les informations.");
+      setError("Veuillez compléter tous les champs.");
       return;
     }
     setError("");
@@ -52,16 +80,16 @@ export default function RegisterScreen({ navigation }) {
     setError("");
     setNotice("");
     if (!validPhone(form.phone)) {
-      setError("Numero invalide.");
+      setError("Numéro de téléphone invalide.");
       return;
     }
     setLoading(true);
     try {
       const res = await authApi.sendPhoneCode({ phone: form.phone });
-      setNotice(res.dev_code ? `Code de test: ${res.dev_code}` : "Code envoye.");
+      setNotice(res.dev_code ? `Code de test: ${res.dev_code}` : "Code envoyé par SMS.");
       setStep(2);
     } catch {
-      setError("Envoi impossible.");
+      setError("Envoi impossible. Vérifiez le numéro.");
     } finally {
       setLoading(false);
     }
@@ -73,10 +101,10 @@ export default function RegisterScreen({ navigation }) {
     try {
       const res = await authApi.verifyPhoneCode({ phone: form.phone, code: form.code });
       setForm({ ...form, phone_verification_token: res.phone_verification_token });
-      setNotice("Numero verifie.");
+      setNotice("Numéro vérifié avec succès !");
       setStep(3);
     } catch {
-      setError("Code invalide ou expire.");
+      setError("Code invalide ou expiré.");
     } finally {
       setLoading(false);
     }
@@ -85,7 +113,7 @@ export default function RegisterScreen({ navigation }) {
   function nextPassword() {
     setError("");
     if (!validPassword(form.password)) {
-      setError("Mot de passe trop faible.");
+      setError("Mot de passe trop faible (min. 8 caractères, une lettre et un chiffre).");
       return;
     }
     if (form.password !== form.password_confirm) {
@@ -111,119 +139,347 @@ export default function RegisterScreen({ navigation }) {
       });
       await login(form.username, form.password);
     } catch {
-      setError("Creation impossible.");
+      setError("Création du compte impossible. Réessayez.");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <ScreenScroll>
-      <Text style={[styles.title, { color: t.text }]}>Creer un compte</Text>
-      <Text style={[styles.stepText, { color: t.sub }]}>Etape {step + 1} sur 5</Text>
-
-      {step === 0 && (
-        <>
-          <FormInput label="Prenom" icon={User} value={form.first_name} onChangeText={set("first_name")} placeholder="ex: Kevin" />
-          <FormInput label="Nom" icon={User} value={form.last_name} onChangeText={set("last_name")} placeholder="ex: Manda" />
-          <FormInput label="Identifiant" icon={User} value={form.username} onChangeText={set("username")} placeholder="ex: kevin_manda" />
-          <FormInput label="E-mail" icon={Mail} value={form.email} onChangeText={set("email")} placeholder="ex: kevin@email.com" keyboardType="email-address" />
-          <Button label="Continuer" Icon={ArrowRight} onPress={nextPersonal} />
-        </>
-      )}
-
-      {step === 1 && (
-        <>
-          <FormInput label="Telephone" icon={Phone} value={form.phone} onChangeText={set("phone")} placeholder="ex: +243 81 234 5678" keyboardType="phone-pad" />
-          <Button label={loading ? "Envoi..." : "Envoyer le code"} Icon={Send} onPress={sendCode} />
-          <Back onPress={() => setStep(0)} />
-        </>
-      )}
-
-      {step === 2 && (
-        <>
-          <FormInput label="Code de verification" icon={KeyRound} value={form.code} onChangeText={set("code")} placeholder="ex: 123456" keyboardType="number-pad" />
-          <Button label={loading ? "Verification..." : "Verifier"} Icon={ShieldCheck} onPress={verifyCode} />
-          <TouchableOpacity onPress={sendCode}>
-            <Text style={[styles.link, { color: palette.blue }]}>Renvoyer le code</Text>
-          </TouchableOpacity>
-          <Back onPress={() => setStep(1)} />
-        </>
-      )}
-
-      {step === 3 && (
-        <>
-          <FormInput label="Mot de passe" icon={LockKeyhole} value={form.password} onChangeText={set("password")} placeholder="ex: Energie2026" secureTextEntry />
-          <FormInput label="Confirmation" icon={LockKeyhole} value={form.password_confirm} onChangeText={set("password_confirm")} placeholder="Repetez le mot de passe" secureTextEntry />
-          <Text style={{ color: t.sub, fontSize: 12, marginTop: 8 }}>Minimum 8 caracteres, une lettre et un chiffre.</Text>
-          <Button label="Continuer" Icon={ArrowRight} onPress={nextPassword} />
-          <Back onPress={() => setStep(2)} />
-        </>
-      )}
-
-      {step === 4 && (
-        <View>
-          <Summary label="Nom" value={`${form.first_name} ${form.last_name}`} t={t} />
-          <Summary label="Identifiant" value={form.username} t={t} />
-          <Summary label="E-mail" value={form.email} t={t} />
-          <Summary label="Telephone" value={form.phone} t={t} />
-          <Button label={loading ? "Creation..." : "Creer mon compte"} Icon={UserPlus} onPress={createAccount} />
-          <Back onPress={() => setStep(3)} />
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+    >
+      <ScrollView
+        style={{ backgroundColor: t.bg }}
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Header */}
+        <View style={[styles.header, { backgroundColor: palette.blue }]}>
+          <View style={styles.headerBgCircle} />
+          <View style={styles.logoRow}>
+            <View style={styles.logoIcon}>
+              <Zap color="#fff" size={22} strokeWidth={2.6} />
+            </View>
+            <Text style={styles.logoText}>EMS</Text>
+          </View>
+          <Text style={styles.headerTitle}>Créer un compte</Text>
         </View>
-      )}
 
-      {notice ? <Text style={styles.notice}>{notice}</Text> : null}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+        {/* Stepper */}
+        <View style={[styles.stepperWrap, { backgroundColor: t.card, borderColor: t.border }]}>
+          {STEPS.map((s, i) => {
+            const done = i < step;
+            const active = i === step;
+            return (
+              <React.Fragment key={i}>
+                <View style={styles.stepItem}>
+                  <View
+                    style={[
+                      styles.stepDot,
+                      done && { backgroundColor: palette.green, borderColor: palette.green },
+                      active && { backgroundColor: palette.blue, borderColor: palette.blue },
+                      !done && !active && { backgroundColor: "transparent", borderColor: t.border },
+                    ]}
+                  >
+                    {done ? (
+                      <CheckCircle color="#fff" size={12} strokeWidth={2.8} />
+                    ) : (
+                      <Text style={[styles.stepNum, { color: active ? "#fff" : t.sub }]}>
+                        {i + 1}
+                      </Text>
+                    )}
+                  </View>
+                  <Text
+                    style={[
+                      styles.stepLabel,
+                      { color: active ? palette.blue : done ? palette.green : t.sub },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {s.label}
+                  </Text>
+                </View>
+                {i < STEPS.length - 1 && (
+                  <View style={[styles.stepLine, { backgroundColor: i < step ? palette.green : t.border }]} />
+                )}
+              </React.Fragment>
+            );
+          })}
+        </View>
 
-      <TouchableOpacity onPress={() => navigation.goBack()}>
-        <Text style={[styles.link, { color: palette.blue }]}>Retour connexion</Text>
-      </TouchableOpacity>
-    </ScreenScroll>
+        {/* Form card */}
+        <View style={[styles.card, { backgroundColor: t.card, shadowColor: t.text }]}>
+          <Text style={[styles.stepTitle, { color: t.text }]}>{STEPS[step].label}</Text>
+
+          {step === 0 && (
+            <>
+              <FormInput label="Prénom" icon={User} value={form.first_name} onChangeText={set("first_name")} placeholder="ex: Kevin" />
+              <FormInput label="Nom de famille" icon={User} value={form.last_name} onChangeText={set("last_name")} placeholder="ex: Manda" />
+              <FormInput label="Identifiant" icon={User} value={form.username} onChangeText={set("username")} placeholder="ex: kevin_manda" />
+              <FormInput label="Adresse e-mail" icon={Mail} value={form.email} onChangeText={set("email")} placeholder="ex: kevin@email.com" keyboardType="email-address" />
+              <PrimaryBtn label="Continuer" Icon={ArrowRight} onPress={nextPersonal} loading={false} />
+            </>
+          )}
+
+          {step === 1 && (
+            <>
+              <Text style={[styles.stepHint, { color: t.sub }]}>
+                Un code de vérification sera envoyé par SMS à ce numéro.
+              </Text>
+              <FormInput label="Numéro de téléphone" icon={Phone} value={form.phone} onChangeText={set("phone")} placeholder="ex: +243 81 234 5678" keyboardType="phone-pad" />
+              <PrimaryBtn label={loading ? "Envoi..." : "Envoyer le code"} Icon={Send} onPress={sendCode} loading={loading} />
+              <BackBtn onPress={() => setStep(0)} />
+            </>
+          )}
+
+          {step === 2 && (
+            <>
+              <Text style={[styles.stepHint, { color: t.sub }]}>
+                Entrez le code à 6 chiffres reçu sur {form.phone}
+              </Text>
+              <FormInput label="Code de vérification" icon={KeyRound} value={form.code} onChangeText={set("code")} placeholder="ex: 123456" keyboardType="number-pad" />
+              <PrimaryBtn label={loading ? "Vérification..." : "Vérifier le code"} Icon={ShieldCheck} onPress={verifyCode} loading={loading} />
+              <TouchableOpacity onPress={sendCode} style={styles.resendBtn}>
+                <Text style={{ color: palette.blue, fontWeight: "700", fontSize: 13 }}>
+                  Renvoyer le code
+                </Text>
+              </TouchableOpacity>
+              <BackBtn onPress={() => setStep(1)} />
+            </>
+          )}
+
+          {step === 3 && (
+            <>
+              <Text style={[styles.stepHint, { color: t.sub }]}>
+                Choisissez un mot de passe sécurisé (min. 8 caractères).
+              </Text>
+              <FormInput label="Mot de passe" icon={LockKeyhole} value={form.password} onChangeText={set("password")} placeholder="••••••••" secureTextEntry />
+              <FormInput label="Confirmation" icon={LockKeyhole} value={form.password_confirm} onChangeText={set("password_confirm")} placeholder="Répétez le mot de passe" secureTextEntry />
+              <PrimaryBtn label="Continuer" Icon={ArrowRight} onPress={nextPassword} loading={false} />
+              <BackBtn onPress={() => setStep(2)} />
+            </>
+          )}
+
+          {step === 4 && (
+            <>
+              <Text style={[styles.stepHint, { color: t.sub }]}>
+                Vérifiez vos informations avant de créer le compte.
+              </Text>
+              {[
+                { label: "Prénom", value: form.first_name },
+                { label: "Nom", value: form.last_name },
+                { label: "Identifiant", value: form.username },
+                { label: "E-mail", value: form.email },
+                { label: "Téléphone", value: form.phone },
+              ].map((row) => (
+                <SummaryRow key={row.label} label={row.label} value={row.value} t={t} />
+              ))}
+              <PrimaryBtn
+                label={loading ? "Création en cours..." : "Créer mon compte"}
+                Icon={UserPlus}
+                onPress={createAccount}
+                loading={loading}
+              />
+              <BackBtn onPress={() => setStep(3)} />
+            </>
+          )}
+
+          {notice ? (
+            <View style={styles.noticeBox}>
+              <CheckCircle color={palette.green} size={15} strokeWidth={2.4} />
+              <Text style={styles.noticeText}>{notice}</Text>
+            </View>
+          ) : null}
+          {error ? (
+            <View style={styles.errorBox}>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : null}
+        </View>
+
+        <TouchableOpacity style={styles.loginLink} onPress={() => navigation.goBack()}>
+          <ArrowLeft color={palette.blue} size={15} strokeWidth={2.4} />
+          <Text style={{ color: palette.blue, fontWeight: "700", fontSize: 13 }}>
+            Retour à la connexion
+          </Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
-function Button({ label, Icon, onPress }) {
+function PrimaryBtn({ label, Icon, onPress, loading }) {
   return (
-    <TouchableOpacity style={styles.button} onPress={onPress}>
-      {Icon ? <Icon color="#fff" size={18} strokeWidth={2.4} /> : null}
-      <Text style={styles.buttonText}>{label}</Text>
+    <TouchableOpacity
+      style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]}
+      onPress={onPress}
+      disabled={loading}
+      activeOpacity={0.85}
+    >
+      {Icon ? <Icon color="#fff" size={17} strokeWidth={2.4} /> : null}
+      <Text style={styles.primaryBtnText}>{label}</Text>
     </TouchableOpacity>
   );
 }
 
-function Back({ onPress }) {
+function BackBtn({ onPress }) {
   return (
-    <TouchableOpacity onPress={onPress}>
-      <Text style={[styles.link, { color: palette.blue }]}>Retour</Text>
+    <TouchableOpacity style={styles.backBtn} onPress={onPress}>
+      <ArrowLeft color={palette.blue} size={15} strokeWidth={2.4} />
+      <Text style={{ color: palette.blue, fontWeight: "700", fontSize: 13 }}>Retour</Text>
     </TouchableOpacity>
   );
 }
 
-function Summary({ label, value, t }) {
+function SummaryRow({ label, value, t }) {
   return (
-    <View style={[styles.summary, { borderColor: t.border }]}>
-      <Text style={{ color: t.sub }}>{label}</Text>
-      <Text style={{ color: t.text, fontWeight: "700" }}>{value}</Text>
+    <View style={[styles.summaryRow, { borderColor: t.border }]}>
+      <Text style={{ color: t.sub, fontSize: 12, width: 90 }}>{label}</Text>
+      <Text style={{ color: t.text, fontWeight: "700", flex: 1 }}>{value}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  title: { fontSize: 28, fontWeight: "800", lineHeight: 34 },
-  stepText: { marginTop: 4, marginBottom: 10 },
-  button: {
-    backgroundColor: palette.blue,
-    padding: 14,
-    borderRadius: 8,
-    marginTop: 20,
+  scroll: { flexGrow: 1 },
+
+  header: {
+    paddingTop: 52,
+    paddingBottom: 28,
+    alignItems: "center",
+    overflow: "hidden",
+  },
+  headerBgCircle: {
+    position: "absolute",
+    top: -80,
+    right: -80,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: "rgba(255,255,255,0.07)",
+  },
+  logoRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
+  logoIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.18)",
     alignItems: "center",
     justifyContent: "center",
+  },
+  logoText: { color: "#fff", fontSize: 28, fontWeight: "800", letterSpacing: 1.5 },
+  headerTitle: { color: "rgba(255,255,255,0.9)", fontSize: 16, fontWeight: "600" },
+
+  stepperWrap: {
     flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 16,
+    marginTop: -1,
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+  },
+  stepItem: { alignItems: "center", flex: 1 },
+  stepDot: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+  },
+  stepNum: { fontSize: 10, fontWeight: "800" },
+  stepLabel: { fontSize: 9, fontWeight: "700", textAlign: "center" },
+  stepLine: { flex: 1, height: 2, marginBottom: 16 },
+
+  card: {
+    marginHorizontal: 16,
+    marginTop: 0,
+    borderRadius: 0,
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
+    padding: 24,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  stepTitle: { fontSize: 20, fontWeight: "800", marginBottom: 4 },
+  stepHint: { fontSize: 13, lineHeight: 19, marginBottom: 4 },
+
+  primaryBtn: {
+    backgroundColor: palette.blue,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
+    marginTop: 20,
+  },
+  primaryBtnDisabled: { opacity: 0.6 },
+  primaryBtnText: { color: "#fff", fontWeight: "800", fontSize: 15 },
+
+  backBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 14,
+    paddingVertical: 8,
+  },
+
+  resendBtn: {
+    alignItems: "center",
+    marginTop: 12,
+    paddingVertical: 6,
+  },
+
+  summaryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 11,
+    borderBottomWidth: 1,
     gap: 8,
   },
-  buttonText: { color: "#fff", fontWeight: "800" },
-  link: { textAlign: "center", marginTop: 16, fontWeight: "800" },
-  error: { color: palette.danger, marginTop: 12 },
-  notice: { color: palette.green, marginTop: 12, fontWeight: "700" },
-  summary: { borderBottomWidth: 1, paddingVertical: 10 },
+
+  noticeBox: {
+    marginTop: 14,
+    backgroundColor: palette.greenLight,
+    borderWidth: 1,
+    borderColor: "#86EFAC",
+    borderRadius: 10,
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  noticeText: { color: palette.green, fontSize: 13, fontWeight: "600", flex: 1 },
+
+  errorBox: {
+    marginTop: 14,
+    backgroundColor: palette.dangerLight,
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+    borderRadius: 10,
+    padding: 12,
+  },
+  errorText: { color: palette.danger, fontSize: 13, fontWeight: "600" },
+
+  loginLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    padding: 20,
+    paddingTop: 14,
+  },
 });

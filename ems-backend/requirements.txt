@@ -15,6 +15,9 @@ numpy>=1.26
 # Décommentez pour une variante basée scikit-fuzzy.
 # scikit-fuzzy>=0.4.2
 joblib>=1.4
+requests>=2.32
+# Keras / TensorFlow pour les modèles GRU et LSTM
+tensorflow>=2.16
 gunicorn>=22.0
 # dev / tests
 pytest>=8.0

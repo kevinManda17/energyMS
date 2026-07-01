@@ -1,5 +1,5 @@
 import { Text, TouchableOpacity, StyleSheet, View } from "react-native";
-import { ChartLine, ChevronRight, Cpu, FileText, Settings, Tags } from "lucide-react-native";
+import { ChartLine, ChevronRight, Cpu, FileText, Settings } from "lucide-react-native";
 import { Screen, PageTitle } from "../components/Screen";
 import { useTheme } from "../hooks/useTheme";
 import { palette } from "../theme/colors";
@@ -8,7 +8,6 @@ const LINKS = [
   { label: "Equipements", screen: "Devices", icon: Cpu },
   { label: "Previsions", screen: "Forecasting", icon: ChartLine },
   { label: "Rapports", screen: "Reports", icon: FileText },
-  { label: "Tarifs", screen: "Pricing", icon: Tags },
   { label: "Parametres", screen: "Settings", icon: Settings },
 ];
 

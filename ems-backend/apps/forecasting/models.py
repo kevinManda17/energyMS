@@ -10,11 +10,25 @@ class ImportedModel(models.Model):
         PRODUCTION = "production", "Production"
         CONSUMPTION = "consumption", "Consommation"
 
+    class ModelType(models.TextChoices):
+        PROFILE = "profile", "Profil horaire (fallback)"
+        SKLEARN = "sklearn", "Scikit-learn (joblib)"
+        KERAS_GRU = "keras_gru", "Keras GRU"
+        KERAS_LSTM = "keras_lstm", "Keras LSTM"
+        KERAS_CNN_LSTM = "keras_cnn_lstm", "Keras CNN-LSTM"
+        KERAS_LSTM_ATT = "keras_lstm_att", "Keras LSTM-Attention"
+
     name = models.CharField(max_length=120)
     target = models.CharField(max_length=20, choices=Target.choices)
     model_type = models.CharField(max_length=50, default="profile")
     file = models.FileField(upload_to="models/", blank=True, null=True)
     file_path = models.CharField(max_length=255, blank=True)
+    # For Keras models: path to preprocessing.joblib (imputer + scalers)
+    preprocessing_path = models.CharField(max_length=255, blank=True)
+    # Sequence length for RNN models (number of past steps)
+    sequence_length = models.PositiveIntegerField(default=1)
+    # Ordered list of feature column names the model expects
+    feature_columns = models.JSONField(default=list, blank=True)
     version = models.CharField(max_length=50, default="v1")
     input_schema = models.JSONField(default=dict, blank=True)
     metrics = models.JSONField(default=dict, blank=True)

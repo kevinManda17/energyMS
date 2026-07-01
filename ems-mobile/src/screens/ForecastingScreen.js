@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-nati
 import { ChartLine, Clock3, Plug, RefreshCw, Sun } from "lucide-react-native";
 import { Card } from "../components/Card";
 import { Badge } from "../components/Badge";
+import LineChart from "../components/LineChart";
 import { PageTitle, ScreenScroll } from "../components/Screen";
 import { forecastingApi } from "../api/endpoints";
 import { useActiveHouse } from "../hooks/useActiveHouse";
@@ -154,6 +155,33 @@ export default function ForecastingScreen() {
         />
       </View>
 
+      {rows.length > 0 && (
+        <Card style={styles.chartCard}>
+          <View style={styles.chartHeader}>
+            <Text style={[styles.chartTitle, { color: t.text }]}>Courbe de prevision</Text>
+            <View style={styles.legend}>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: palette.green }]} />
+                <Text style={[styles.legendLabel, { color: t.sub }]}>Production</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: palette.blue }]} />
+                <Text style={[styles.legendLabel, { color: t.sub }]}>Conso.</Text>
+              </View>
+            </View>
+          </View>
+          <LineChart
+            series={[
+              { data: rows.map((r) => r.production ?? null), color: palette.green, label: "Production" },
+              { data: rows.map((r) => r.consumption ?? null), color: palette.blue, label: "Consommation" },
+            ]}
+            labels={rows.map((r) => fmtHour(r.horizon))}
+            height={170}
+            unit="kW"
+          />
+        </Card>
+      )}
+
       <Text style={[styles.section, { color: t.text }]}>Prochaines heures</Text>
       {rows.length === 0 ? (
         <Text style={[styles.empty, { color: t.sub }]}>Aucune prevision horaire.</Text>
@@ -234,6 +262,13 @@ const styles = StyleSheet.create({
   kpiLabel: { fontSize: 12, lineHeight: 16 },
   kpiValue: { marginTop: 5, fontSize: 22, fontWeight: "800" },
   kpiUnit: { fontSize: 13, fontWeight: "600" },
+  chartCard: { marginBottom: 10, paddingBottom: 4 },
+  chartHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  chartTitle: { fontSize: 14, fontWeight: "700" },
+  legend: { flexDirection: "row", gap: 12 },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
+  legendDot: { width: 10, height: 10, borderRadius: 5 },
+  legendLabel: { fontSize: 11 },
   section: { fontSize: 16, fontWeight: "800", marginTop: 18, marginBottom: 8 },
   empty: { marginBottom: 12 },
   rowCard: {

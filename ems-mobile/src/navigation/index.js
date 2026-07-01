@@ -1,8 +1,14 @@
 import { NavigationContainer, DefaultTheme, DarkTheme } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { useColorScheme } from "react-native";
-import { Activity, ChartNetwork, CirclePlus, GitBranch, HousePlug } from "lucide-react-native";
+import { useColorScheme, View, Text, StyleSheet } from "react-native";
+import {
+  BarChart2,
+  Home,
+  MoreHorizontal,
+  Network,
+  Zap,
+} from "lucide-react-native";
 
 import { useAuthStore } from "../store/auth";
 import { palette } from "../theme/colors";
@@ -26,26 +32,64 @@ import MoreScreen from "../screens/MoreScreen";
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
+const TAB_ICONS = {
+  Accueil: Home,
+  Reseaux: Network,
+  Mesures: BarChart2,
+  Decisions: Zap,
+  Plus: MoreHorizontal,
+};
+
+const TAB_LABELS = {
+  Accueil: "Accueil",
+  Reseaux: "Réseaux",
+  Mesures: "Mesures",
+  Decisions: "Décisions",
+  Plus: "Plus",
+};
+
 function Tabs() {
+  const scheme = useColorScheme();
+  const isDark = scheme === "dark";
+
   return (
     <Tab.Navigator
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarActiveTintColor: palette.blue,
-        tabBarInactiveTintColor: "#8A8F98",
-        tabBarLabelStyle: { fontWeight: "700" },
-        tabBarIcon: ({ color, size }) => {
-          const icons = {
-            Accueil: HousePlug,
-            Reseaux: ChartNetwork,
-            Mesures: Activity,
-            Decisions: GitBranch,
-            Plus: CirclePlus,
-          };
-          const Icon = icons[route.name] || CirclePlus;
-          return <Icon color={color} size={size || 22} strokeWidth={2.4} />;
-        },
-      })}
+      screenOptions={({ route }) => {
+        const Icon = TAB_ICONS[route.name] || MoreHorizontal;
+        return {
+          headerShown: false,
+          tabBarActiveTintColor: palette.blue,
+          tabBarInactiveTintColor: isDark ? "#475569" : "#94A3B8",
+          tabBarLabelStyle: {
+            fontWeight: "700",
+            fontSize: 10.5,
+            marginBottom: 2,
+          },
+          tabBarStyle: {
+            backgroundColor: isDark ? "#0F1929" : "#FFFFFF",
+            borderTopWidth: 1,
+            borderTopColor: isDark ? "rgba(255,255,255,0.06)" : "#E2E8F0",
+            height: 64,
+            paddingBottom: 8,
+            paddingTop: 6,
+            elevation: 12,
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: -2 },
+            shadowOpacity: 0.06,
+            shadowRadius: 8,
+          },
+          tabBarLabel: TAB_LABELS[route.name] || route.name,
+          tabBarIcon: ({ color, focused }) => (
+            <View style={focused ? styles.iconActive : styles.icon}>
+              <Icon
+                color={color}
+                size={22}
+                strokeWidth={focused ? 2.6 : 2}
+              />
+            </View>
+          ),
+        };
+      }}
     >
       <Tab.Screen name="Accueil" component={DashboardScreen} />
       <Tab.Screen name="Reseaux" component={HousesScreen} />
@@ -55,6 +99,13 @@ function Tabs() {
     </Tab.Navigator>
   );
 }
+
+const stackScreenOptions = {
+  headerStyle: { backgroundColor: palette.blue },
+  headerTintColor: "#fff",
+  headerTitleStyle: { fontWeight: "800", fontSize: 17 },
+  headerShadowVisible: false,
+};
 
 export default function Navigation() {
   const scheme = useColorScheme();
@@ -66,13 +117,13 @@ export default function Navigation() {
         {isAuthenticated ? (
           <>
             <Stack.Screen name="Main" component={Tabs} options={{ headerShown: false }} />
-            <Stack.Screen name="DecisionDetail" component={DecisionDetailScreen} options={{ title: "Decision" }} />
-            <Stack.Screen name="AlertDetail" component={AlertDetailScreen} options={{ title: "Alerte" }} />
-            <Stack.Screen name="Devices" component={DevicesScreen} options={{ title: "Equipements" }} />
-            <Stack.Screen name="Forecasting" component={ForecastingScreen} options={{ title: "Previsions horaires" }} />
-            <Stack.Screen name="Reports" component={ReportsScreen} options={{ title: "Rapports" }} />
-            <Stack.Screen name="Pricing" component={PricingScreen} options={{ title: "Tarifs" }} />
-            <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: "Parametres" }} />
+            <Stack.Screen name="DecisionDetail" component={DecisionDetailScreen} options={{ ...stackScreenOptions, title: "Détail décision" }} />
+            <Stack.Screen name="AlertDetail" component={AlertDetailScreen} options={{ ...stackScreenOptions, title: "Détail alerte" }} />
+            <Stack.Screen name="Devices" component={DevicesScreen} options={{ ...stackScreenOptions, title: "Équipements" }} />
+            <Stack.Screen name="Forecasting" component={ForecastingScreen} options={{ ...stackScreenOptions, title: "Prévisions horaires" }} />
+            <Stack.Screen name="Reports" component={ReportsScreen} options={{ ...stackScreenOptions, title: "Rapports" }} />
+            <Stack.Screen name="Pricing" component={PricingScreen} options={{ ...stackScreenOptions, title: "Tarifs" }} />
+            <Stack.Screen name="Settings" component={SettingsScreen} options={{ ...stackScreenOptions, title: "Paramètres" }} />
           </>
         ) : (
           <>
@@ -84,3 +135,20 @@ export default function Navigation() {
     </NavigationContainer>
   );
 }
+
+const styles = StyleSheet.create({
+  icon: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  iconActive: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 8,
+    backgroundColor: palette.blue + "14",
+  },
+});
