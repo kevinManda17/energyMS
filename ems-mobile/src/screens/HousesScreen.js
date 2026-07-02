@@ -1,6 +1,11 @@
 import { useState } from "react";
-import { View, Text, FlatList, TouchableOpacity, StyleSheet } from "react-native";
-import { Battery, CheckCircle2, HousePlug, MapPin, Plus, Wifi, Zap } from "lucide-react-native";
+import {
+  View, Text, FlatList, TouchableOpacity, StyleSheet,
+  Modal, KeyboardAvoidingView, Platform, Pressable,
+} from "react-native";
+import {
+  Battery, CheckCircle2, HousePlug, MapPin, Plus, Wifi, X, Zap,
+} from "lucide-react-native";
 import { Badge } from "../components/Badge";
 import { FormInput } from "../components/FormInput";
 import { Screen, PageTitle } from "../components/Screen";
@@ -9,35 +14,49 @@ import { useActiveHouse } from "../hooks/useActiveHouse";
 import { useTheme } from "../hooks/useTheme";
 import { palette } from "../theme/colors";
 
+const PAGE_SIZE = 9;
+
 export default function HousesScreen() {
   const t = useTheme();
   const { houses, houseId, setHouseId, reload } = useActiveHouse();
-  const [name, setName] = useState("");
+  const [name, setName]         = useState("");
   const [location, setLocation] = useState("");
-  const [error, setError] = useState("");
-  const [showForm, setShowForm] = useState(false);
+  const [error, setError]       = useState("");
+  const [showModal, setShowModal] = useState(false);
+  const [saving, setSaving]     = useState(false);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   async function createHouse() {
     if (!name.trim()) return;
     setError("");
+    setSaving(true);
     try {
       await housesApi.create({ name, location, status: "ONLINE" });
       setName("");
       setLocation("");
-      setShowForm(false);
+      setShowModal(false);
       await reload();
     } catch {
       setError("Création impossible. Vérifiez la connexion.");
+    } finally {
+      setSaving(false);
     }
   }
+
+  const paged    = houses.slice(0, visibleCount);
+  const hasMore  = houses.length > visibleCount;
+  const remaining = houses.length - visibleCount;
 
   return (
     <Screen>
       <View style={styles.headerRow}>
-        <PageTitle title="Micro-réseaux" subtitle={`${houses.length} réseau${houses.length !== 1 ? "x" : ""}`} />
+        <PageTitle
+          title="Micro-réseaux"
+          subtitle={`${houses.length} réseau${houses.length !== 1 ? "x" : ""}`}
+        />
         <TouchableOpacity
           style={styles.addBtn}
-          onPress={() => setShowForm((v) => !v)}
+          onPress={() => setShowModal(true)}
           activeOpacity={0.8}
         >
           <Plus color="#fff" size={18} strokeWidth={2.6} />
@@ -45,14 +64,14 @@ export default function HousesScreen() {
       </View>
 
       <FlatList
-        data={houses}
+        data={paged}
         keyExtractor={(item) => String(item.id)}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
             <HousePlug color={t.sub} size={40} strokeWidth={1.5} />
             <Text style={[styles.emptyText, { color: t.sub }]}>
-              Aucun micro-réseau.{"\n"}Ajoutez-en un ci-dessous.
+              Aucun micro-réseau.{"\n"}Appuyez sur + pour en créer un.
             </Text>
           </View>
         }
@@ -60,22 +79,22 @@ export default function HousesScreen() {
           const isActive = item.id === houseId;
           return (
             <TouchableOpacity onPress={() => setHouseId(item.id)} activeOpacity={0.75}>
-              <View
-                style={[
-                  styles.houseCard,
-                  {
-                    backgroundColor: t.card,
-                    borderColor: isActive ? palette.blue : t.border,
-                    borderWidth: isActive ? 2 : 1,
-                  },
-                ]}
-              >
-                {/* Status strip */}
-                <View style={[styles.statusStrip, { backgroundColor: item.status === "ONLINE" ? palette.green : palette.slate }]} />
-
+              <View style={[
+                styles.houseCard,
+                {
+                  backgroundColor: t.card,
+                  borderColor: isActive ? palette.blue : t.border,
+                  borderWidth: isActive ? 2 : 1,
+                },
+              ]}>
+                <View style={[styles.statusStrip, {
+                  backgroundColor: item.status === "ONLINE" ? palette.green : palette.slate,
+                }]} />
                 <View style={styles.houseContent}>
                   <View style={styles.houseTop}>
-                    <View style={[styles.houseIconWrap, { backgroundColor: isActive ? palette.blueLight : t.muted || "#F1F5F9" }]}>
+                    <View style={[styles.houseIconWrap, {
+                      backgroundColor: isActive ? palette.blueLight : t.muted || "#F1F5F9",
+                    }]}>
                       <HousePlug color={isActive ? palette.blue : t.sub} size={20} strokeWidth={2.2} />
                     </View>
                     <View style={{ flex: 1 }}>
@@ -87,20 +106,16 @@ export default function HousesScreen() {
                         </View>
                       ) : null}
                     </View>
-                    {isActive ? (
-                      <CheckCircle2 color={palette.blue} size={22} strokeWidth={2.4} />
-                    ) : (
-                      <Badge value={item.status} />
-                    )}
+                    {isActive
+                      ? <CheckCircle2 color={palette.blue} size={22} strokeWidth={2.4} />
+                      : <Badge value={item.status} />}
                   </View>
-
-                  {/* Capacity row */}
                   <View style={[styles.capacityRow, { borderTopColor: t.border }]}>
-                    <CapacityItem icon={Zap} label="PV" value={`${item.pv_capacity_kw || 0} kW`} color={palette.solar} />
-                    <View style={[styles.capacitySep, { backgroundColor: t.border }]} />
+                    <CapacityItem icon={Zap}     label="PV"      value={`${item.pv_capacity_kw || 0} kW`}    color={palette.solar}  />
+                    <Sep t={t} />
                     <CapacityItem icon={Battery} label="Batterie" value={`${item.battery_capacity_kwh || 0} kWh`} color={palette.green} />
-                    <View style={[styles.capacitySep, { backgroundColor: t.border }]} />
-                    <CapacityItem icon={Wifi} label="Statut" value={item.status || "—"} color={item.status === "ONLINE" ? palette.green : palette.slate} />
+                    <Sep t={t} />
+                    <CapacityItem icon={Wifi}    label="Statut"  value={item.status || "—"}                  color={item.status === "ONLINE" ? palette.green : palette.slate} />
                   </View>
                 </View>
               </View>
@@ -108,15 +123,49 @@ export default function HousesScreen() {
           );
         }}
         ListFooterComponent={
-          showForm ? (
-            <View style={[styles.formCard, { backgroundColor: t.card, borderColor: palette.blue }]}>
-              <Text style={[styles.formTitle, { color: t.text }]}>Nouveau micro-réseau</Text>
+          hasMore ? (
+            <TouchableOpacity
+              style={[styles.loadMoreBtn, { borderColor: t.border }]}
+              onPress={() => setVisibleCount((c) => c + PAGE_SIZE)}
+              activeOpacity={0.75}
+            >
+              <Text style={{ color: palette.blue, fontWeight: "700", fontSize: 14 }}>
+                Voir {remaining} de plus
+              </Text>
+            </TouchableOpacity>
+          ) : null
+        }
+      />
+
+      {/* Modal création */}
+      <Modal
+        visible={showModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowModal(false)}
+      >
+        <Pressable style={styles.overlay} onPress={() => setShowModal(false)}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            style={styles.overlayInner}
+          >
+            <Pressable
+              style={[styles.modalCard, { backgroundColor: t.card }]}
+              onPress={() => {}}
+            >
+              <View style={styles.modalHeader}>
+                <Text style={[styles.modalTitle, { color: t.text }]}>Nouveau micro-réseau</Text>
+                <TouchableOpacity onPress={() => setShowModal(false)} style={styles.closeBtn}>
+                  <X color={t.sub} size={20} strokeWidth={2.4} />
+                </TouchableOpacity>
+              </View>
+
               <FormInput
                 icon={HousePlug}
                 value={name}
                 onChangeText={setName}
                 placeholder="Nom (ex: Résidence Lubumbashi)"
-                label="Nom du réseau"
+                label="Nom du réseau *"
               />
               <FormInput
                 icon={MapPin}
@@ -126,14 +175,22 @@ export default function HousesScreen() {
                 label="Localisation"
               />
               {error ? <Text style={styles.formError}>{error}</Text> : null}
-              <TouchableOpacity style={styles.saveBtn} onPress={createHouse} activeOpacity={0.85}>
+
+              <TouchableOpacity
+                style={[styles.saveBtn, { opacity: saving ? 0.7 : 1 }]}
+                onPress={createHouse}
+                disabled={saving}
+                activeOpacity={0.85}
+              >
                 <HousePlug color="#fff" size={16} strokeWidth={2.4} />
-                <Text style={styles.saveBtnText}>Créer le micro-réseau</Text>
+                <Text style={styles.saveBtnText}>
+                  {saving ? "Création…" : "Créer le micro-réseau"}
+                </Text>
               </TouchableOpacity>
-            </View>
-          ) : null
-        }
-      />
+            </Pressable>
+          </KeyboardAvoidingView>
+        </Pressable>
+      </Modal>
     </Screen>
   );
 }
@@ -147,64 +204,61 @@ function CapacityItem({ icon: Icon, label, value, color }) {
   );
 }
 
+function Sep({ t }) {
+  return <View style={[styles.capacitySep, { backgroundColor: t.border }]} />;
+}
+
 const styles = StyleSheet.create({
   headerRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
   addBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    backgroundColor: palette.blue,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 8,
+    width: 42, height: 42, borderRadius: 12,
+    backgroundColor: palette.blue, alignItems: "center", justifyContent: "center", marginTop: 8,
   },
   emptyWrap: { alignItems: "center", marginTop: 60, gap: 14 },
   emptyText: { textAlign: "center", fontSize: 15, lineHeight: 22 },
+
   houseCard: {
-    borderRadius: 14,
-    marginBottom: 12,
-    overflow: "hidden",
-    flexDirection: "row",
+    borderRadius: 14, marginBottom: 12, overflow: "hidden", flexDirection: "row",
   },
   statusStrip: { width: 5 },
   houseContent: { flex: 1, padding: 14 },
   houseTop: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 },
   houseIconWrap: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
+    width: 42, height: 42, borderRadius: 12, alignItems: "center", justifyContent: "center",
   },
   houseName: { fontSize: 16, fontWeight: "800", marginBottom: 3 },
   locationRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   locationText: { fontSize: 12 },
   capacityRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderTopWidth: 1,
-    paddingTop: 10,
-    gap: 8,
+    flexDirection: "row", alignItems: "center",
+    borderTopWidth: 1, paddingTop: 10, gap: 8,
   },
   capacityItem: { flex: 1, alignItems: "center", flexDirection: "row", gap: 5, justifyContent: "center" },
   capacitySep: { width: 1, height: 20 },
-  formCard: {
-    borderWidth: 1.5,
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 16,
+
+  loadMoreBtn: {
+    borderWidth: 1, borderRadius: 12, padding: 14,
+    alignItems: "center", marginBottom: 12,
   },
-  formTitle: { fontSize: 15, fontWeight: "800", marginBottom: 4 },
+
+  /* Modal */
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
+  overlayInner: { justifyContent: "flex-end" },
+  modalCard: {
+    borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: 20, paddingBottom: 32,
+  },
+  modalHeader: {
+    flexDirection: "row", justifyContent: "space-between",
+    alignItems: "center", marginBottom: 14,
+  },
+  modalTitle: { fontSize: 17, fontWeight: "800" },
+  closeBtn: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
+
   formError: { color: palette.danger, marginTop: 8, fontWeight: "600" },
   saveBtn: {
-    backgroundColor: palette.blue,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    padding: 13,
-    borderRadius: 10,
-    marginTop: 12,
+    backgroundColor: palette.blue, flexDirection: "row", alignItems: "center",
+    justifyContent: "center", gap: 6, padding: 14, borderRadius: 12, marginTop: 16,
   },
   saveBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
 });

@@ -85,12 +85,25 @@ export default function DecisionDetailScreen({ route }) {
       {/* Scores */}
       <Text style={[styles.sectionTitle, { color: t.text }]}>Scores de décision</Text>
       <View style={styles.scoreGrid}>
-        <ScoreCard label="Confiance" value={`${fmt(decision.confidence_score * 100, 0)}%`} icon={CheckCircle2} color={palette.green} t={t} />
-        <ScoreCard label="Risque" value={`${fmt(decision.risk_score, 1)}%`} icon={AlertTriangle} color={palette.danger} t={t} />
-        <ScoreCard label="Délestage" value={`${fmt(decision.shedding_level, 1)}%`} icon={Zap} color={palette.solar} t={t} />
-        <ScoreCard label="Charge batt." value={`${fmt(decision.charge_battery_score, 1)}%`} icon={Battery} color={palette.green} t={t} />
-        <ScoreCard label="Décharge batt." value={`${fmt(decision.discharge_battery_score, 1)}%`} icon={Battery} color={palette.solar} t={t} />
-        <ScoreCard label="Protection" value={`${fmt(decision.protect_battery_score, 1)}%`} icon={Shield} color={palette.blue} t={t} />
+        {[
+          { label: "Confiance",      value: `${fmt((decision.confidence_score || 0) * 100, 0)}%`, icon: CheckCircle2, color: palette.green  },
+          { label: "Risque",         value: `${fmt(decision.risk_score, 1)}%`,                    icon: AlertTriangle, color: palette.danger  },
+          { label: "Délestage",      value: `${fmt(decision.shedding_level, 1)}%`,                icon: Zap,           color: palette.solar   },
+          { label: "Ch. batterie",   value: `${fmt(decision.charge_battery_score, 1)}%`,          icon: Battery,       color: palette.green   },
+          { label: "Dé. batterie",   value: `${fmt(decision.discharge_battery_score, 1)}%`,       icon: Battery,       color: palette.solar   },
+          { label: "Protection",     value: `${fmt(decision.protect_battery_score, 1)}%`,         icon: Shield,        color: palette.blue    },
+        ].reduce((rows, score, i) => {
+          if (i % 2 === 0) rows.push([score]);
+          else rows[rows.length - 1].push(score);
+          return rows;
+        }, []).map((pair, ri) => (
+          <View key={ri} style={styles.scoreRow}>
+            {pair.map((s) => (
+              <ScoreCard key={s.label} label={s.label} value={s.value} icon={s.icon} color={s.color} t={t} />
+            ))}
+            {pair.length === 1 && <View style={{ flex: 1 }} />}
+          </View>
+        ))}
       </View>
 
       {/* Fired rules */}
@@ -225,17 +238,19 @@ const styles = StyleSheet.create({
   empty: { paddingHorizontal: 16, marginBottom: 8 },
 
   scoreGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
     paddingHorizontal: 16,
+    gap: 8,
+  },
+  scoreRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 8,
   },
   scoreCard: {
+    flex: 1,
     borderWidth: 1,
     borderRadius: 12,
-    padding: 12,
-    width: "31%",
-    minWidth: "31%",
+    padding: 14,
   },
   scoreIconWrap: {
     width: 28,

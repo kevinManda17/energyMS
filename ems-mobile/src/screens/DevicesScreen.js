@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, StyleSheet } from "react-native";
+import {
+  View, Text, TextInput, TouchableOpacity,
+  StyleSheet, Modal, KeyboardAvoidingView, Platform, Pressable,
+} from "react-native";
 import {
   Activity,
   CircuitBoard,
@@ -8,6 +11,7 @@ import {
   Radio,
   Settings2,
   Thermometer,
+  X,
   Zap,
 } from "lucide-react-native";
 import { Badge } from "../components/Badge";
@@ -28,12 +32,14 @@ const SENSOR_ICONS = {
 };
 
 const EQUIP_ICONS = {
-  SOLAR_PANEL:   { icon: CircuitBoard, color: palette.solar },
-  BATTERY:       { icon: Radio,        color: palette.green },
-  INVERTER:      { icon: Zap,          color: palette.blue },
-  LOAD:          { icon: Cpu,          color: palette.slate },
-  APPLIANCE:     { icon: Settings2,    color: palette.purple },
+  SOLAR_PANEL: { icon: CircuitBoard, color: palette.solar },
+  BATTERY:     { icon: Radio,        color: palette.green },
+  INVERTER:    { icon: Zap,          color: palette.blue },
+  LOAD:        { icon: Cpu,          color: palette.slate },
+  APPLIANCE:   { icon: Settings2,    color: palette.purple },
 };
+
+const EQUIP_TYPES = ["LOAD", "SOLAR_PANEL", "BATTERY", "INVERTER", "APPLIANCE"];
 
 function getSensorMeta(sensor) {
   const key = Object.keys(SENSOR_ICONS).find((k) =>
@@ -49,10 +55,11 @@ function getEquipMeta(item) {
 export default function DevicesScreen() {
   const t = useTheme();
   const { houseId, activeHouse } = useActiveHouse();
-  const [sensors, setSensors] = useState([]);
+  const [sensors, setSensors]     = useState([]);
   const [equipment, setEquipment] = useState([]);
-  const [form, setForm] = useState({ name: "", equipment_type: "", rated_power_kw: "" });
-  const [showForm, setShowForm] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm]           = useState({ name: "", equipment_type: "LOAD", rated_power_kw: "" });
+  const [saving, setSaving]       = useState(false);
 
   const load = useCallback(async () => {
     if (!houseId) return;
@@ -60,210 +67,249 @@ export default function DevicesScreen() {
       devicesApi.sensors(houseId),
       devicesApi.equipment(houseId),
     ]);
-    setSensors(sensorRes.data?.results || sensorRes.data || []);
+    setSensors(sensorRes.data?.results   || sensorRes.data   || []);
     setEquipment(equipmentRes.data?.results || equipmentRes.data || []);
   }, [houseId]);
 
-  useEffect(() => {
-    load().catch(() => {});
-  }, [load]);
+  useEffect(() => { load().catch(() => {}); }, [load]);
 
   async function createEquipment() {
     if (!houseId || !form.name.trim()) return;
-    await devicesApi.createEquipment(houseId, {
-      name: form.name,
-      equipment_type: form.equipment_type,
-      rated_power_kw: Number(form.rated_power_kw || 0),
-      priority: "NORMAL",
-      status: "ACTIVE",
-    });
-    setForm({ name: "", equipment_type: "", rated_power_kw: "" });
-    setShowForm(false);
-    load();
+    setSaving(true);
+    try {
+      await devicesApi.createEquipment(houseId, {
+        name:             form.name,
+        equipment_type:   form.equipment_type,
+        rated_power_kw:   Number(form.rated_power_kw || 0),
+        priority: "NORMAL",
+        status:   "ACTIVE",
+      });
+      setForm({ name: "", equipment_type: "LOAD", rated_power_kw: "" });
+      setShowModal(false);
+      load();
+    } catch {
+      /* error silently — can add toast later */
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <ScreenScroll>
+      {/* Header */}
       <View style={styles.headerRow}>
-        <PageTitle
-          title="Équipements"
-          subtitle={activeHouse?.name || "Aucun micro-réseau"}
-        />
+        <PageTitle title="Équipements" subtitle={activeHouse?.name || "Aucun micro-réseau"} />
         <TouchableOpacity
           style={styles.addBtn}
-          onPress={() => setShowForm((v) => !v)}
+          onPress={() => setShowModal(true)}
           activeOpacity={0.8}
         >
           <Plus color="#fff" size={18} strokeWidth={2.6} />
         </TouchableOpacity>
       </View>
 
-      {/* Sensors section */}
-      <View style={styles.sectionHeader}>
-        <Radio color={palette.blue} size={16} strokeWidth={2.4} />
-        <Text style={[styles.sectionTitle, { color: t.text }]}>Capteurs</Text>
-        <View style={[styles.countBadge, { backgroundColor: palette.blueLight }]}>
-          <Text style={{ color: palette.blue, fontSize: 11, fontWeight: "700" }}>{sensors.length}</Text>
-        </View>
-      </View>
-
-      {sensors.length === 0 && (
-        <Text style={[styles.empty, { color: t.sub }]}>Aucun capteur enregistré.</Text>
-      )}
+      {/* Capteurs */}
+      <SectionHeader icon={Radio} color={palette.blue} label="Capteurs" count={sensors.length} t={t} />
+      {sensors.length === 0 && <EmptyText text="Aucun capteur enregistré." t={t} />}
       {sensors.map((sensor) => {
         const meta = getSensorMeta(sensor);
-        const IconComp = meta.icon;
         return (
-          <View key={sensor.id} style={[styles.deviceCard, { backgroundColor: t.card, borderColor: t.border }]}>
-            <View style={[styles.deviceIconWrap, { backgroundColor: meta.color + "15" }]}>
-              <IconComp color={meta.color} size={18} strokeWidth={2.4} />
-            </View>
-            <View style={styles.deviceBody}>
-              <Text style={[styles.deviceName, { color: t.text }]}>{sensor.name}</Text>
-              <Text style={[styles.deviceSub, { color: t.sub }]}>
-                {sensor.sensor_type}
-                {sensor.unit ? ` · ${sensor.unit}` : ""}
-              </Text>
-            </View>
-            <Badge value={sensor.is_active ? "ACTIVE" : "INACTIVE"} />
-          </View>
+          <DeviceCard key={sensor.id} icon={meta.icon} color={meta.color} t={t}>
+            <Text style={[styles.deviceName, { color: t.text }]}>{sensor.name}</Text>
+            <Text style={[styles.deviceSub, { color: t.sub }]}>
+              {sensor.sensor_type}{sensor.unit ? ` · ${sensor.unit}` : ""}
+            </Text>
+          </DeviceCard>
         );
       })}
 
-      {/* Equipment section */}
-      <View style={[styles.sectionHeader, { marginTop: 18 }]}>
-        <Cpu color={palette.purple} size={16} strokeWidth={2.4} />
-        <Text style={[styles.sectionTitle, { color: t.text }]}>Charges & appareils</Text>
-        <View style={[styles.countBadge, { backgroundColor: palette.purpleLight }]}>
-          <Text style={{ color: palette.purple, fontSize: 11, fontWeight: "700" }}>{equipment.length}</Text>
-        </View>
-      </View>
-
-      {equipment.length === 0 && (
-        <Text style={[styles.empty, { color: t.sub }]}>Aucun équipement enregistré.</Text>
-      )}
+      {/* Équipements */}
+      <SectionHeader icon={Cpu} color={palette.purple} label="Charges & appareils" count={equipment.length} t={t} />
+      {equipment.length === 0 && <EmptyText text="Aucun équipement enregistré." t={t} />}
       {equipment.map((item) => {
         const meta = getEquipMeta(item);
-        const IconComp = meta.icon;
         return (
-          <View key={item.id} style={[styles.deviceCard, { backgroundColor: t.card, borderColor: t.border }]}>
-            <View style={[styles.deviceIconWrap, { backgroundColor: meta.color + "15" }]}>
-              <IconComp color={meta.color} size={18} strokeWidth={2.4} />
-            </View>
-            <View style={styles.deviceBody}>
-              <Text style={[styles.deviceName, { color: t.text }]}>{item.name}</Text>
-              <Text style={[styles.deviceSub, { color: t.sub }]}>
-                {item.equipment_type || "Appareil"} · {fmt(item.rated_power_kw)} kW · {item.priority}
-              </Text>
-            </View>
-            <Badge value={item.status} />
-          </View>
+          <DeviceCard key={item.id} icon={meta.icon} color={meta.color} badge={item.status} t={t}>
+            <Text style={[styles.deviceName, { color: t.text }]}>{item.name}</Text>
+            <Text style={[styles.deviceSub, { color: t.sub }]}>
+              {item.equipment_type || "Appareil"} · {fmt(item.rated_power_kw)} kW
+            </Text>
+          </DeviceCard>
         );
       })}
 
-      {/* Add equipment form */}
-      {showForm && (
-        <View style={[styles.formCard, { backgroundColor: t.card, borderColor: palette.blue }]}>
-          <Text style={[styles.formTitle, { color: t.text }]}>Nouvel équipement</Text>
-          <FormField
-            placeholder="Nom (ex: Réfrigérateur)"
-            value={form.name}
-            onChangeText={(v) => setForm({ ...form, name: v })}
-            t={t}
-          />
-          <FormField
-            placeholder="Type (LOAD, BATTERY, INVERTER...)"
-            value={form.equipment_type}
-            onChangeText={(v) => setForm({ ...form, equipment_type: v })}
-            t={t}
-          />
-          <FormField
-            placeholder="Puissance nominale (kW)"
-            value={form.rated_power_kw}
-            onChangeText={(v) => setForm({ ...form, rated_power_kw: v })}
-            keyboardType="numeric"
-            t={t}
-          />
-          <TouchableOpacity style={styles.saveBtn} onPress={createEquipment} activeOpacity={0.85}>
-            <Plus color="#fff" size={16} strokeWidth={2.4} />
-            <Text style={styles.saveBtnText}>Ajouter l'équipement</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
       <View style={{ height: 20 }} />
+
+      {/* Modal ajout équipement */}
+      <Modal
+        visible={showModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowModal(false)}
+      >
+        <Pressable style={styles.overlay} onPress={() => setShowModal(false)}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            style={styles.overlayInner}
+          >
+            <Pressable
+              style={[styles.modalCard, { backgroundColor: t.card }]}
+              onPress={() => {}}
+            >
+              {/* Modal header */}
+              <View style={styles.modalHeader}>
+                <Text style={[styles.modalTitle, { color: t.text }]}>Nouvel équipement</Text>
+                <TouchableOpacity onPress={() => setShowModal(false)} style={styles.closeBtn}>
+                  <X color={t.sub} size={20} strokeWidth={2.4} />
+                </TouchableOpacity>
+              </View>
+
+              {/* Champs */}
+              <Text style={[styles.fieldLabel, { color: t.sub }]}>Nom *</Text>
+              <View style={[styles.inputWrap, { borderColor: t.border }]}>
+                <TextInput
+                  style={[styles.input, { color: t.text }]}
+                  value={form.name}
+                  onChangeText={(v) => setForm((f) => ({ ...f, name: v }))}
+                  placeholder="Ex : Réfrigérateur, Panneau PV…"
+                  placeholderTextColor={t.sub}
+                  selectionColor={palette.blue}
+                />
+              </View>
+
+              <Text style={[styles.fieldLabel, { color: t.sub }]}>Type</Text>
+              <View style={styles.typeGrid}>
+                {EQUIP_TYPES.map((type) => {
+                  const active = form.equipment_type === type;
+                  const meta   = EQUIP_ICONS[type] || { color: palette.slate };
+                  return (
+                    <TouchableOpacity
+                      key={type}
+                      onPress={() => setForm((f) => ({ ...f, equipment_type: type }))}
+                      style={[
+                        styles.typeChip,
+                        {
+                          borderColor: active ? meta.color : t.border,
+                          backgroundColor: active ? meta.color + "18" : "transparent",
+                        },
+                      ]}
+                    >
+                      <Text style={{ color: active ? meta.color : t.sub, fontSize: 12, fontWeight: "700" }}>
+                        {type}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={[styles.fieldLabel, { color: t.sub }]}>Puissance nominale (kW)</Text>
+              <View style={[styles.inputWrap, { borderColor: t.border }]}>
+                <TextInput
+                  style={[styles.input, { color: t.text }]}
+                  value={form.rated_power_kw}
+                  onChangeText={(v) => setForm((f) => ({ ...f, rated_power_kw: v }))}
+                  placeholder="Ex : 1.5"
+                  placeholderTextColor={t.sub}
+                  keyboardType="numeric"
+                  selectionColor={palette.blue}
+                />
+              </View>
+
+              <TouchableOpacity
+                style={[styles.saveBtn, { opacity: saving ? 0.7 : 1 }]}
+                onPress={createEquipment}
+                disabled={saving}
+                activeOpacity={0.85}
+              >
+                <Plus color="#fff" size={16} strokeWidth={2.6} />
+                <Text style={styles.saveBtnText}>
+                  {saving ? "Enregistrement…" : "Ajouter l'équipement"}
+                </Text>
+              </TouchableOpacity>
+            </Pressable>
+          </KeyboardAvoidingView>
+        </Pressable>
+      </Modal>
     </ScreenScroll>
   );
 }
 
-function FormField({ placeholder, t, ...props }) {
+/* ── Sub-components ── */
+
+function SectionHeader({ icon: Icon, color, label, count, t }) {
   return (
-    <TextInput
-      style={[styles.formInput, { color: t.text, borderColor: t.border }]}
-      placeholder={placeholder}
-      placeholderTextColor={t.sub}
-      {...props}
-    />
+    <View style={[styles.sectionHeader, { marginTop: 18 }]}>
+      <Icon color={color} size={16} strokeWidth={2.4} />
+      <Text style={[styles.sectionTitle, { color: t.text }]}>{label}</Text>
+      <View style={[styles.countBadge, { backgroundColor: color + "18" }]}>
+        <Text style={{ color, fontSize: 11, fontWeight: "700" }}>{count}</Text>
+      </View>
+    </View>
   );
+}
+
+function DeviceCard({ icon: Icon, color, badge, children, t }) {
+  return (
+    <View style={[styles.deviceCard, { backgroundColor: t.card, borderColor: t.border }]}>
+      <View style={[styles.deviceIconWrap, { backgroundColor: color + "15" }]}>
+        <Icon color={color} size={18} strokeWidth={2.4} />
+      </View>
+      <View style={styles.deviceBody}>{children}</View>
+      {badge && <Badge value={badge} />}
+    </View>
+  );
+}
+
+function EmptyText({ text, t }) {
+  return <Text style={[styles.empty, { color: t.sub }]}>{text}</Text>;
 }
 
 const styles = StyleSheet.create({
   headerRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
   addBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    backgroundColor: palette.blue,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 8,
+    width: 42, height: 42, borderRadius: 12,
+    backgroundColor: palette.blue, alignItems: "center", justifyContent: "center", marginTop: 8,
   },
   sectionHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
   sectionTitle: { fontSize: 15, fontWeight: "800", flex: 1 },
   countBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
   empty: { marginBottom: 10, fontSize: 13 },
   deviceCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 8,
-    gap: 12,
+    flexDirection: "row", alignItems: "center",
+    borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 8, gap: 12,
   },
-  deviceIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  deviceIconWrap: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   deviceBody: { flex: 1 },
   deviceName: { fontWeight: "700", fontSize: 14, marginBottom: 3 },
-  deviceSub: { fontSize: 12, lineHeight: 17 },
-  formCard: {
-    borderWidth: 1.5,
-    borderRadius: 14,
-    padding: 16,
-    marginTop: 14,
+  deviceSub:  { fontSize: 12, lineHeight: 17 },
+
+  /* Modal */
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
+  overlayInner: { justifyContent: "flex-end" },
+  modalCard: {
+    borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: 20, paddingBottom: 32,
   },
-  formTitle: { fontSize: 15, fontWeight: "800", marginBottom: 12 },
-  formInput: {
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 10,
-    fontSize: 14,
+  modalHeader: {
+    flexDirection: "row", justifyContent: "space-between",
+    alignItems: "center", marginBottom: 18,
   },
+  modalTitle: { fontSize: 17, fontWeight: "800" },
+  closeBtn: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
+
+  fieldLabel: { fontSize: 12, marginBottom: 6, marginTop: 12 },
+  inputWrap: {
+    borderWidth: 1, borderRadius: 10, minHeight: 46,
+    paddingHorizontal: 12, flexDirection: "row", alignItems: "center",
+  },
+  input: { flex: 1, paddingVertical: 10, fontSize: 14, backgroundColor: "transparent" },
+
+  typeGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 2 },
+  typeChip: { borderWidth: 1.5, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7 },
+
   saveBtn: {
-    backgroundColor: palette.blue,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    padding: 13,
-    borderRadius: 10,
-    marginTop: 4,
+    backgroundColor: palette.blue, borderRadius: 12, padding: 14, marginTop: 18,
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
   },
   saveBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
 });

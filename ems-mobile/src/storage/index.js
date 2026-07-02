@@ -6,6 +6,7 @@ const KEYS = {
   API_MODE: "ems_api_mode", // cloud | edge | local
   API_CUSTOM: "ems_api_custom",
   HOUSE_ID: "ems_house_id",
+  THEME: "ems_theme",       // light | dark | system
   CACHE: "ems_cache_",
 };
 
@@ -28,6 +29,10 @@ export const storage = {
   setApiMode: (mode) => AsyncStorage.setItem(KEYS.API_MODE, mode),
   getCustomUrl: () => AsyncStorage.getItem(KEYS.API_CUSTOM),
   setCustomUrl: (url) => AsyncStorage.setItem(KEYS.API_CUSTOM, url),
+
+  // --- app theme preference ---
+  getTheme: async () => (await AsyncStorage.getItem(KEYS.THEME)) || "system",
+  setTheme: (theme) => AsyncStorage.setItem(KEYS.THEME, theme),
 
   getHouseId: async () => {
     const value = await AsyncStorage.getItem(KEYS.HOUSE_ID);

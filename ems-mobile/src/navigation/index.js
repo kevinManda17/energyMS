@@ -28,6 +28,12 @@ import ForecastingScreen from "../screens/ForecastingScreen";
 import ReportsScreen from "../screens/ReportsScreen";
 import PricingScreen from "../screens/PricingScreen";
 import MoreScreen from "../screens/MoreScreen";
+import ProfileScreen from "../screens/ProfileScreen";
+import PasswordScreen from "../screens/PasswordScreen";
+import DisplayScreen from "../screens/DisplayScreen";
+import NotificationsScreen from "../screens/NotificationsScreen";
+import NetworkScreen from "../screens/NetworkScreen";
+import PrivacyScreen from "../screens/PrivacyScreen";
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -123,7 +129,13 @@ export default function Navigation() {
             <Stack.Screen name="Forecasting" component={ForecastingScreen} options={{ ...stackScreenOptions, title: "Prévisions horaires" }} />
             <Stack.Screen name="Reports" component={ReportsScreen} options={{ ...stackScreenOptions, title: "Rapports" }} />
             <Stack.Screen name="Pricing" component={PricingScreen} options={{ ...stackScreenOptions, title: "Tarifs" }} />
-            <Stack.Screen name="Settings" component={SettingsScreen} options={{ ...stackScreenOptions, title: "Paramètres" }} />
+            <Stack.Screen name="Settings"       component={SettingsScreen}       options={{ ...stackScreenOptions, title: "Paramètres"      }} />
+            <Stack.Screen name="Profile"        component={ProfileScreen}        options={{ ...stackScreenOptions, title: "Mon profil"       }} />
+            <Stack.Screen name="Password"       component={PasswordScreen}       options={{ ...stackScreenOptions, title: "Mot de passe"     }} />
+            <Stack.Screen name="Display"        component={DisplayScreen}        options={{ ...stackScreenOptions, title: "Affichage"        }} />
+            <Stack.Screen name="Notifications"  component={NotificationsScreen}  options={{ ...stackScreenOptions, title: "Notifications"    }} />
+            <Stack.Screen name="Network"        component={NetworkScreen}        options={{ ...stackScreenOptions, title: "Réseau"           }} />
+            <Stack.Screen name="Privacy"        component={PrivacyScreen}        options={{ ...stackScreenOptions, title: "Confidentialité"  }} />
           </>
         ) : (
           <>

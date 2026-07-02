@@ -1,4 +1,4 @@
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 
 export function PageHeader({ title, subtitle, actions }) {
   return (
@@ -52,4 +52,55 @@ const SEVERITY = {
 export function Badge({ value, children }) {
   const cls = SEVERITY[value] || "bg-slate-100 text-slate-600 dark:bg-white/5";
   return <span className={`badge ${cls}`}>{children || value}</span>;
+}
+
+export function Pagination({ page, total, perPage, onChange }) {
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+  if (totalPages <= 1) return null;
+
+  const from = (page - 1) * perPage + 1;
+  const to   = Math.min(page * perPage, total);
+
+  // Sliding window of up to 5 page numbers
+  const start = Math.max(1, Math.min(page - 2, totalPages - 4));
+  const end   = Math.min(totalPages, start + 4);
+  const pages = [];
+  for (let i = start; i <= end; i++) pages.push(i);
+
+  return (
+    <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-100 pt-4 dark:border-white/5">
+      <span className="text-xs text-slate-400">
+        {from}–{to} sur {total}
+      </span>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => onChange(page - 1)}
+          disabled={page === 1}
+          className="inline-flex items-center rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5"
+        >
+          <ChevronLeft size={13} />
+        </button>
+        {pages.map((p) => (
+          <button
+            key={p}
+            onClick={() => onChange(p)}
+            className={`min-w-7 rounded-lg px-2 py-1.5 text-xs font-medium transition ${
+              p === page
+                ? "bg-electric text-white"
+                : "text-slate-500 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-white/5"
+            }`}
+          >
+            {p}
+          </button>
+        ))}
+        <button
+          onClick={() => onChange(page + 1)}
+          disabled={page === totalPages}
+          className="inline-flex items-center rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5"
+        >
+          <ChevronRight size={13} />
+        </button>
+      </div>
+    </div>
+  );
 }
