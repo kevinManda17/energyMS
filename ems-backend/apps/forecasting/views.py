@@ -1,3 +1,5 @@
+import math
+
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -9,7 +11,17 @@ from apps.houses.models import House
 
 from .models import Forecast, ImportedModel
 from .serializers import ForecastSerializer, ImportedModelSerializer
-from .services import VALID_TARGETS, persist_forecasts, predict_future
+from .services import (
+    DEFAULT_STEP_MINUTES,
+    VALID_TARGETS,
+    forecast_horizons,
+    fresh_forecast_queryset,
+    persist_forecasts,
+    predict_future,
+)
+
+DEFAULT_PAGE_SIZE = 24
+MAX_PAGE_SIZE = 288
 
 
 class IsEMSAdmin(BasePermission):
@@ -70,23 +82,70 @@ class PredictView(APIView):
                 {"detail": "hours doit etre un nombre entier."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        try:
+            step_minutes = int(data.get("step_minutes") or DEFAULT_STEP_MINUTES)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "step_minutes doit etre un nombre entier."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            page = int(data.get("page") or 1)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "page doit etre un nombre entier."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        try:
+            page_size = int(data.get("page_size") or DEFAULT_PAGE_SIZE)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "page_size doit etre un nombre entier."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        page = max(1, page)
+        page_size = max(1, min(page_size, MAX_PAGE_SIZE))
 
         house = _house_for_user(
             request.user,
             data.get("house") or data.get("house_id"),
         )
-        points = predict_future(target, house=house, hours=hours)
-        model_meta = persist_forecasts(target, points, house=house)
+
+        # Consumption's GRU forecast is a sequential 144-step rollout
+        # (~15s even warm) — if a complete, recent-enough forecast already
+        # covers this exact window (e.g. the user just paged from page 1 to
+        # page 2), reuse it instead of recomputing the whole rollout again.
+        all_horizons = forecast_horizons(hours, step_minutes)
+        fresh_qs = fresh_forecast_queryset(target, house, all_horizons)
+        if fresh_qs is not None:
+            model_meta = fresh_qs.order_by("horizon").first().model
+        else:
+            points = predict_future(target, house=house, hours=hours, step_minutes=step_minutes)
+            model_meta = persist_forecasts(target, points, house=house)
+
+        count = len(all_horizons)
+        num_pages = max(1, math.ceil(count / page_size))
+        page = min(page, num_pages)
+        start = (page - 1) * page_size
+        page_horizons = all_horizons[start:start + page_size]
+
         forecasts = Forecast.objects.filter(
             target=target,
             house=house,
-            horizon__in=[point["horizon"] for point in points],
+            horizon__in=page_horizons,
         ).order_by("horizon")
 
         payload = {
             "target": target,
+            "step_minutes": step_minutes,
             "model": ImportedModelSerializer(model_meta).data,
             "forecasts": ForecastSerializer(forecasts, many=True).data,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "count": count,
+                "num_pages": num_pages,
+                "has_next": page < num_pages,
+                "has_previous": page > 1,
+            },
         }
         # Backward-compatible key for current web/mobile clients.
         payload["predictions"] = payload["forecasts"]

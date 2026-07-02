@@ -13,8 +13,6 @@ Usage:
     python manage.py run_forecast --house-id 1 --lat -4.32 --lon 15.32
 """
 
-import os
-
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.forecasting.services import persist_forecasts, predict_future
@@ -29,8 +27,14 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--house-id", type=int, required=True, help="House ID to forecast for.")
         parser.add_argument("--hours", type=int, default=24, help="Number of hours to forecast (default 24).")
-        parser.add_argument("--lat", type=float, default=float(os.getenv("WEATHER_LATITUDE", "-4.3276")))
-        parser.add_argument("--lon", type=float, default=float(os.getenv("WEATHER_LONGITUDE", "15.3136")))
+        parser.add_argument(
+            "--lat", type=float, default=None,
+            help="Latitude override (default: the house's own coordinates).",
+        )
+        parser.add_argument(
+            "--lon", type=float, default=None,
+            help="Longitude override (default: the house's own coordinates).",
+        )
         parser.add_argument(
             "--skip-weather",
             action="store_true",
@@ -91,7 +95,7 @@ class Command(BaseCommand):
                     f"   {p['horizon'].strftime('%H:%M')}  →  {p['forecast_value']:.3f} kW"
                 )
             if len(points) > 3:
-                self.stdout.write(f"   … ({len(points) - 3} more hours)")
+                self.stdout.write(f"   … ({len(points) - 3} more steps)")
 
         # Step 3: Fuzzy expert engine → Decision
         self.stdout.write("\n3. Running fuzzy expert engine …")

@@ -58,7 +58,7 @@ def test_predict_returns_and_stores_hourly_forecasts(forecast_client):
     client, house = forecast_client
 
     resp = client.get(
-        f"/api/forecasting/predict/?target=production&hours=2&house={house.id}"
+        f"/api/forecasting/predict/?target=production&hours=2&step_minutes=60&house={house.id}"
     )
 
     assert resp.status_code == 200
@@ -73,12 +73,56 @@ def test_predict_supports_consumption_target(forecast_client):
     client, house = forecast_client
 
     resp = client.get(
-        f"/api/forecasting/predict/?target=consumption&hours=3&house={house.id}"
+        f"/api/forecasting/predict/?target=consumption&hours=3&step_minutes=60&house={house.id}"
     )
 
     assert resp.status_code == 200
     assert len(resp.data["predictions"]) == 3
     assert Forecast.objects.filter(house=house, target="consumption").count() == 3
+
+
+def test_predict_defaults_to_10_minute_native_step(forecast_client):
+    client, house = forecast_client
+
+    resp = client.get(
+        f"/api/forecasting/predict/?target=consumption&hours=1&house={house.id}"
+    )
+
+    assert resp.status_code == 200
+    assert resp.data["step_minutes"] == 10
+    # 1h of native 10-minute steps = 6 points, all fit on the default page.
+    assert resp.data["pagination"]["count"] == 6
+    assert len(resp.data["predictions"]) == 6
+    assert Forecast.objects.filter(house=house, target="consumption").count() == 6
+
+
+def test_predict_paginates_when_result_exceeds_page_size(forecast_client):
+    client, house = forecast_client
+
+    resp = client.get(
+        "/api/forecasting/predict/"
+        f"?target=production&hours=24&step_minutes=10&page_size=10&house={house.id}"
+    )
+
+    assert resp.status_code == 200
+    pagination = resp.data["pagination"]
+    assert pagination["count"] == 144
+    assert pagination["page_size"] == 10
+    assert pagination["num_pages"] == 15
+    assert pagination["has_next"] is True
+    assert pagination["has_previous"] is False
+    assert len(resp.data["predictions"]) == 10
+    # All 144 points are still persisted even though only page 1 is returned.
+    assert Forecast.objects.filter(house=house, target="production").count() == 144
+
+    resp_page2 = client.get(
+        "/api/forecasting/predict/"
+        f"?target=production&hours=24&step_minutes=10&page_size=10&page=2&house={house.id}"
+    )
+    assert resp_page2.data["pagination"]["has_previous"] is True
+    first_horizon_page1 = resp.data["predictions"][0]["horizon"]
+    first_horizon_page2 = resp_page2.data["predictions"][0]["horizon"]
+    assert first_horizon_page2 > first_horizon_page1
 
 
 def test_predict_rejects_foreign_house(forecast_client):

@@ -22,13 +22,35 @@ def _latest_value(house, measurement_type: str, default: float | None = None):
 
 
 def _prediction_energy(house, target: str, fallback_power_kw: float) -> float:
-    qs = Forecast.objects.filter(target=target, horizon__gte=timezone.now())
+    """
+    Integrate the next 24h of forecasted power (kW) into energy (kWh).
+
+    Forecasts are no longer necessarily hourly (the forecasting service now
+    defaults to a 10-minute step to match how its models were trained), so
+    this can't just sum the first 24 rows and call it "24 hours" — that would
+    silently under-count energy by ~6x whenever forecasts are finer-grained
+    than hourly. Instead it takes every forecast point in the next 24h and
+    weights each by the time gap to the next point.
+    """
+    now = timezone.now()
+    horizon_end = now + timezone.timedelta(hours=24)
+    qs = Forecast.objects.filter(target=target, horizon__gte=now, horizon__lt=horizon_end)
     if house is not None:
         qs = qs.filter(house=house)
-    values = list(qs.order_by("horizon").values_list("forecast_value", flat=True)[:24])
-    if values:
-        return float(sum(values))
-    return max(float(fallback_power_kw or 0), 0.0) * 24.0
+    rows = list(qs.order_by("horizon").values_list("horizon", "forecast_value"))
+    if not rows:
+        return max(float(fallback_power_kw or 0), 0.0) * 24.0
+
+    total = 0.0
+    for i, (horizon, value) in enumerate(rows):
+        if i + 1 < len(rows):
+            delta_hours = (rows[i + 1][0] - horizon).total_seconds() / 3600.0
+        elif len(rows) > 1:
+            delta_hours = (rows[i][0] - rows[i - 1][0]).total_seconds() / 3600.0
+        else:
+            delta_hours = 1.0
+        total += float(value) * delta_hours
+    return total
 
 
 def _pv_nominal_power_kw(house, fallback: float = 5.0) -> float:

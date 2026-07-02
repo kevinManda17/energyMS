@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
-import { ChartLine, Clock3, Plug, RefreshCw, Sun } from "lucide-react-native";
+import { ChartLine, ChevronLeft, ChevronRight, Clock3, Plug, RefreshCw, Sun } from "lucide-react-native";
 import { Card } from "../components/Card";
 import { Badge } from "../components/Badge";
 import LineChart from "../components/LineChart";
@@ -10,6 +10,20 @@ import { useActiveHouse } from "../hooks/useActiveHouse";
 import { useTheme } from "../hooks/useTheme";
 import { palette } from "../theme/colors";
 import { fmt } from "../utils/format";
+
+const STEP_MINUTES = 10;
+const PAGE_SIZE = 24; // 24 x 10 min = 4h per page
+
+const MODEL_ROLE = {
+  keras_gru:
+    "Prevision glissante (rollout autoregressif) : chaque pas de 10 min reutilise la prediction precedente, a partir de l'historique recent de la maison.",
+  keras_lstm: "Reseau de neurones sequentiel (fenetre d'historique recent).",
+  keras_cnn_lstm: "Reseau de neurones sequentiel (fenetre d'historique recent).",
+  keras_lstm_att: "Reseau de neurones sequentiel avec attention (fenetre d'historique recent).",
+  sklearn:
+    "Prediction directe a chaque pas de 10 min a partir de la meteo prevue et des dernieres mesures des panneaux — pas d'historique fige.",
+  profile: "Formule de repli (aucun modele IA actif) : profil horaire type.",
+};
 
 function listFrom(res) {
   return res?.data?.results || res?.data || res?.results || res || [];
@@ -38,9 +52,7 @@ function mergeRows(production, consumption) {
       consumption: point.value,
     });
   });
-  return Array.from(rows.values())
-    .sort((a, b) => new Date(a.horizon) - new Date(b.horizon))
-    .slice(0, 10);
+  return Array.from(rows.values()).sort((a, b) => new Date(a.horizon) - new Date(b.horizon));
 }
 
 function ForecastKpi({ icon: Icon, label, value, unit, color }) {
@@ -65,6 +77,8 @@ export default function ForecastingScreen() {
   const [models, setModels] = useState([]);
   const [production, setProduction] = useState([]);
   const [consumption, setConsumption] = useState([]);
+  const [pagination, setPagination] = useState(null);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -78,25 +92,37 @@ export default function ForecastingScreen() {
       if (!houseId) {
         setProduction([]);
         setConsumption([]);
+        setPagination(null);
         return;
       }
 
       const [prodRes, consRes] = await Promise.all([
-        forecastingApi.predict({ target: "production", hours: 24, house: houseId }),
-        forecastingApi.predict({ target: "consumption", hours: 24, house: houseId }),
+        forecastingApi.predict({
+          target: "production", hours: 24, house: houseId,
+          step_minutes: STEP_MINUTES, page, page_size: PAGE_SIZE,
+        }),
+        forecastingApi.predict({
+          target: "consumption", hours: 24, house: houseId,
+          step_minutes: STEP_MINUTES, page, page_size: PAGE_SIZE,
+        }),
       ]);
       setProduction(prodRes.predictions || []);
       setConsumption(consRes.predictions || []);
+      setPagination(prodRes.pagination || consRes.pagination || null);
     } catch {
       setError("Impossible de charger les previsions.");
     } finally {
       setLoading(false);
     }
-  }, [houseId]);
+  }, [houseId, page]);
 
   useEffect(() => {
     load().catch(() => {});
   }, [load]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [houseId]);
 
   const rows = useMemo(
     () => mergeRows(production, consumption),
@@ -108,7 +134,7 @@ export default function ForecastingScreen() {
     <ScreenScroll>
       <View style={styles.headerRow}>
         <PageTitle
-          title="Previsions horaires"
+          title="Previsions"
           subtitle={activeHouse?.name || "Aucun micro-reseau selectionne"}
         />
         <Pressable
@@ -128,14 +154,14 @@ export default function ForecastingScreen() {
       <View style={styles.kpiGrid}>
         <ForecastKpi
           icon={Sun}
-          label="Production dans 1h"
+          label={`Production dans ${STEP_MINUTES} min`}
           value={fmt(production[0]?.value)}
           unit="kW"
           color={palette.green}
         />
         <ForecastKpi
           icon={Plug}
-          label="Consommation dans 1h"
+          label={`Consommation dans ${STEP_MINUTES} min`}
           value={fmt(consumption[0]?.value)}
           unit="kW"
           color={palette.blue}
@@ -182,9 +208,34 @@ export default function ForecastingScreen() {
         </Card>
       )}
 
-      <Text style={[styles.section, { color: t.text }]}>Prochaines heures</Text>
+      <View style={styles.sectionHeaderRow}>
+        <Text style={[styles.section, { color: t.text, marginTop: 0, marginBottom: 0 }]}>
+          Prochains pas de {STEP_MINUTES} min
+        </Text>
+        {pagination ? (
+          <View style={styles.pager}>
+            <Pressable
+              onPress={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={!pagination.has_previous}
+              style={[styles.pagerBtn, { borderColor: t.border, opacity: pagination.has_previous ? 1 : 0.35 }]}
+            >
+              <ChevronLeft color={t.text} size={16} />
+            </Pressable>
+            <Text style={[styles.pagerLabel, { color: t.sub }]}>
+              {pagination.page} / {pagination.num_pages}
+            </Text>
+            <Pressable
+              onPress={() => setPage((p) => p + 1)}
+              disabled={!pagination.has_next}
+              style={[styles.pagerBtn, { borderColor: t.border, opacity: pagination.has_next ? 1 : 0.35 }]}
+            >
+              <ChevronRight color={t.text} size={16} />
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
       {rows.length === 0 ? (
-        <Text style={[styles.empty, { color: t.sub }]}>Aucune prevision horaire.</Text>
+        <Text style={[styles.empty, { color: t.sub }]}>Aucune prevision disponible.</Text>
       ) : null}
       {rows.map((row) => (
         <Card key={row.horizon} style={styles.rowCard}>
@@ -203,9 +254,9 @@ export default function ForecastingScreen() {
         </Card>
       ))}
 
-      <Text style={[styles.section, { color: t.text }]}>Strategie de prevision</Text>
+      <Text style={[styles.section, { color: t.text }]}>Modeles utilises</Text>
       {activeModels.length === 0 ? (
-        <Text style={[styles.empty, { color: t.sub }]}>Aucune strategie active.</Text>
+        <Text style={[styles.empty, { color: t.sub }]}>Aucun modele actif.</Text>
       ) : null}
       {activeModels.map((model) => (
         <Card key={model.id}>
@@ -214,8 +265,14 @@ export default function ForecastingScreen() {
               <Text style={[styles.title, { color: t.text }]}>{model.target}</Text>
               <Text style={[styles.rowSub, { color: t.sub }]}>{model.algorithm}</Text>
               <Text style={[styles.rowSub, { color: t.sub }]}>
-                Calcul horaire a partir des mesures recentes.
+                {MODEL_ROLE[model.model_type] || "—"}
               </Text>
+              {model.metrics?.R2 != null ? (
+                <Text style={[styles.rowSub, { color: t.sub, marginTop: 2 }]}>
+                  R2={Number(model.metrics.R2).toFixed(3)}
+                  {model.metrics?.RMSE != null ? `  RMSE=${Number(model.metrics.RMSE).toFixed(3)}` : ""}
+                </Text>
+              ) : null}
             </View>
             <Badge value="ACTIVE" />
           </View>
@@ -241,6 +298,23 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   error: { marginBottom: 12, fontWeight: "700" },
+  sectionHeaderRow: {
+    marginTop: 18,
+    marginBottom: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  pager: { flexDirection: "row", alignItems: "center", gap: 8 },
+  pagerBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pagerLabel: { fontSize: 12, fontWeight: "700", minWidth: 36, textAlign: "center" },
   kpiGrid: {
     flexDirection: "row",
     flexWrap: "wrap",

@@ -9,8 +9,20 @@ Reads the flat structure:
     │   └── metrics.json
     └── production/
         ├── model.keras
+        ├── model.joblib
         ├── preprocessing.joblib
-        └── metrics.json
+        ├── metrics.json         (metrics for the model.keras / declared "best_model")
+        └── metrics_rf.json      (metrics for model.joblib, when it overrides the active pick)
+
+By default the model named in metrics.json ("best_model") becomes the active
+model for its target. ACTIVE_OVERRIDE lets a different artifact win instead —
+used for `production`, where the RMSE-based auto-selection picked LSTM, but
+the Random Forest (model.joblib) has a lower MAE/MAPE and, being a flat
+per-timestep predictor (no historical sequence window), doesn't suffer from
+the "frozen sequence → repeated values" failure mode that sequence models
+(GRU/LSTM) have when forecasting many steps ahead from a single fetched
+window. See ml_models/production/metrics_rf.json for the full comparison.
+The overridden model stays registered but inactive, for provenance/comparison.
 
 Usage:
     python manage.py register_models
@@ -43,6 +55,12 @@ CONFIGS = [
     {"target": "production", "label": "Production PV"},
 ]
 
+# target -> (override model name, metrics filename) picked as the *active*
+# model instead of whatever metrics.json declares as "best_model".
+ACTIVE_OVERRIDE = {
+    "production": ("RF", "metrics_rf.json"),
+}
+
 
 def _load_preprocessing_meta(preprocessing_path: str) -> tuple[list, int]:
     """Return (feature_columns, sequence_length) from preprocessing.joblib."""
@@ -56,6 +74,20 @@ def _load_preprocessing_meta(preprocessing_path: str) -> tuple[list, int]:
         return cols, seq
     except Exception:
         return [], 1
+
+
+def _load_sklearn_feature_columns(model_path: str) -> list:
+    """Return feature_columns embedded in a sklearn artifact dict (model.joblib)."""
+    if not model_path or not Path(model_path).exists():
+        return []
+    try:
+        import joblib
+        artifact = joblib.load(model_path)
+        if isinstance(artifact, dict):
+            return list(artifact.get("feature_columns", []))
+        return []
+    except Exception:
+        return []
 
 
 class Command(BaseCommand):
@@ -128,50 +160,108 @@ class Command(BaseCommand):
                 if deactivated:
                     self.stdout.write(f"  [{target}] Deactivated {deactivated} existing model(s).")
 
-            r2 = metrics.get("R2")
-            rmse = metrics.get("RMSE")
-            r2_str = f"{float(r2):.3f}" if r2 is not None else "N/A"
-            rmse_str = f"{float(rmse):.4f}" if rmse is not None else "N/A"
+            override = ACTIVE_OVERRIDE.get(target)
+            is_primary_active = override is None
 
-            record, created = ImportedModel.objects.update_or_create(
-                target=target,
-                model_type=ems_model_type,
-                defaults={
-                    "name": f"{cfg['label']} — {model_name}",
-                    "file_path": str(model_file),
-                    "preprocessing_path": preprocessing_path,
-                    "sequence_length": sequence_length,
-                    "feature_columns": feature_columns,
-                    "version": model_name,
-                    "input_schema": {
-                        "features": feature_columns,
-                        "sequence_length": sequence_length,
-                    },
-                    "metrics": {
-                        k: metrics.get(k)
-                        for k in ("MAE", "RMSE", "R2", "sMAPE", "model_type",
-                                  "train_rows", "test_rows", "features_used",
-                                  "feature_columns")
-                        if metrics.get(k) is not None
-                    },
-                    "is_active": True,
-                },
+            record = self._register(
+                cfg, target, model_name, ems_model_type, model_file,
+                preprocessing_path, feature_columns, sequence_length,
+                metrics, is_active=is_primary_active,
             )
+            if is_primary_active:
+                continue
 
-            action = "Created" if created else "Updated"
-            self.stdout.write(
-                self.style.SUCCESS(
-                    f"  [{target}] {action} #{record.pk}: "
-                    f"{model_name} ({ems_model_type}) "
-                    f"R²={r2_str} RMSE={rmse_str}"
+            # An override is declared for this target: register the override
+            # artifact as the active one, and demote the declared "best_model".
+            override_name, override_metrics_file = override
+            override_metrics_path = folder / override_metrics_file
+            if not override_metrics_path.exists():
+                self.stderr.write(
+                    f"  [{target}] override metrics file not found: {override_metrics_path} "
+                    f"— keeping {model_name} active."
                 )
+                record.is_active = True
+                record.save(update_fields=["is_active"])
+                continue
+
+            with open(override_metrics_path, encoding="utf-8") as f:
+                override_metrics = json.load(f)
+
+            override_type = MODEL_TYPE_MAP.get(override_name, "sklearn")
+            override_file = sklearn_file if override_type == "sklearn" else keras_file
+            if not override_file.exists():
+                self.stderr.write(
+                    f"  [{target}] override model file not found: {override_file} "
+                    f"— keeping {model_name} active."
+                )
+                record.is_active = True
+                record.save(update_fields=["is_active"])
+                continue
+
+            override_feature_columns = (
+                _load_sklearn_feature_columns(str(override_file))
+                if override_type == "sklearn"
+                else feature_columns
             )
-            self.stdout.write(f"    file:            {model_file}")
-            self.stdout.write(f"    preprocessing:   {preprocessing_path or '(none)'}")
-            self.stdout.write(f"    sequence_length: {sequence_length}")
-            self.stdout.write(f"    features:        {len(feature_columns)}")
+
+            self._register(
+                cfg, target, override_name, override_type, override_file,
+                "", override_feature_columns, 1, override_metrics, is_active=True,
+            )
+            self.stdout.write(
+                f"  [{target}] Note: {override_metrics.get('note', '')}"
+            )
 
         self.stdout.write(self.style.SUCCESS(
             "\nModels registered. Test with:\n"
             "  python manage.py run_forecast --house-id 1"
         ))
+
+    def _register(
+        self, cfg, target, model_name, ems_model_type, model_file,
+        preprocessing_path, feature_columns, sequence_length, metrics, is_active,
+    ):
+        r2 = metrics.get("R2")
+        rmse = metrics.get("RMSE")
+        r2_str = f"{float(r2):.3f}" if r2 is not None else "N/A"
+        rmse_str = f"{float(rmse):.4f}" if rmse is not None else "N/A"
+
+        record, created = ImportedModel.objects.update_or_create(
+            target=target,
+            model_type=ems_model_type,
+            defaults={
+                "name": f"{cfg['label']} — {model_name}",
+                "file_path": str(model_file),
+                "preprocessing_path": preprocessing_path,
+                "sequence_length": sequence_length,
+                "feature_columns": feature_columns,
+                "version": model_name,
+                "input_schema": {
+                    "features": feature_columns,
+                    "sequence_length": sequence_length,
+                },
+                "metrics": {
+                    k: metrics.get(k)
+                    for k in ("MAE", "RMSE", "R2", "sMAPE", "MAPE", "model_type",
+                              "train_rows", "test_rows", "features_used",
+                              "feature_columns", "note")
+                    if metrics.get(k) is not None
+                },
+                "is_active": is_active,
+            },
+        )
+
+        action = "Created" if created else "Updated"
+        status = "ACTIVE" if is_active else "inactive (reference)"
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"  [{target}] {action} #{record.pk}: "
+                f"{model_name} ({ems_model_type}) "
+                f"R²={r2_str} RMSE={rmse_str} — {status}"
+            )
+        )
+        self.stdout.write(f"    file:            {model_file}")
+        self.stdout.write(f"    preprocessing:   {preprocessing_path or '(none)'}")
+        self.stdout.write(f"    sequence_length: {sequence_length}")
+        self.stdout.write(f"    features:        {len(feature_columns)}")
+        return record

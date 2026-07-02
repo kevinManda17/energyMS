@@ -1,0 +1,23 @@
+{
+  "MAE": 24.421625962328168,
+  "RMSE": 41.34307195064077,
+  "R2": 0.8231440987035348,
+  "MAPE": 21.51352929432849,
+  "sMAPE": 19.15216720106517,
+  "P50_absolute_error": 11.486356201650068,
+  "P90_absolute_error": 65.97972488028516,
+  "P95_absolute_error": 85.38327030769236,
+  "P99_absolute_error": 150.07983703308153,
+  "accuracy_within_5w_percent": 31.2375,
+  "accuracy_within_10w_percent": 46.7475,
+  "accuracy_within_20w_percent": 63.9875,
+  "model": "RF",
+  "status": "ok",
+  "model_type": "tabular",
+  "train_rows": 160000,
+  "test_rows": 40000,
+  "train_fraction": 0.8,
+  "features_used": "Vmpp, Impp, Pmpp, Isc, Voc, FF, Rsh, Rs, NRMSE_Isc, R2_Voc, V_ini, I_ini, G_spec_int, APE, G_tilt20_start, G_tilt20_end, G_tilt15_start, G_tilt15_end, G_horiz_start, G_horiz_end, G_east_start, G_east_end, G_west_start, G_west_end, G_refl_start, G_refl_end, module_temperature_center, module_temperature_lateral, air_temperature, relative_humidity, air_density, abs_pressure, wind_speed_ms, wind_direction",
+  "model_path": "/home/kevin/Documents/KEVIN/memoire/projet/AI2/pv_dataset/result_training/models/RF/model.joblib",
+  "note": "Choisi comme modele de production actif malgre un RMSE legerement superieur au LSTM (41.3 vs 40.9) : MAE, MAPE et precision a +/-10W nettement meilleurs, et pas de fenetre sequentielle figee (prediction directe a partir des conditions meteo/horaires du point vise, donc pas de valeurs repetitives)."
+}

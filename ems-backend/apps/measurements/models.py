@@ -17,6 +17,10 @@ class Measurement(models.Model):
         TEMPERATURE = "temperature", "Temperature"
         LUMINOSITY = "luminosity", "Luminosity"
         IRRADIANCE = "irradiance", "Irradiance"
+        IRRADIANCE_TILT15 = "irradiance_tilt15", "Irradiance inclinee 15°"
+        IRRADIANCE_TILT20 = "irradiance_tilt20", "Irradiance inclinee 20°"
+        IRRADIANCE_EAST = "irradiance_east", "Irradiance orientee Est"
+        IRRADIANCE_WEST = "irradiance_west", "Irradiance orientee Ouest"
         # Electrical grid features (for consumption ML model)
         REACTIVE_POWER = "reactive_power", "Reactive Power"
         SUB_METERING_1 = "sub_metering_1", "Sub-metering 1 (kitchen)"
