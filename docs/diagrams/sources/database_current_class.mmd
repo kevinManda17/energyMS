@@ -1,0 +1,164 @@
+classDiagram
+    class User {
+        +id
+        +username
+        +email
+        +role
+        +phone
+        +phone_verified
+        +email_verified
+        +preferences
+    }
+
+    class PhoneVerificationCode {
+        +id
+        +phone
+        +code_hash
+        +expires_at
+        +attempts
+        +used_at
+    }
+
+    class EmailVerificationToken {
+        +id
+        +token_hash
+        +expires_at
+        +used_at
+    }
+
+    class PasswordResetToken {
+        +id
+        +token_hash
+        +expires_at
+        +used_at
+    }
+
+    class House {
+        +id
+        +name
+        +location
+        +latitude
+        +longitude
+        +status
+    }
+
+    class EnergyAsset {
+        +id
+        +name
+        +asset_type
+        +nominal_power_kw
+        +capacity_kwh
+        +voltage
+        +current
+        +efficiency
+        +status
+        +metadata
+    }
+
+    class Sensor {
+        +id
+        +name
+        +sensor_type
+        +unit
+        +is_active
+    }
+
+    class Equipment {
+        +id
+        +name
+        +equipment_type
+        +rated_power_kw
+        +priority
+        +status
+    }
+
+    class Measurement {
+        +id
+        +measurement_type
+        +value
+        +unit
+        +timestamp
+    }
+
+    class Dataset {
+        +id
+        +name
+        +kind
+        +file
+        +status
+        +rows
+        +columns
+    }
+
+    class ImportedModel {
+        +id
+        +name
+        +target
+        +model_type
+        +file_path
+        +preprocessing_path
+        +sequence_length
+        +feature_columns
+        +metrics
+        +is_active
+    }
+
+    class Forecast {
+        +id
+        +target
+        +horizon
+        +horizon_minutes
+        +forecast_value
+        +input_snapshot
+    }
+
+    class Decision {
+        +id
+        +action
+        +reason
+        +confidence_score
+        +decision_code
+        +alert_level
+        +risk_score
+        +shedding_level
+        +battery_action
+        +fired_rules
+        +fuzzy_values
+    }
+
+    class Alert {
+        +id
+        +severity
+        +alert_type
+        +message
+        +is_read
+    }
+
+    class DataExport {
+        +id
+        +export_type
+        +start_date
+        +end_date
+        +file_path
+    }
+
+    User "1" --> "0..*" House
+    User "1" --> "0..*" EmailVerificationToken
+    User "1" --> "0..*" PasswordResetToken
+    User "0..1" --> "0..*" Dataset
+    User "1" --> "0..*" DataExport
+
+    House "1" --> "0..*" EnergyAsset
+    House "1" --> "0..*" Sensor
+    House "1" --> "0..*" Equipment
+    House "1" --> "0..*" Measurement
+    House "0..1" --> "0..*" Forecast
+    House "1" --> "0..*" Decision
+    House "1" --> "0..*" Alert
+    House "1" --> "0..*" DataExport
+
+    EnergyAsset "0..1" --> "0..*" Sensor
+    Sensor "0..1" --> "0..*" Measurement
+    ImportedModel "0..1" --> "0..*" Forecast
+    Forecast "0..1" --> "0..*" Decision
+    Decision "0..1" --> "0..*" Alert

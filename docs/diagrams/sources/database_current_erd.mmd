@@ -1,0 +1,201 @@
+erDiagram
+    USER ||--o{ HOUSE : owns
+    USER ||--o{ EMAIL_VERIFICATION_TOKEN : verifies_email
+    USER ||--o{ PASSWORD_RESET_TOKEN : resets_password
+    USER ||--o{ DATASET : uploads
+    USER ||--o{ DATA_EXPORT : requests
+
+    HOUSE ||--o{ ENERGY_ASSET : contains
+    HOUSE ||--o{ SENSOR : has
+    HOUSE ||--o{ EQUIPMENT : has
+    HOUSE ||--o{ MEASUREMENT : receives
+    HOUSE ||--o{ FORECAST : has
+    HOUSE ||--o{ DECISION : has
+    HOUSE ||--o{ ALERT : has
+    HOUSE ||--o{ DATA_EXPORT : exports
+
+    ENERGY_ASSET ||--o{ SENSOR : measured_by
+    SENSOR ||--o{ MEASUREMENT : produces
+    IMPORTED_MODEL ||--o{ FORECAST : generates
+    FORECAST ||--o{ DECISION : feeds
+    DECISION ||--o{ ALERT : creates
+
+    USER {
+        bigint id PK
+        varchar username UK
+        varchar email UK
+        varchar role
+        varchar phone
+        bool phone_verified
+        bool email_verified
+        json preferences
+        datetime created_at
+    }
+
+    PHONE_VERIFICATION_CODE {
+        bigint id PK
+        varchar phone
+        varchar code_hash
+        datetime expires_at
+        int attempts
+        datetime used_at
+        datetime created_at
+    }
+
+    EMAIL_VERIFICATION_TOKEN {
+        bigint id PK
+        bigint user_id FK
+        varchar token_hash
+        datetime expires_at
+        datetime used_at
+        datetime created_at
+    }
+
+    PASSWORD_RESET_TOKEN {
+        bigint id PK
+        bigint user_id FK
+        varchar token_hash
+        datetime expires_at
+        datetime used_at
+        datetime created_at
+    }
+
+    HOUSE {
+        bigint id PK
+        bigint owner_id FK
+        varchar name
+        varchar location
+        float latitude
+        float longitude
+        text description
+        varchar status
+        datetime created_at
+        datetime updated_at
+    }
+
+    ENERGY_ASSET {
+        bigint id PK
+        bigint house_id FK
+        varchar name
+        varchar asset_type
+        float nominal_power_kw
+        float capacity_kwh
+        float voltage
+        float current
+        float efficiency
+        varchar status
+        json metadata
+    }
+
+    SENSOR {
+        bigint id PK
+        bigint house_id FK
+        bigint energy_asset_id FK
+        varchar name
+        varchar sensor_type
+        varchar unit
+        bool is_active
+    }
+
+    EQUIPMENT {
+        bigint id PK
+        bigint house_id FK
+        varchar name
+        varchar equipment_type
+        float rated_power_kw
+        varchar priority
+        varchar status
+    }
+
+    MEASUREMENT {
+        bigint id PK
+        bigint house_id FK
+        bigint sensor_id FK
+        varchar measurement_type
+        float value
+        varchar unit
+        datetime timestamp
+    }
+
+    DATASET {
+        bigint id PK
+        bigint uploaded_by_id FK
+        varchar name
+        varchar kind
+        varchar file
+        varchar status
+        int rows
+        json columns
+        text message
+    }
+
+    IMPORTED_MODEL {
+        bigint id PK
+        varchar name
+        varchar target
+        varchar model_type
+        varchar file
+        varchar file_path
+        varchar preprocessing_path
+        int sequence_length
+        json feature_columns
+        varchar version
+        json input_schema
+        json metrics
+        bool is_active
+    }
+
+    FORECAST {
+        bigint id PK
+        bigint house_id FK
+        bigint model_id FK
+        varchar target
+        datetime horizon
+        int horizon_minutes
+        float forecast_value
+        json input_snapshot
+        datetime created_at
+    }
+
+    DECISION {
+        bigint id PK
+        bigint house_id FK
+        bigint forecast_id FK
+        varchar action
+        text reason
+        float confidence_score
+        varchar decision_code
+        varchar decision_label
+        varchar execution_mode
+        varchar alert_level
+        float risk_score
+        float shedding_level
+        varchar battery_action
+        text explanation
+        json fired_rules
+        json input_facts
+        json fuzzy_values
+        datetime created_at
+    }
+
+    ALERT {
+        bigint id PK
+        bigint house_id FK
+        bigint decision_id FK
+        varchar severity
+        varchar alert_type
+        text message
+        bool is_read
+        datetime created_at
+    }
+
+    DATA_EXPORT {
+        bigint id PK
+        bigint user_id FK
+        bigint house_id FK
+        varchar export_type
+        datetime start_date
+        datetime end_date
+        varchar file_path
+        datetime created_at
+    }

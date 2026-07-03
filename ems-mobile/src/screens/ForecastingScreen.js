@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
-import { ChartLine, ChevronLeft, ChevronRight, Clock3, Plug, RefreshCw, Sun } from "lucide-react-native";
+import { ChevronLeft, ChevronRight, Plug, RefreshCw, Sun } from "lucide-react-native";
 import { Card } from "../components/Card";
-import { Badge } from "../components/Badge";
 import LineChart from "../components/LineChart";
 import { PageTitle, ScreenScroll } from "../components/Screen";
 import { forecastingApi } from "../api/endpoints";
@@ -12,22 +11,8 @@ import { palette } from "../theme/colors";
 import { fmt } from "../utils/format";
 
 const STEP_MINUTES = 10;
-const PAGE_SIZE = 24; // 24 x 10 min = 4h per page
-
-const MODEL_ROLE = {
-  keras_gru:
-    "Prevision glissante (rollout autoregressif) : chaque pas de 10 min reutilise la prediction precedente, a partir de l'historique recent de la maison.",
-  keras_lstm: "Reseau de neurones sequentiel (fenetre d'historique recent).",
-  keras_cnn_lstm: "Reseau de neurones sequentiel (fenetre d'historique recent).",
-  keras_lstm_att: "Reseau de neurones sequentiel avec attention (fenetre d'historique recent).",
-  sklearn:
-    "Prediction directe a chaque pas de 10 min a partir de la meteo prevue et des dernieres mesures des panneaux — pas d'historique fige.",
-  profile: "Formule de repli (aucun modele IA actif) : profil horaire type.",
-};
-
-function listFrom(res) {
-  return res?.data?.results || res?.data || res?.results || res || [];
-}
+const PAGE_SIZE = 24; // 24 x 10 min = 4h par page
+const ONE_HOUR_INDEX = 60 / STEP_MINUTES - 1; // point situé à +1 h
 
 function fmtHour(iso) {
   return iso
@@ -55,7 +40,7 @@ function mergeRows(production, consumption) {
   return Array.from(rows.values()).sort((a, b) => new Date(a.horizon) - new Date(b.horizon));
 }
 
-function ForecastKpi({ icon: Icon, label, value, unit, color }) {
+function ForecastKpi({ icon: Icon, label, value, unit, sub, color }) {
   const t = useTheme();
   return (
     <Card style={styles.kpi}>
@@ -67,6 +52,7 @@ function ForecastKpi({ icon: Icon, label, value, unit, color }) {
         {value}
         {unit ? <Text style={[styles.kpiUnit, { color: t.sub }]}> {unit}</Text> : null}
       </Text>
+      {sub ? <Text style={[styles.kpiSub, { color: t.sub }]}>{sub}</Text> : null}
     </Card>
   );
 }
@@ -74,9 +60,11 @@ function ForecastKpi({ icon: Icon, label, value, unit, color }) {
 export default function ForecastingScreen() {
   const t = useTheme();
   const { houseId, activeHouse } = useActiveHouse();
-  const [models, setModels] = useState([]);
   const [production, setProduction] = useState([]);
   const [consumption, setConsumption] = useState([]);
+  // Prévisions immédiates (page 1) : alimentent les cartes "dans 10 min /
+  // dans 1 h", qui ne doivent pas bouger quand on feuillette la liste.
+  const [firstPoints, setFirstPoints] = useState({ production: [], consumption: [] });
   const [pagination, setPagination] = useState(null);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -86,12 +74,10 @@ export default function ForecastingScreen() {
     setLoading(true);
     setError("");
     try {
-      const modelRes = await forecastingApi.models();
-      setModels(listFrom(modelRes));
-
       if (!houseId) {
         setProduction([]);
         setConsumption([]);
+        setFirstPoints({ production: [], consumption: [] });
         setPagination(null);
         return;
       }
@@ -109,6 +95,12 @@ export default function ForecastingScreen() {
       setProduction(prodRes.predictions || []);
       setConsumption(consRes.predictions || []);
       setPagination(prodRes.pagination || consRes.pagination || null);
+      if (page === 1) {
+        setFirstPoints({
+          production: prodRes.predictions || [],
+          consumption: consRes.predictions || [],
+        });
+      }
     } catch {
       setError("Impossible de charger les previsions.");
     } finally {
@@ -128,7 +120,10 @@ export default function ForecastingScreen() {
     () => mergeRows(production, consumption),
     [production, consumption]
   );
-  const activeModels = models.filter((model) => model.is_active);
+  const prod10 = firstPoints.production[0];
+  const cons10 = firstPoints.consumption[0];
+  const prod60 = firstPoints.production[ONE_HOUR_INDEX];
+  const cons60 = firstPoints.consumption[ONE_HOUR_INDEX];
 
   return (
     <ScreenScroll>
@@ -155,28 +150,33 @@ export default function ForecastingScreen() {
         <ForecastKpi
           icon={Sun}
           label={`Production dans ${STEP_MINUTES} min`}
-          value={fmt(production[0]?.value)}
+          value={fmt(prod10?.value)}
           unit="kW"
+          sub={prod10 ? `a ${fmtHour(prod10.horizon)}` : null}
           color={palette.green}
         />
         <ForecastKpi
           icon={Plug}
           label={`Consommation dans ${STEP_MINUTES} min`}
-          value={fmt(consumption[0]?.value)}
+          value={fmt(cons10?.value)}
           unit="kW"
+          sub={cons10 ? `a ${fmtHour(cons10.horizon)}` : null}
           color={palette.blue}
         />
         <ForecastKpi
-          icon={Clock3}
-          label="Horizon"
-          value="24"
-          unit="h"
+          icon={Sun}
+          label="Production dans 1 h"
+          value={fmt(prod60?.value)}
+          unit="kW"
+          sub={prod60 ? `a ${fmtHour(prod60.horizon)}` : null}
           color={palette.solar}
         />
         <ForecastKpi
-          icon={ChartLine}
-          label="Strategies actives"
-          value={String(activeModels.length)}
+          icon={Plug}
+          label="Consommation dans 1 h"
+          value={fmt(cons60?.value)}
+          unit="kW"
+          sub={cons60 ? `a ${fmtHour(cons60.horizon)}` : null}
           color={palette.navy}
         />
       </View>
@@ -210,7 +210,7 @@ export default function ForecastingScreen() {
 
       <View style={styles.sectionHeaderRow}>
         <Text style={[styles.section, { color: t.text, marginTop: 0, marginBottom: 0 }]}>
-          Prochains pas de {STEP_MINUTES} min
+          Prochaines previsions
         </Text>
         {pagination ? (
           <View style={styles.pager}>
@@ -250,31 +250,6 @@ export default function ForecastingScreen() {
             <Text style={[styles.cons, { color: palette.blue }]}>
               {fmt(row.consumption)} kW
             </Text>
-          </View>
-        </Card>
-      ))}
-
-      <Text style={[styles.section, { color: t.text }]}>Modeles utilises</Text>
-      {activeModels.length === 0 ? (
-        <Text style={[styles.empty, { color: t.sub }]}>Aucun modele actif.</Text>
-      ) : null}
-      {activeModels.map((model) => (
-        <Card key={model.id}>
-          <View style={styles.strategyRow}>
-            <View style={styles.strategyText}>
-              <Text style={[styles.title, { color: t.text }]}>{model.target}</Text>
-              <Text style={[styles.rowSub, { color: t.sub }]}>{model.algorithm}</Text>
-              <Text style={[styles.rowSub, { color: t.sub }]}>
-                {MODEL_ROLE[model.model_type] || "—"}
-              </Text>
-              {model.metrics?.R2 != null ? (
-                <Text style={[styles.rowSub, { color: t.sub, marginTop: 2 }]}>
-                  R2={Number(model.metrics.R2).toFixed(3)}
-                  {model.metrics?.RMSE != null ? `  RMSE=${Number(model.metrics.RMSE).toFixed(3)}` : ""}
-                </Text>
-              ) : null}
-            </View>
-            <Badge value="ACTIVE" />
           </View>
         </Card>
       ))}
@@ -336,6 +311,7 @@ const styles = StyleSheet.create({
   kpiLabel: { fontSize: 12, lineHeight: 16 },
   kpiValue: { marginTop: 5, fontSize: 22, fontWeight: "800" },
   kpiUnit: { fontSize: 13, fontWeight: "600" },
+  kpiSub: { marginTop: 3, fontSize: 11 },
   chartCard: { marginBottom: 10, paddingBottom: 4 },
   chartHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
   chartTitle: { fontSize: 14, fontWeight: "700" },
@@ -357,7 +333,4 @@ const styles = StyleSheet.create({
   values: { alignItems: "flex-end", gap: 4 },
   prod: { fontSize: 14, fontWeight: "800" },
   cons: { fontSize: 14, fontWeight: "800" },
-  strategyRow: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
-  strategyText: { flex: 1 },
-  title: { fontSize: 15, fontWeight: "800", marginBottom: 2 },
 });

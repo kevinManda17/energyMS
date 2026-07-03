@@ -1,5 +1,7 @@
 # EMS - Architecture, MCD, MLD, MPD et scripts de génération des diagrammes
 
+> Note : ce fichier garde les diagrammes generaux du memoire. Pour le schema de base de donnees a jour, voir `docs/EMS_database_diagrammes_actuels.md`.
+
 Ce document rassemble les modèles de données et les scripts permettant de générer les diagrammes nécessaires au mémoire.
 
 ## 1. Architecture métier retenue

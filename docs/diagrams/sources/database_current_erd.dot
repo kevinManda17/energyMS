@@ -1,0 +1,201 @@
+digraph EMSDatabase {
+  graph [
+    rankdir=LR,
+    bgcolor="white",
+    pad="0.35",
+    nodesep="0.55",
+    ranksep="0.85",
+    splines=true,
+    fontname="Arial"
+  ];
+
+  node [
+    shape=plain,
+    fontname="Arial"
+  ];
+
+  edge [
+    color="#475569",
+    fontname="Arial",
+    fontsize=9,
+    arrowsize=0.7
+  ];
+
+  User [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" COLOR="#0f766e">
+      <TR><TD BGCOLOR="#0f766e"><FONT COLOR="white"><B>users_user</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT">id PK</TD></TR>
+      <TR><TD ALIGN="LEFT">username UNIQUE</TD></TR>
+      <TR><TD ALIGN="LEFT">email UNIQUE</TD></TR>
+      <TR><TD ALIGN="LEFT">role, phone</TD></TR>
+    </TABLE>
+  >];
+
+  PhoneCode [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" COLOR="#64748b">
+      <TR><TD BGCOLOR="#64748b"><FONT COLOR="white"><B>users_phoneverificationcode</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT">id PK</TD></TR>
+      <TR><TD ALIGN="LEFT">phone INDEX</TD></TR>
+      <TR><TD ALIGN="LEFT">code_hash</TD></TR>
+      <TR><TD ALIGN="LEFT">expires_at, used_at</TD></TR>
+    </TABLE>
+  >];
+
+  EmailToken [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" COLOR="#64748b">
+      <TR><TD BGCOLOR="#64748b"><FONT COLOR="white"><B>users_emailverificationtoken</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT">id PK</TD></TR>
+      <TR><TD ALIGN="LEFT">user_id FK</TD></TR>
+      <TR><TD ALIGN="LEFT">token_hash</TD></TR>
+      <TR><TD ALIGN="LEFT">expires_at, used_at</TD></TR>
+    </TABLE>
+  >];
+
+  PasswordToken [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" COLOR="#64748b">
+      <TR><TD BGCOLOR="#64748b"><FONT COLOR="white"><B>users_passwordresettoken</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT">id PK</TD></TR>
+      <TR><TD ALIGN="LEFT">user_id FK</TD></TR>
+      <TR><TD ALIGN="LEFT">token_hash</TD></TR>
+      <TR><TD ALIGN="LEFT">expires_at, used_at</TD></TR>
+    </TABLE>
+  >];
+
+  House [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" COLOR="#2563eb">
+      <TR><TD BGCOLOR="#2563eb"><FONT COLOR="white"><B>houses_house</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT">id PK</TD></TR>
+      <TR><TD ALIGN="LEFT">owner_id FK</TD></TR>
+      <TR><TD ALIGN="LEFT">name, location</TD></TR>
+      <TR><TD ALIGN="LEFT">status</TD></TR>
+    </TABLE>
+  >];
+
+  EnergyAsset [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" COLOR="#7c3aed">
+      <TR><TD BGCOLOR="#7c3aed"><FONT COLOR="white"><B>energy_assets_energyasset</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT">id PK</TD></TR>
+      <TR><TD ALIGN="LEFT">house_id FK</TD></TR>
+      <TR><TD ALIGN="LEFT">asset_type</TD></TR>
+      <TR><TD ALIGN="LEFT">nominal_power_kw</TD></TR>
+      <TR><TD ALIGN="LEFT">capacity_kwh</TD></TR>
+    </TABLE>
+  >];
+
+  Sensor [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" COLOR="#7c3aed">
+      <TR><TD BGCOLOR="#7c3aed"><FONT COLOR="white"><B>devices_sensor</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT">id PK</TD></TR>
+      <TR><TD ALIGN="LEFT">house_id FK</TD></TR>
+      <TR><TD ALIGN="LEFT">energy_asset_id FK NULL</TD></TR>
+      <TR><TD ALIGN="LEFT">sensor_type, unit</TD></TR>
+    </TABLE>
+  >];
+
+  Equipment [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" COLOR="#7c3aed">
+      <TR><TD BGCOLOR="#7c3aed"><FONT COLOR="white"><B>devices_equipment</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT">id PK</TD></TR>
+      <TR><TD ALIGN="LEFT">house_id FK</TD></TR>
+      <TR><TD ALIGN="LEFT">rated_power_kw</TD></TR>
+      <TR><TD ALIGN="LEFT">priority, status</TD></TR>
+    </TABLE>
+  >];
+
+  Measurement [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" COLOR="#0891b2">
+      <TR><TD BGCOLOR="#0891b2"><FONT COLOR="white"><B>measurements_measurement</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT">id PK</TD></TR>
+      <TR><TD ALIGN="LEFT">house_id FK</TD></TR>
+      <TR><TD ALIGN="LEFT">sensor_id FK NULL</TD></TR>
+      <TR><TD ALIGN="LEFT">measurement_type</TD></TR>
+      <TR><TD ALIGN="LEFT">value, timestamp</TD></TR>
+    </TABLE>
+  >];
+
+  Dataset [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" COLOR="#be123c">
+      <TR><TD BGCOLOR="#be123c"><FONT COLOR="white"><B>datasets_dataset</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT">id PK</TD></TR>
+      <TR><TD ALIGN="LEFT">uploaded_by_id FK NULL</TD></TR>
+      <TR><TD ALIGN="LEFT">kind, file</TD></TR>
+      <TR><TD ALIGN="LEFT">status, rows</TD></TR>
+    </TABLE>
+  >];
+
+  ImportedModel [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" COLOR="#ca8a04">
+      <TR><TD BGCOLOR="#ca8a04"><FONT COLOR="white"><B>forecasting_importedmodel</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT">id PK</TD></TR>
+      <TR><TD ALIGN="LEFT">target</TD></TR>
+      <TR><TD ALIGN="LEFT">model_type</TD></TR>
+      <TR><TD ALIGN="LEFT">file_path</TD></TR>
+      <TR><TD ALIGN="LEFT">feature_columns</TD></TR>
+    </TABLE>
+  >];
+
+  Forecast [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" COLOR="#ca8a04">
+      <TR><TD BGCOLOR="#ca8a04"><FONT COLOR="white"><B>forecasting_forecast</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT">id PK</TD></TR>
+      <TR><TD ALIGN="LEFT">house_id FK NULL</TD></TR>
+      <TR><TD ALIGN="LEFT">model_id FK NULL</TD></TR>
+      <TR><TD ALIGN="LEFT">target, horizon</TD></TR>
+      <TR><TD ALIGN="LEFT">forecast_value</TD></TR>
+    </TABLE>
+  >];
+
+  Decision [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" COLOR="#ea580c">
+      <TR><TD BGCOLOR="#ea580c"><FONT COLOR="white"><B>fuzzy_engine_decision</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT">id PK</TD></TR>
+      <TR><TD ALIGN="LEFT">house_id FK</TD></TR>
+      <TR><TD ALIGN="LEFT">forecast_id FK NULL</TD></TR>
+      <TR><TD ALIGN="LEFT">action, confidence_score</TD></TR>
+      <TR><TD ALIGN="LEFT">risk_score, fired_rules</TD></TR>
+    </TABLE>
+  >];
+
+  Alert [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" COLOR="#dc2626">
+      <TR><TD BGCOLOR="#dc2626"><FONT COLOR="white"><B>alerts_alert</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT">id PK</TD></TR>
+      <TR><TD ALIGN="LEFT">house_id FK</TD></TR>
+      <TR><TD ALIGN="LEFT">decision_id FK NULL</TD></TR>
+      <TR><TD ALIGN="LEFT">severity, alert_type</TD></TR>
+      <TR><TD ALIGN="LEFT">message, is_read</TD></TR>
+    </TABLE>
+  >];
+
+  DataExport [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" COLOR="#059669">
+      <TR><TD BGCOLOR="#059669"><FONT COLOR="white"><B>reports_dataexport</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT">id PK</TD></TR>
+      <TR><TD ALIGN="LEFT">user_id FK</TD></TR>
+      <TR><TD ALIGN="LEFT">house_id FK</TD></TR>
+      <TR><TD ALIGN="LEFT">export_type</TD></TR>
+      <TR><TD ALIGN="LEFT">start_date, end_date</TD></TR>
+    </TABLE>
+  >];
+
+  User -> House [label="1:N owner_id"];
+  User -> EmailToken [label="1:N user_id"];
+  User -> PasswordToken [label="1:N user_id"];
+  User -> Dataset [label="0..1:N uploaded_by_id"];
+  User -> DataExport [label="1:N user_id"];
+
+  House -> EnergyAsset [label="1:N house_id"];
+  House -> Sensor [label="1:N house_id"];
+  House -> Equipment [label="1:N house_id"];
+  House -> Measurement [label="1:N house_id"];
+  House -> Forecast [label="0..1:N house_id"];
+  House -> Decision [label="1:N house_id"];
+  House -> Alert [label="1:N house_id"];
+  House -> DataExport [label="1:N house_id"];
+
+  EnergyAsset -> Sensor [label="0..1:N energy_asset_id"];
+  Sensor -> Measurement [label="0..1:N sensor_id"];
+  ImportedModel -> Forecast [label="0..1:N model_id"];
+  Forecast -> Decision [label="0..1:N forecast_id"];
+  Decision -> Alert [label="0..1:N decision_id"];
+}

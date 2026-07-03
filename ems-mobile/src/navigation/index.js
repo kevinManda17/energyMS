@@ -126,7 +126,7 @@ export default function Navigation() {
             <Stack.Screen name="DecisionDetail" component={DecisionDetailScreen} options={{ ...stackScreenOptions, title: "Détail décision" }} />
             <Stack.Screen name="AlertDetail" component={AlertDetailScreen} options={{ ...stackScreenOptions, title: "Détail alerte" }} />
             <Stack.Screen name="Devices" component={DevicesScreen} options={{ ...stackScreenOptions, title: "Équipements" }} />
-            <Stack.Screen name="Forecasting" component={ForecastingScreen} options={{ ...stackScreenOptions, title: "Prévisions horaires" }} />
+            <Stack.Screen name="Forecasting" component={ForecastingScreen} options={{ ...stackScreenOptions, title: "Prévisions" }} />
             <Stack.Screen name="Reports" component={ReportsScreen} options={{ ...stackScreenOptions, title: "Rapports" }} />
             <Stack.Screen name="Pricing" component={PricingScreen} options={{ ...stackScreenOptions, title: "Tarifs" }} />
             <Stack.Screen name="Settings"       component={SettingsScreen}       options={{ ...stackScreenOptions, title: "Paramètres"      }} />
