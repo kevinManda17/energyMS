@@ -179,7 +179,7 @@ class Command(BaseCommand):
             if options["deactivate_old"]:
                 deactivated = ImportedModel.objects.filter(
                     target=target, is_active=True
-                ).exclude(model_type=PROFILE_MODEL_TYPE).update(is_active=False)
+                ).update(is_active=False)
                 if deactivated:
                     self.stdout.write(f"  [{target}] Deactivated {deactivated} existing model(s).")
 

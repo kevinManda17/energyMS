@@ -154,7 +154,6 @@ class Command(BaseCommand):
             if options["deactivate_old"]:
                 deactivated = (
                     ImportedModel.objects.filter(target=target, is_active=True)
-                    .exclude(model_type="profile")
                     .update(is_active=False)
                 )
                 if deactivated:

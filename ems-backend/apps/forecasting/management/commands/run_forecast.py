@@ -15,7 +15,7 @@ Usage:
 
 from django.core.management.base import BaseCommand, CommandError
 
-from apps.forecasting.services import persist_forecasts, predict_future
+from apps.forecasting.services import NoActiveModelError, persist_forecasts, predict_future
 from apps.fuzzy_engine.engine import evaluate_house
 from apps.fuzzy_engine.models import Decision
 from apps.houses.models import House
@@ -77,10 +77,16 @@ class Command(BaseCommand):
         # Step 2: Run forecasting
         for target in ("consumption", "production"):
             self.stdout.write(f"\n2. Forecasting {target} for {hours} hours …")
-            points = predict_future(target, house=house, hours=hours)
+            try:
+                points = predict_future(target, house=house, hours=hours)
+            except NoActiveModelError as exc:
+                self.stderr.write(
+                    f"   {exc} Lancez d'abord: python manage.py register_models"
+                )
+                continue
             persist_forecasts(target, points, house=house)
 
-            model_name = points[0]["model"].name if points else "profile fallback"
+            model_name = points[0]["model"].name if points else "(aucun point)"
             mode = points[0]["input_snapshot"].get("mode", "?") if points else "?"
             values = [p["forecast_value"] for p in points]
             self.stdout.write(

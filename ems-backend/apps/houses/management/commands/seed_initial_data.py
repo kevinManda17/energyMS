@@ -14,8 +14,8 @@ from django.utils import timezone
 from apps.alerts.models import Alert
 from apps.devices.models import Equipment, Sensor
 from apps.energy_assets.models import EnergyAsset
-from apps.forecasting.models import Forecast, ImportedModel
-from apps.forecasting.services import PROFILE_MODEL_TYPE, seed_forecasts_for_house
+from apps.forecasting.models import Forecast
+from apps.forecasting.services import seed_forecasts_for_house
 from apps.fuzzy_engine.engine import evaluate
 from apps.fuzzy_engine.models import Decision
 from apps.houses.models import House
@@ -91,12 +91,10 @@ class Command(BaseCommand):
         return user
 
     def _forecasting_base(self):
+        # Only clean orphan forecasts. Registered ML models (ImportedModel)
+        # are managed by `register_models`, never by the demo seeder —
+        # wiping them here would silently disable all AI predictions.
         Forecast.objects.filter(house__isnull=True).delete()
-        ImportedModel.objects.exclude(model_type=PROFILE_MODEL_TYPE).delete()
-        ImportedModel.objects.filter(
-            model_type=PROFILE_MODEL_TYPE,
-            is_active=False,
-        ).delete()
 
     def _energy_assets(self, house, pv_capacity, battery_capacity):
         EnergyAsset.objects.get_or_create(

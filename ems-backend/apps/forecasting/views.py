@@ -14,6 +14,7 @@ from .serializers import ForecastSerializer, ImportedModelSerializer
 from .services import (
     DEFAULT_STEP_MINUTES,
     VALID_TARGETS,
+    NoActiveModelError,
     forecast_horizons,
     fresh_forecast_queryset,
     persist_forecasts,
@@ -118,7 +119,13 @@ class PredictView(APIView):
         if fresh_qs is not None:
             model_meta = fresh_qs.order_by("horizon").first().model
         else:
-            points = predict_future(target, house=house, hours=hours, step_minutes=step_minutes)
+            try:
+                points = predict_future(target, house=house, hours=hours, step_minutes=step_minutes)
+            except NoActiveModelError as exc:
+                return Response(
+                    {"detail": f"{exc} Importez puis activez un modèle entraîné."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
             model_meta = persist_forecasts(target, points, house=house)
 
         count = len(all_horizons)
@@ -136,7 +143,7 @@ class PredictView(APIView):
         payload = {
             "target": target,
             "step_minutes": step_minutes,
-            "model": ImportedModelSerializer(model_meta).data,
+            "model": ImportedModelSerializer(model_meta).data if model_meta else None,
             "forecasts": ForecastSerializer(forecasts, many=True).data,
             "pagination": {
                 "page": page,

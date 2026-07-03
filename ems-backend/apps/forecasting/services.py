@@ -1,11 +1,15 @@
 """
 Forecasting service for EMS inference.
 
-Supports three inference backends:
+Supports two inference backends:
   1. Keras sequence models (GRU, LSTM, CNN-LSTM, LSTM-Attention)
      with separate preprocessing.joblib (imputer + scalers).
   2. Scikit-learn pipelines stored as .joblib.
-  3. Hourly profile fallback (mathematical solar/consumption model).
+
+There is deliberately NO mathematical fallback: if no trained model is active
+(or none can be loaded) for a target, forecast_value/predict_future raise
+NoActiveModelError rather than fabricating plausible-looking numbers — the
+platform only ever shows predictions that came from the user's own models.
 
 Both the GRU (consumption) and the historical PV Keras/RF models were
 trained on 10-minute-cadence telemetry to predict a single next step
@@ -34,7 +38,6 @@ horizons.
 from __future__ import annotations
 
 import logging
-import math
 import os
 from datetime import datetime, timedelta
 
@@ -51,9 +54,17 @@ from .models import Forecast, ImportedModel
 logger = logging.getLogger("ems.forecasting")
 
 VALID_TARGETS = {"production", "consumption"}
-BASELINE_ALGORITHM = "HourlyProfileForecast"
-PROFILE_MODEL_TYPE = "profile"
 KERAS_MODEL_TYPES = {"keras_gru", "keras_lstm", "keras_cnn_lstm", "keras_lstm_att"}
+
+
+class NoActiveModelError(Exception):
+    """No active trained model is available (or loadable) for this target."""
+
+    def __init__(self, target: str):
+        self.target = target
+        super().__init__(
+            f"Aucun modèle de prévision actif pour la cible « {target} »."
+        )
 
 # Native step of the underlying models (trained on 10-minute telemetry to
 # predict a single next step). Callers may request a coarser step_minutes,
@@ -119,31 +130,8 @@ PV_WEATHER_MEASUREMENT_TYPES = {
 
 
 # =========================================================================== #
-# Profile / fallback models                                                     #
+# Active model lookup                                                           #
 # =========================================================================== #
-
-def get_or_create_profile_model(target: str) -> ImportedModel:
-    model = ImportedModel.objects.filter(
-        target=target, model_type=PROFILE_MODEL_TYPE, is_active=True
-    ).first()
-    if model:
-        return model
-    return ImportedModel.objects.create(
-        name=f"{BASELINE_ALGORITHM} {target}",
-        target=target,
-        model_type=PROFILE_MODEL_TYPE,
-        file_path=f"internal://{BASELINE_ALGORITHM.lower()}/{target}",
-        version="fallback",
-        input_schema={"features": ["hour", "recent_production_kw", "recent_consumption_kw",
-                                   "battery_soc", "pv_nominal_power_kw"]},
-        metrics={},
-        is_active=True,
-    )
-
-
-def get_or_create_forecast_model(target: str) -> ImportedModel:
-    return get_or_create_profile_model(target)
-
 
 def _active_keras_model(target: str) -> ImportedModel | None:
     return (
@@ -191,16 +179,6 @@ def _recent_average(house, measurement_type: str, fallback: float) -> float:
         .values_list("value", flat=True)[:24]
     )
     return max(0.0, sum(float(v) for v in values) / len(values)) if values else fallback
-
-
-def _solar_profile(hour: int, pv_capacity_kw: float) -> float:
-    return max(0.0, math.sin((hour - 6) / 12 * math.pi) * pv_capacity_kw)
-
-
-def _consumption_profile(hour: int, recent_avg_kw: float) -> float:
-    morning = math.exp(-((hour - 7) ** 2) / 8)
-    evening = math.exp(-((hour - 20) ** 2) / 8)
-    return max(0.15, recent_avg_kw * (0.65 + 0.75 * morning + 1.05 * evening))
 
 
 def _house_coordinates(house) -> tuple[float, float]:
@@ -293,7 +271,7 @@ def _apply_production_night_zero(target: str, horizon, weather_row: dict | None,
     Zero out production forecasts at night, using this horizon's own
     forecasted irradiance when available (falls back to a fixed
     daylight-hours heuristic otherwise). Applied uniformly regardless of
-    which backend (Keras, sklearn, profile) produced the raw value.
+    which backend (Keras or sklearn) produced the raw value.
     """
     if target != "production":
         return value
@@ -862,7 +840,7 @@ def forecast_value(
     """
     Return (predicted_kw, model_record, metadata_snapshot) for a single horizon.
 
-    Priority: Keras model → sklearn model → profile fallback. Used directly
+    Priority: Keras model → sklearn model → NoActiveModelError. Used directly
     for production (single-shot per horizon, no historical rollout needed)
     and as a per-step fallback for consumption when the GRU rollout can't run.
 
@@ -893,14 +871,9 @@ def forecast_value(
             value = _apply_production_night_zero(target, horizon, weather_row, value)
             return value, sklearn_record, {"mode": "sklearn", "features": context, "weather": weather_row or {}}
 
-    profile_model = get_or_create_profile_model(target)
-    capacity = context["pv_nominal_power_kw"]
-    if target == "production":
-        profile = _solar_profile(horizon.hour, capacity)
-        value = (profile * 0.75) + (context["recent_production_kw"] * 0.25)
-    else:
-        value = _consumption_profile(horizon.hour, context["recent_consumption_kw"])
-    return round(max(0.0, value), 3), profile_model, {"mode": "profile_fallback", "features": context}
+    # No mathematical fallback: surfacing an explicit error beats showing the
+    # user numbers that never went through one of their trained models.
+    raise NoActiveModelError(target)
 
 
 def forecast_grid(hours: int, step_minutes: int) -> tuple[int, int, int, datetime]:
@@ -1012,7 +985,7 @@ def persist_forecasts(target: str, points: list[dict], house=None) -> ImportedMo
         )
         for p in points
     ])
-    return points[0]["model"] if points else get_or_create_profile_model(target)
+    return points[0]["model"] if points else None
 
 
 def persist_predictions(target: str, points: list[dict], house=None) -> ImportedModel:
@@ -1026,7 +999,13 @@ def seed_forecasts_for_house(house, hours: int = 24, replace: bool = False) -> N
             continue
         if replace:
             qs.delete()
-        points = predict_future(target, house=house, hours=hours)
+        try:
+            points = predict_future(target, house=house, hours=hours)
+        except NoActiveModelError:
+            # Seeding demo data must not require the ML models to be
+            # registered; forecasts simply stay empty until they are.
+            logger.warning("Seed: no active %s model, skipping forecasts for %s", target, house)
+            continue
         persist_forecasts(target, points, house=house)
 
 
