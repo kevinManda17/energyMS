@@ -4,6 +4,7 @@ import {
   BatteryCharging,
   MapPin,
   Network,
+  Pencil,
   Plus,
   Sun,
   Trash2,
@@ -16,22 +17,34 @@ import { fmt } from "../utils/format";
 
 const HOUSES_PER_PAGE = 9;
 
+const EMPTY_FORM = {
+  name: "", location: "", latitude: "", longitude: "",
+  pv_capacity_kw: "", battery_capacity_kwh: "",
+};
+
+// La configuration d'un micro-réseau (panneau, batterie, position) peut
+// changer : tout reste modifiable après création.
 export default function Houses() {
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({
-    name: "", location: "", pv_capacity_kw: "", battery_capacity_kwh: "",
-  });
+  const [editing, setEditing] = useState(null); // maison en cours d'édition
+  const [form, setForm] = useState(EMPTY_FORM);
   const [page, setPage] = useState(1);
 
   const { data, isLoading } = useQuery({ queryKey: ["houses"], queryFn: housesApi.list });
 
-  const create = useMutation({
-    mutationFn: (p) => housesApi.create(p),
+  function closeForm() {
+    setShowForm(false);
+    setEditing(null);
+    setForm(EMPTY_FORM);
+  }
+
+  const save = useMutation({
+    mutationFn: (p) => (editing ? housesApi.patch(editing.id, p) : housesApi.create(p)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["houses"] });
-      setShowForm(false);
-      setForm({ name: "", location: "", pv_capacity_kw: "", battery_capacity_kwh: "" });
+      qc.invalidateQueries({ queryKey: ["predict"] });
+      closeForm();
     },
   });
 
@@ -39,6 +52,20 @@ export default function Houses() {
     mutationFn: (id) => housesApi.remove(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["houses"] }),
   });
+
+  function openEdit(h) {
+    setEditing(h);
+    setForm({
+      name: h.name || "",
+      location: h.location || "",
+      latitude: h.latitude ?? "",
+      longitude: h.longitude ?? "",
+      pv_capacity_kw: h.pv_capacity_kw ?? "",
+      battery_capacity_kwh: h.battery_capacity_kwh ?? "",
+    });
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
   if (isLoading) return <Loading />;
   const houses   = data?.results || data || [];
@@ -56,27 +83,33 @@ export default function Houses() {
         title="Micro-réseaux"
         subtitle="Gérez vos maisons et micro-réseaux domestiques."
         actions={
-          <button className="btn-primary gap-2" onClick={() => setShowForm((s) => !s)}>
+          <button
+            className="btn-primary gap-2"
+            onClick={() => (showForm ? closeForm() : setShowForm(true))}
+          >
             <Plus size={16} /> Nouveau micro-réseau
           </button>
         }
       />
 
-      {/* Formulaire de création */}
+      {/* Formulaire création / édition */}
       {showForm && (
         <form
           className="card mb-6 p-5"
           onSubmit={(e) => {
             e.preventDefault();
-            create.mutate({
-              ...form,
-              pv_capacity_kw:      Number(form.pv_capacity_kw)      || 0,
-              battery_capacity_kwh: Number(form.battery_capacity_kwh) || 0,
+            save.mutate({
+              name: form.name,
+              location: form.location,
+              latitude:  form.latitude  === "" ? null : Number(form.latitude),
+              longitude: form.longitude === "" ? null : Number(form.longitude),
+              pv_capacity_kw:       form.pv_capacity_kw       === "" ? null : Number(form.pv_capacity_kw),
+              battery_capacity_kwh: form.battery_capacity_kwh === "" ? null : Number(form.battery_capacity_kwh),
             });
           }}
         >
           <h3 className="mb-4 font-semibold text-navy dark:text-white">
-            Nouveau micro-réseau
+            {editing ? `Modifier « ${editing.name} »` : "Nouveau micro-réseau"}
           </h3>
           <div className="grid gap-4 sm:grid-cols-2">
             <FormField
@@ -93,11 +126,27 @@ export default function Houses() {
               onChange={(v) => setForm({ ...form, location: v })}
             />
             <FormField
-              label="Capacité PV (kW)"
+              label="Latitude (météo du site)"
               type="number"
-              step="0.1"
+              step="any"
+              placeholder="ex: -4.3276"
+              value={form.latitude}
+              onChange={(v) => setForm({ ...form, latitude: v })}
+            />
+            <FormField
+              label="Longitude (météo du site)"
+              type="number"
+              step="any"
+              placeholder="ex: 15.3136"
+              value={form.longitude}
+              onChange={(v) => setForm({ ...form, longitude: v })}
+            />
+            <FormField
+              label="Capacité PV estimée (kWc)"
+              type="number"
+              step="0.05"
               min="0"
-              placeholder="ex: 5.5"
+              placeholder="ex: 0.3"
               value={form.pv_capacity_kw}
               onChange={(v) => setForm({ ...form, pv_capacity_kw: v })}
             />
@@ -112,10 +161,12 @@ export default function Houses() {
             />
           </div>
           <div className="mt-4 flex items-center gap-3">
-            <button className="btn-primary" disabled={create.isPending}>
-              {create.isPending ? "Enregistrement…" : "Enregistrer"}
+            <button className="btn-primary" disabled={save.isPending}>
+              {save.isPending
+                ? "Enregistrement…"
+                : editing ? "Enregistrer les modifications" : "Enregistrer"}
             </button>
-            <button type="button" className="btn-ghost" onClick={() => setShowForm(false)}>
+            <button type="button" className="btn-ghost" onClick={closeForm}>
               Annuler
             </button>
           </div>
@@ -187,13 +238,21 @@ export default function Houses() {
                     <Network size={13} strokeWidth={2.2} />
                     ID #{h.id}
                   </span>
-                  <button
-                    className="flex items-center gap-1 text-xs font-medium text-danger opacity-70 transition hover:opacity-100"
-                    onClick={() => handleDelete(h)}
-                    disabled={remove.isPending}
-                  >
-                    <Trash2 size={13} strokeWidth={2.4} /> Supprimer
-                  </button>
+                  <div className="flex items-center gap-4">
+                    <button
+                      className="flex items-center gap-1 text-xs font-medium text-electric opacity-80 transition hover:opacity-100"
+                      onClick={() => openEdit(h)}
+                    >
+                      <Pencil size={13} strokeWidth={2.4} /> Modifier
+                    </button>
+                    <button
+                      className="flex items-center gap-1 text-xs font-medium text-danger opacity-70 transition hover:opacity-100"
+                      onClick={() => handleDelete(h)}
+                      disabled={remove.isPending}
+                    >
+                      <Trash2 size={13} strokeWidth={2.4} /> Supprimer
+                    </button>
+                  </div>
                 </div>
               </div>
             );

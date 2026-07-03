@@ -28,6 +28,7 @@ export const housesApi = {
   list: () => api.get("/houses/").then((r) => r.data),
   create: (p) => api.post("/houses/", p).then((r) => r.data),
   update: (id, p) => api.put(`/houses/${id}/`, p).then((r) => r.data),
+  patch: (id, p) => api.patch(`/houses/${id}/`, p).then((r) => r.data),
   remove: (id) => api.delete(`/houses/${id}/`),
 };
 
@@ -53,12 +54,25 @@ export const measurementsApi = {
     api.get("/measurements/history/", { params }).then((r) => r.data),
 };
 
+export const weatherApi = {
+  collect: (houseId) =>
+    api
+      .post("/measurements/weather/collect/", houseId ? { house: houseId } : {})
+      .then((r) => r.data),
+  status: (houseId) =>
+    api
+      .get("/measurements/weather/status/", { params: houseId ? { house: houseId } : {} })
+      .then((r) => r.data),
+};
+
 export const forecastingApi = {
   predict: (params) =>
     api.get("/forecasting/predict/", { params }).then((r) => r.data),
   predictions: (params) =>
     api.get("/forecasting/predictions/", { params }).then((r) => r.data),
   models: () => api.get("/forecasting/models/").then((r) => r.data),
+  updateModel: (id, p) =>
+    api.patch(`/forecasting/models/${id}/`, p).then((r) => r.data),
 };
 
 export const decisionsApi = {

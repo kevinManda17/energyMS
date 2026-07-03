@@ -20,6 +20,12 @@ class House(models.Model):
     latitude = models.FloatField(null=True, blank=True)
     longitude = models.FloatField(null=True, blank=True)
     description = models.TextField(blank=True)
+    # Estimated solar configuration — editable at any time (a panel can be
+    # added, replaced or re-estimated). Used to scale PV forecasts; when PV
+    # panel EnergyAssets carry their own nominal_power_kw, those take
+    # precedence over this house-level estimate.
+    pv_capacity_kw = models.FloatField(null=True, blank=True)
+    battery_capacity_kwh = models.FloatField(null=True, blank=True)
     status = models.CharField(
         max_length=15, choices=Status.choices, default=Status.ONLINE
     )

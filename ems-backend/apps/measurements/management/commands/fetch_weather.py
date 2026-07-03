@@ -13,35 +13,17 @@ alongside --house-id for a single house.
 
 Fetches the current hourly snapshot — including tilted irradiance (GTI) at the
 reference angles used to train the production model — and stores each variable
-as a Measurement record.
+as a Measurement record. Same code path as the on-demand API endpoint
+(POST /api/measurements/weather/collect/) and the automatic background
+collector (see apps.measurements.weather_scheduler).
 
 Coordinates fallback: Kinshasa, RDC (-4.3276, 15.3136).
 """
 
-import os
-from datetime import datetime, timezone
-
 from django.core.management.base import BaseCommand
 
 from apps.houses.models import House
-from apps.measurements.models import Measurement
-from apps.measurements.weather_api import GTI_UNIT, fetch_solar_snapshot
-
-DEFAULT_LAT = float(os.getenv("WEATHER_LATITUDE", "-4.3276"))
-DEFAULT_LON = float(os.getenv("WEATHER_LONGITUDE", "15.3136"))
-
-MEASUREMENT_UNITS = {
-    "irradiance": "W/m2",
-    "irradiance_tilt15": GTI_UNIT,
-    "irradiance_tilt20": GTI_UNIT,
-    "irradiance_east": GTI_UNIT,
-    "irradiance_west": GTI_UNIT,
-    "temperature": "°C",
-    "humidity": "%",
-    "air_pressure": "hPa",
-    "wind_speed": "m/s",
-    "wind_direction": "°",
-}
+from apps.measurements.services import DEFAULT_LAT, DEFAULT_LON, collect_weather_for_house
 
 
 class Command(BaseCommand):
@@ -70,10 +52,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        lat_override = options["lat"]
-        lon_override = options["lon"]
         house_id = options["house_id"]
-
         houses = House.objects.filter(pk=house_id) if house_id else House.objects.all()
         if not houses.exists():
             self.stderr.write("No matching house(s) found.")
@@ -81,35 +60,17 @@ class Command(BaseCommand):
 
         total_created = 0
         for house in houses:
-            lat = lat_override if lat_override is not None else (house.latitude or DEFAULT_LAT)
-            lon = lon_override if lon_override is not None else (house.longitude or DEFAULT_LON)
-
-            self.stdout.write(f"Fetching weather for '{house.name}' (lat={lat}, lon={lon}) …")
-            snapshot = fetch_solar_snapshot(lat, lon)
-            if snapshot is None:
+            self.stdout.write(f"Fetching weather for '{house.name}' …")
+            result = collect_weather_for_house(
+                house, lat=options["lat"], lon=options["lon"]
+            )
+            if result is None:
                 self.stderr.write(f"  Failed to fetch weather data for '{house.name}'.")
                 continue
-
-            timestamp_str = snapshot.pop("_timestamp", None)
-            try:
-                timestamp = datetime.fromisoformat(timestamp_str).replace(tzinfo=timezone.utc)
-            except (TypeError, ValueError):
-                timestamp = datetime.now(tz=timezone.utc)
-
-            created = 0
-            for mtype, value in snapshot.items():
-                if value is None:
-                    continue
-                Measurement.objects.update_or_create(
-                    house=house,
-                    measurement_type=mtype,
-                    timestamp=timestamp,
-                    defaults={"value": float(value), "unit": MEASUREMENT_UNITS.get(mtype, "")},
-                )
-                created += 1
-
-            self.stdout.write(f"  Stored {created} weather measurements at {timestamp}.")
-            total_created += created
+            self.stdout.write(
+                f"  Stored {result['stored']} weather measurements at {result['timestamp']}."
+            )
+            total_created += result["stored"]
 
         self.stdout.write(
             self.style.SUCCESS(

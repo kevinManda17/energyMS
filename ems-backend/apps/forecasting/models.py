@@ -30,6 +30,12 @@ class ImportedModel(models.Model):
     # Ordered list of feature column names the model expects
     feature_columns = models.JSONField(default=list, blank=True)
     version = models.CharField(max_length=50, default="v1")
+    # Peak power (W) of the physical panel whose telemetry trained this model.
+    # PV predictions come out in that panel's Watts; when both this and the
+    # house's estimated PV capacity are known, forecasts are scaled by
+    # capacity_w / reference_peak_w so they stay in line with the user's own
+    # installation. Editable because the solar setup can change.
+    reference_peak_w = models.FloatField(null=True, blank=True)
     input_schema = models.JSONField(default=dict, blank=True)
     metrics = models.JSONField(default=dict, blank=True)
     is_active = models.BooleanField(default=True)

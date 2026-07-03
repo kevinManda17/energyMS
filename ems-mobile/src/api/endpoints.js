@@ -24,6 +24,7 @@ export const housesApi = {
   list: () => getWithCache("/houses/", null, "houses"),
   create: (payload) => api.post("/houses/", payload).then((r) => r.data),
   update: (id, payload) => api.put(`/houses/${id}/`, payload).then((r) => r.data),
+  patch: (id, payload) => api.patch(`/houses/${id}/`, payload).then((r) => r.data),
 };
 
 export const devicesApi = {
@@ -38,6 +39,19 @@ export const devicesApi = {
 export const measurementsApi = {
   latest: (houseId) => getWithCache("/measurements/latest/", { house: houseId }, `latest_${houseId || "all"}`),
   history: (params) => getWithCache("/measurements/history/", params, `history_${JSON.stringify(params || {})}`),
+};
+
+// Collecte météo Open-Meteo : toujours en direct (pas de cache) — le statut
+// sert à afficher la fraîcheur des données, il doit être exact.
+export const weatherApi = {
+  collect: (houseId) =>
+    api
+      .post("/measurements/weather/collect/", houseId ? { house: houseId } : {})
+      .then((r) => r.data),
+  status: (houseId) =>
+    api
+      .get("/measurements/weather/status/", { params: houseId ? { house: houseId } : {} })
+      .then((r) => r.data),
 };
 
 export const forecastingApi = {

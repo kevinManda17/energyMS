@@ -121,6 +121,14 @@ class Command(BaseCommand):
             default=None,
             help="Register only this model name (e.g. GRU, LSTM, RF). Default: best model.",
         )
+        parser.add_argument(
+            "--reference-peak-w",
+            type=float,
+            default=None,
+            help="Peak power (W) of the physical panel whose telemetry trained the "
+            "production model; used to scale PV forecasts to the user's own "
+            "estimated capacity. Editable later via PATCH /api/forecasting/models/{id}/.",
+        )
 
     def handle(self, *args, **options):
         ai2_root = Path(options["ai2_path"])
@@ -183,11 +191,18 @@ class Command(BaseCommand):
                 if deactivated:
                     self.stdout.write(f"  [{target}] Deactivated {deactivated} existing model(s).")
 
+            # Only touch reference_peak_w when explicitly provided, so
+            # re-registering never wipes a value set earlier via the API.
+            defaults_extra = {}
+            if target == "production" and options["reference_peak_w"]:
+                defaults_extra["reference_peak_w"] = options["reference_peak_w"]
+
             record, created = ImportedModel.objects.update_or_create(
                 target=target,
                 model_type=ems_model_type,
                 file_path=str(model_file),
                 defaults={
+                    **defaults_extra,
                     "name": f"{config['name_prefix']} — {model_name}",
                     "version": metrics.get("model", model_name),
                     "preprocessing_path": preprocessing_path,

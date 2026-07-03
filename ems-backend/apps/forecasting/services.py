@@ -154,9 +154,15 @@ def _active_sklearn_model(target: str) -> ImportedModel | None:
 # Helper utilities                                                              #
 # =========================================================================== #
 
-def pv_nominal_power_kw(house, fallback: float = 5.0) -> float:
+def pv_capacity_estimate_kw(house) -> float | None:
+    """
+    User-configured estimate of the installed PV capacity: the sum of active
+    PV panel assets when they carry a nominal power, else the house-level
+    pv_capacity_kw. None when nothing has been configured — both sources are
+    editable at any time (a solar configuration can change).
+    """
     if house is None:
-        return fallback
+        return None
     total = (
         EnergyAsset.objects.filter(
             house=house,
@@ -167,7 +173,29 @@ def pv_nominal_power_kw(house, fallback: float = 5.0) -> float:
         .values_list("nominal_power_kw", flat=True)
     )
     capacity = sum(float(v or 0) for v in total)
-    return capacity or fallback
+    if capacity:
+        return capacity
+    house_capacity = getattr(house, "pv_capacity_kw", None)
+    return float(house_capacity) if house_capacity else None
+
+
+def pv_nominal_power_kw(house, fallback: float = 5.0) -> float:
+    return pv_capacity_estimate_kw(house) or fallback
+
+
+def pv_scale_factor(house, model_record) -> tuple[float, float | None]:
+    """
+    (scale, capacity_kw) to convert the PV model's output — Watts of the
+    reference panel it was trained on — into the user's own installation.
+    Scale stays 1.0 (raw model output) unless BOTH the model's
+    reference_peak_w and an estimated capacity for the house are configured,
+    so nothing is ever silently invented.
+    """
+    capacity_kw = pv_capacity_estimate_kw(house)
+    reference_w = getattr(model_record, "reference_peak_w", None)
+    if not capacity_kw or not reference_w:
+        return 1.0, capacity_kw
+    return (capacity_kw * 1000.0) / float(reference_w), capacity_kw
 
 
 def _recent_average(house, measurement_type: str, fallback: float) -> float:
@@ -573,7 +601,9 @@ def _build_consumption_sequence(house, prep: dict, horizon) -> np.ndarray | None
     return X[np.newaxis, :, :]
 
 
-def _build_pv_sequence(house, prep: dict, horizon, weather_row: dict | None = None) -> np.ndarray | None:
+def _build_pv_sequence(
+    house, prep: dict, horizon, weather_row: dict | None = None, scale: float = 1.0
+) -> np.ndarray | None:
     """
     Build a (1, sequence_length, n_features) array for the PV LSTM.
     Features not available from DB are filled by the median imputer (same as training).
@@ -583,6 +613,10 @@ def _build_pv_sequence(house, prep: dict, horizon, weather_row: dict | None = No
     wind columns are overridden with it across the whole sequence window
     (same pattern as CONSUMPTION_TEMPORAL) so production tracks the expected
     weather at that hour instead of freezing on the most recent DB snapshot.
+
+    `scale` is the user-panel/reference-panel power ratio (pv_scale_factor):
+    measured production is divided by it so the model always sees Watts in
+    the units of the panel it was trained on.
     """
     seq_len = prep.get("sequence_length", 36)
     feature_cols: list[str] = prep.get("feature_columns", [])
@@ -603,9 +637,9 @@ def _build_pv_sequence(house, prep: dict, horizon, weather_row: dict | None = No
                 rows[row_idx][col_idx] = value
             continue
         values = _fetch_recent_measurements(house, mtype, seq_len)
-        # PV production in EMS is kW; model expects Watts
+        # PV production in EMS is kW; model expects Watts of the reference panel
         if col == "Pmpp":
-            values = [v * 1000.0 for v in values]
+            values = [v * 1000.0 / (scale or 1.0) for v in values]
         for row_offset, val in enumerate(values):
             actual_row = seq_len - len(values) + row_offset
             rows[actual_row][col_idx] = float(val)
@@ -628,12 +662,14 @@ def _predict_with_keras_model(
     horizon,
     target: str,
     weather_row: dict | None = None,
+    scale: float = 1.0,
 ) -> float | None:
     """
     Single-shot Keras inference for one horizon (frozen window). Used as a
     fallback when the autoregressive rollout isn't available, and for the PV
     Keras model when it's the active model for production.
-    Returns the predicted value in kW, or None on any failure.
+    Returns the predicted value in kW (scaled to the user's own PV capacity
+    for production), or None on any failure.
     """
     prep = _get_keras_preprocessing_cached(model_record)
     if prep is None:
@@ -646,7 +682,7 @@ def _predict_with_keras_model(
     if target == "consumption":
         X = _build_consumption_sequence(house, prep, horizon)
     else:
-        X = _build_pv_sequence(house, prep, horizon, weather_row=weather_row)
+        X = _build_pv_sequence(house, prep, horizon, weather_row=weather_row, scale=scale)
 
     if X is None:
         return None
@@ -662,9 +698,10 @@ def _predict_with_keras_model(
         logger.warning("Keras inference error: %s", exc)
         return None
 
-    # PV model output is Watts → convert to kW; consumption is already kW
+    # PV model output is Watts of the reference panel → scale to the user's
+    # installation, then convert to kW; consumption is already kW
     if target == "production":
-        raw = raw / 1000.0
+        raw = raw * (scale or 1.0) / 1000.0
 
     return round(max(0.0, raw), 4)
 
@@ -681,13 +718,16 @@ def _features_for_sklearn(model: ImportedModel, context: dict) -> list[list[floa
     return [[float(context.get(name, 0.0) or 0.0) for name in feature_names]]
 
 
-def _pv_static_features(house, feature_cols: list[str]) -> dict[str, float]:
+def _pv_static_features(house, feature_cols: list[str], scale: float = 1.0) -> dict[str, float]:
     """
     Last known value for every non-weather PV feature column, fetched once
     per forecast request (not once per horizon — these don't change across a
     single predict_future() call, so re-querying per step was pure overhead:
     with 144 steps/day it meant >1000 redundant DB round-trips for values
     that were always going to be the same "most recent measurement").
+
+    Measured production (Pmpp) is divided by `scale` (pv_scale_factor) so the
+    model sees Watts in the units of the reference panel it was trained on.
     """
     static: dict[str, float] = {}
     for col in feature_cols:
@@ -699,7 +739,7 @@ def _pv_static_features(house, feature_cols: list[str]) -> dict[str, float]:
             continue
         val = values[-1]
         if col == "Pmpp":
-            val = val * 1000.0
+            val = val * 1000.0 / (scale or 1.0)
         static[col] = float(val)
     return static
 
@@ -732,6 +772,7 @@ def _predict_pv_sklearn(
     house,
     weather_row: dict | None,
     static_values: dict[str, float] | None,
+    scale: float = 1.0,
 ) -> float | None:
     artifact = _get_sklearn_artifact_cached(model_record)
     if artifact is None:
@@ -744,10 +785,11 @@ def _predict_pv_sklearn(
         if not feature_cols:
             return None
         if static_values is None:
-            static_values = _pv_static_features(house, feature_cols)
+            static_values = _pv_static_features(house, feature_cols, scale=scale)
         X = _build_pv_features_flat(feature_cols, weather_row, static_values)
         raw = float(pipeline.predict(X)[0])
-        return round(max(0.0, raw / 1000.0), 4)  # Watts -> kW
+        # Reference-panel Watts -> user installation Watts -> kW
+        return round(max(0.0, raw * (scale or 1.0) / 1000.0), 4)
     except Exception as exc:
         logger.warning("sklearn PV inference error: %s", exc)
         return None
@@ -779,7 +821,8 @@ def _forecast_production_sklearn_batch(
     if not feature_cols:
         return None
 
-    static_values = _pv_static_features(house, feature_cols)
+    scale, capacity_kw = pv_scale_factor(house, model_record)
+    static_values = _pv_static_features(house, feature_cols, scale=scale)
     horizons = [now + timedelta(minutes=step_minutes * step) for step in range(1, n_steps + 1)]
     weather_rows = [_weather_row_for_horizon(weather_lookup, h) for h in horizons]
     X = np.vstack([_build_pv_features_flat(feature_cols, wr, static_values) for wr in weather_rows])
@@ -792,7 +835,7 @@ def _forecast_production_sklearn_batch(
 
     results = []
     for step, (horizon, weather_row, raw) in enumerate(zip(horizons, weather_rows, raw_preds), start=1):
-        value = round(max(0.0, float(raw) / 1000.0), 4)
+        value = round(max(0.0, float(raw) * scale / 1000.0), 4)
         value = _apply_production_night_zero("production", horizon, weather_row, value)
         results.append({
             "horizon": horizon,
@@ -800,7 +843,12 @@ def _forecast_production_sklearn_batch(
             "forecast_value": value,
             "value": value,
             "model": model_record,
-            "input_snapshot": {"mode": "sklearn", "weather": weather_row or {}},
+            "input_snapshot": {
+                "mode": "sklearn",
+                "weather": weather_row or {},
+                "pv_scale": round(scale, 4),
+                "pv_capacity_kw": capacity_kw,
+            },
         })
     return results
 
@@ -811,9 +859,10 @@ def _predict_with_sklearn_model(
     house=None,
     weather_row: dict | None = None,
     static_values: dict[str, float] | None = None,
+    scale: float = 1.0,
 ) -> float | None:
     if model.target == "production":
-        return _predict_pv_sklearn(model, house, weather_row, static_values)
+        return _predict_pv_sklearn(model, house, weather_row, static_values, scale=scale)
     artifact = _get_sklearn_artifact_cached(model)
     if artifact is None:
         return None
@@ -852,7 +901,12 @@ def forecast_value(
 
     keras_record = _active_keras_model(target)
     if keras_record is not None:
-        value = _predict_with_keras_model(keras_record, house, horizon, target, weather_row=weather_row)
+        scale, capacity_kw = (
+            pv_scale_factor(house, keras_record) if target == "production" else (1.0, None)
+        )
+        value = _predict_with_keras_model(
+            keras_record, house, horizon, target, weather_row=weather_row, scale=scale
+        )
         if value is not None:
             value = _apply_production_night_zero(target, horizon, weather_row, value)
             return value, keras_record, {
@@ -860,16 +914,28 @@ def forecast_value(
                 "horizon_hour": horizon.hour,
                 "features": context,
                 "weather": weather_row or {},
+                "pv_scale": round(scale, 4),
+                "pv_capacity_kw": capacity_kw,
             }
 
     sklearn_record = _active_sklearn_model(target)
     if sklearn_record is not None:
+        scale, capacity_kw = (
+            pv_scale_factor(house, sklearn_record) if target == "production" else (1.0, None)
+        )
         value = _predict_with_sklearn_model(
-            sklearn_record, context, house=house, weather_row=weather_row, static_values=static_values
+            sklearn_record, context, house=house, weather_row=weather_row,
+            static_values=static_values, scale=scale,
         )
         if value is not None:
             value = _apply_production_night_zero(target, horizon, weather_row, value)
-            return value, sklearn_record, {"mode": "sklearn", "features": context, "weather": weather_row or {}}
+            return value, sklearn_record, {
+                "mode": "sklearn",
+                "features": context,
+                "weather": weather_row or {},
+                "pv_scale": round(scale, 4),
+                "pv_capacity_kw": capacity_kw,
+            }
 
     # No mathematical fallback: surfacing an explicit error beats showing the
     # user numbers that never went through one of their trained models.

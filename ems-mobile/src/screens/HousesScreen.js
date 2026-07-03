@@ -4,7 +4,7 @@ import {
   Modal, KeyboardAvoidingView, Platform, Pressable,
 } from "react-native";
 import {
-  Battery, CheckCircle2, HousePlug, MapPin, Plus, Wifi, X, Zap,
+  Battery, CheckCircle2, HousePlug, MapPin, Pencil, Plus, Wifi, X, Zap,
 } from "lucide-react-native";
 import { Badge } from "../components/Badge";
 import { FormInput } from "../components/FormInput";
@@ -21,23 +21,69 @@ export default function HousesScreen() {
   const { houses, houseId, setHouseId, reload } = useActiveHouse();
   const [name, setName]         = useState("");
   const [location, setLocation] = useState("");
+  const [latitude, setLatitude]   = useState("");
+  const [longitude, setLongitude] = useState("");
+  const [pvCapacity, setPvCapacity] = useState("");
+  const [batteryCapacity, setBatteryCapacity] = useState("");
+  const [editing, setEditing]   = useState(null); // maison en cours d'édition
   const [error, setError]       = useState("");
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving]     = useState(false);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
-  async function createHouse() {
+  function openCreate() {
+    setEditing(null);
+    setName(""); setLocation("");
+    setLatitude(""); setLongitude("");
+    setPvCapacity(""); setBatteryCapacity("");
+    setError("");
+    setShowModal(true);
+  }
+
+  // La configuration solaire peut changer (panneau remplacé, capacité
+  // ré-estimée, site déplacé) : tout reste modifiable après création.
+  function openEdit(house) {
+    setEditing(house);
+    setName(house.name || "");
+    setLocation(house.location || "");
+    setLatitude(house.latitude != null ? String(house.latitude) : "");
+    setLongitude(house.longitude != null ? String(house.longitude) : "");
+    setPvCapacity(house.pv_capacity_kw != null ? String(house.pv_capacity_kw) : "");
+    setBatteryCapacity(
+      house.battery_capacity_kwh != null ? String(house.battery_capacity_kwh) : ""
+    );
+    setError("");
+    setShowModal(true);
+  }
+
+  const toNumber = (v) => (v === "" ? null : Number(String(v).replace(",", ".")));
+
+  async function saveHouse() {
     if (!name.trim()) return;
     setError("");
     setSaving(true);
+    const payload = {
+      name,
+      location,
+      latitude: toNumber(latitude),
+      longitude: toNumber(longitude),
+      pv_capacity_kw: toNumber(pvCapacity),
+      battery_capacity_kwh: toNumber(batteryCapacity),
+    };
     try {
-      await housesApi.create({ name, location, status: "ONLINE" });
-      setName("");
-      setLocation("");
+      if (editing) {
+        await housesApi.patch(editing.id, payload);
+      } else {
+        await housesApi.create({ ...payload, status: "ONLINE" });
+      }
       setShowModal(false);
       await reload();
     } catch {
-      setError("Création impossible. Vérifiez la connexion.");
+      setError(
+        editing
+          ? "Modification impossible. Vérifiez la connexion."
+          : "Création impossible. Vérifiez la connexion."
+      );
     } finally {
       setSaving(false);
     }
@@ -56,7 +102,7 @@ export default function HousesScreen() {
         />
         <TouchableOpacity
           style={styles.addBtn}
-          onPress={() => setShowModal(true)}
+          onPress={openCreate}
           activeOpacity={0.8}
         >
           <Plus color="#fff" size={18} strokeWidth={2.6} />
@@ -106,6 +152,13 @@ export default function HousesScreen() {
                         </View>
                       ) : null}
                     </View>
+                    <TouchableOpacity
+                      onPress={() => openEdit(item)}
+                      style={[styles.editBtn, { borderColor: t.border }]}
+                      accessibilityLabel={`Modifier ${item.name}`}
+                    >
+                      <Pencil color={t.sub} size={15} strokeWidth={2.2} />
+                    </TouchableOpacity>
                     {isActive
                       ? <CheckCircle2 color={palette.blue} size={22} strokeWidth={2.4} />
                       : <Badge value={item.status} />}
@@ -154,7 +207,9 @@ export default function HousesScreen() {
               onPress={() => {}}
             >
               <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: t.text }]}>Nouveau micro-réseau</Text>
+                <Text style={[styles.modalTitle, { color: t.text }]}>
+                  {editing ? `Modifier « ${editing.name} »` : "Nouveau micro-réseau"}
+                </Text>
                 <TouchableOpacity onPress={() => setShowModal(false)} style={styles.closeBtn}>
                   <X color={t.sub} size={20} strokeWidth={2.4} />
                 </TouchableOpacity>
@@ -174,17 +229,63 @@ export default function HousesScreen() {
                 placeholder="Localisation (ex: Lubumbashi, RDC)"
                 label="Localisation"
               />
+              <View style={styles.fieldRow}>
+                <FormInput
+                  icon={MapPin}
+                  value={latitude}
+                  onChangeText={setLatitude}
+                  placeholder="-4.3276"
+                  label="Latitude (météo)"
+                  keyboardType="numbers-and-punctuation"
+                  containerStyle={styles.fieldHalf}
+                />
+                <FormInput
+                  icon={MapPin}
+                  value={longitude}
+                  onChangeText={setLongitude}
+                  placeholder="15.3136"
+                  label="Longitude (météo)"
+                  keyboardType="numbers-and-punctuation"
+                  containerStyle={styles.fieldHalf}
+                />
+              </View>
+              <View style={styles.fieldRow}>
+                <FormInput
+                  icon={Zap}
+                  value={pvCapacity}
+                  onChangeText={setPvCapacity}
+                  placeholder="ex: 0.3"
+                  label="Capacité PV (kWc)"
+                  keyboardType="decimal-pad"
+                  containerStyle={styles.fieldHalf}
+                />
+                <FormInput
+                  icon={Battery}
+                  value={batteryCapacity}
+                  onChangeText={setBatteryCapacity}
+                  placeholder="ex: 10"
+                  label="Batterie (kWh)"
+                  keyboardType="decimal-pad"
+                  containerStyle={styles.fieldHalf}
+                />
+              </View>
+              <Text style={[styles.capacityHint, { color: t.sub }]}>
+                La capacité PV estimée sert à aligner les prévisions solaires
+                sur votre installation — modifiable à tout moment.
+              </Text>
               {error ? <Text style={styles.formError}>{error}</Text> : null}
 
               <TouchableOpacity
                 style={[styles.saveBtn, { opacity: saving ? 0.7 : 1 }]}
-                onPress={createHouse}
+                onPress={saveHouse}
                 disabled={saving}
                 activeOpacity={0.85}
               >
                 <HousePlug color="#fff" size={16} strokeWidth={2.4} />
                 <Text style={styles.saveBtnText}>
-                  {saving ? "Création…" : "Créer le micro-réseau"}
+                  {saving
+                    ? "Enregistrement…"
+                    : editing ? "Enregistrer les modifications" : "Créer le micro-réseau"}
                 </Text>
               </TouchableOpacity>
             </Pressable>
@@ -227,6 +328,13 @@ const styles = StyleSheet.create({
     width: 42, height: 42, borderRadius: 12, alignItems: "center", justifyContent: "center",
   },
   houseName: { fontSize: 16, fontWeight: "800", marginBottom: 3 },
+  editBtn: {
+    width: 32, height: 32, borderRadius: 8, borderWidth: 1,
+    alignItems: "center", justifyContent: "center", marginRight: 8,
+  },
+  fieldRow: { flexDirection: "row", gap: 10 },
+  fieldHalf: { flex: 1 },
+  capacityHint: { marginTop: 8, fontSize: 11, lineHeight: 15 },
   locationRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   locationText: { fontSize: 12 },
   capacityRow: {

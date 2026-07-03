@@ -18,6 +18,8 @@ class HouseSerializer(serializers.ModelSerializer):
             "location",
             "latitude",
             "longitude",
+            "pv_capacity_kw",
+            "battery_capacity_kwh",
             "description",
             "status",
             "created_at",

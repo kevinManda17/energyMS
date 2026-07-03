@@ -1,6 +1,6 @@
 import math
 
-from rest_framework import status, viewsets
+from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -189,11 +189,24 @@ class ForecastViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(self.get_serializer(forecast).data)
 
 
-class ModelViewSet(viewsets.ReadOnlyModelViewSet):
-    """GET /api/forecasting/models/"""
+class ModelViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
+    """
+    GET /api/forecasting/models/
+    PATCH /api/forecasting/models/{id}/   (admin — e.g. reference_peak_w when
+    the physical solar configuration changes)
+    """
 
     serializer_class = ImportedModelSerializer
-    permission_classes = [IsAuthenticated]
     filterset_fields = ["target", "is_active", "model_type"]
     queryset = ImportedModel.objects.all()
+
+    def get_permissions(self):
+        if self.action in ("update", "partial_update"):
+            return [IsEMSAdmin()]
+        return [IsAuthenticated()]
 

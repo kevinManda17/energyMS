@@ -3,6 +3,7 @@ import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Plug, Sun } from "lucide-react";
 import { PageHeader, Loading, Empty } from "../components/ui";
 import KpiCard from "../components/KpiCard";
+import WeatherPanel from "../components/WeatherPanel";
 import { ForecastChart } from "../components/EnergyChart";
 import { useHouseId } from "../hooks/useHouseId";
 import { forecastingApi } from "../api/endpoints";
@@ -72,8 +73,11 @@ export default function Forecasting() {
         subtitle="Production et consommation estimées par pas de 10 minutes, en tenant compte de l'heure de la journée."
       />
 
+      {/* Météo du site + réglage du panneau solaire */}
+      <WeatherPanel houseId={houseId} />
+
       {/* KPI grid */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard icon={Sun}  tone="green" label="Production dans 10 min"   value={fmt(prod10?.value)} unit="kW" hint={prod10 ? `à ${fmtTime(prod10.horizon)}` : "—"} />
         <KpiCard icon={Plug} tone="blue"  label="Consommation dans 10 min" value={fmt(cons10?.value)} unit="kW" hint={cons10 ? `à ${fmtTime(cons10.horizon)}` : "—"} />
         <KpiCard icon={Sun}  tone="amber" label="Production dans 1 h"      value={fmt(prod60?.value)} unit="kW" hint={prod60 ? `à ${fmtTime(prod60.horizon)}` : "—"} />

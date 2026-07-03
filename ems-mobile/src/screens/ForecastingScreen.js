@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
-import { ChevronLeft, ChevronRight, Plug, RefreshCw, Sun } from "lucide-react-native";
+import {
+  ChevronLeft, ChevronRight, CloudSun, Plug, RefreshCw, Sun, Thermometer,
+} from "lucide-react-native";
 import { Card } from "../components/Card";
 import LineChart from "../components/LineChart";
 import { PageTitle, ScreenScroll } from "../components/Screen";
-import { forecastingApi } from "../api/endpoints";
+import { forecastingApi, weatherApi } from "../api/endpoints";
 import { useActiveHouse } from "../hooks/useActiveHouse";
 import { useTheme } from "../hooks/useTheme";
 import { palette } from "../theme/colors";
@@ -21,6 +23,14 @@ function fmtHour(iso) {
         minute: "2-digit",
       })
     : "-";
+}
+
+function fmtInstant(iso) {
+  return iso
+    ? new Date(iso).toLocaleString("fr-FR", {
+        day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+      })
+    : null;
 }
 
 function mergeRows(production, consumption) {
@@ -69,6 +79,9 @@ export default function ForecastingScreen() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [weather, setWeather] = useState(null);
+  const [collecting, setCollecting] = useState(false);
+  const [weatherMsg, setWeatherMsg] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -116,6 +129,41 @@ export default function ForecastingScreen() {
     setPage(1);
   }, [houseId]);
 
+  const loadWeather = useCallback(async () => {
+    if (!houseId) {
+      setWeather(null);
+      return;
+    }
+    try {
+      setWeather(await weatherApi.status(houseId));
+    } catch {
+      // silencieux : la carte affiche simplement "aucune donnée"
+    }
+  }, [houseId]);
+
+  useEffect(() => {
+    loadWeather().catch(() => {});
+  }, [loadWeather]);
+
+  // Collecte la météo du site (Open-Meteo) puis recharge les prévisions,
+  // qui s'appuient sur ces données fraîches.
+  async function collectWeather() {
+    if (!houseId || collecting) return;
+    setCollecting(true);
+    setWeatherMsg("");
+    try {
+      await weatherApi.collect(houseId);
+      await loadWeather();
+      await load();
+      setWeatherMsg("Météo mise à jour — prévisions actualisées.");
+    } catch {
+      setWeatherMsg("Collecte météo impossible. Vérifiez la connexion.");
+    } finally {
+      setCollecting(false);
+      setTimeout(() => setWeatherMsg(""), 4000);
+    }
+  }
+
   const rows = useMemo(
     () => mergeRows(production, consumption),
     [production, consumption]
@@ -145,6 +193,72 @@ export default function ForecastingScreen() {
       </View>
 
       {error ? <Text style={[styles.error, { color: palette.danger }]}>{error}</Text> : null}
+
+      {/* Météo du site : collecte à la demande des données Open-Meteo qui
+          alimentent les prévisions (une collecte automatique tourne aussi
+          côté serveur). */}
+      <Card style={styles.weatherCard}>
+        <View style={styles.weatherRow}>
+          <View style={[styles.weatherIcon, { backgroundColor: palette.blue + "1A" }]}>
+            <CloudSun color={palette.blue} size={20} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.weatherTitle, { color: t.text }]}>Météo du site</Text>
+            <Text style={[styles.weatherSub, { color: t.sub }]}>
+              {fmtInstant(weather?.collected_at || weather?.timestamp)
+                ? `Dernière collecte : ${fmtInstant(weather?.collected_at || weather?.timestamp)}`
+                : "Aucune donnée collectée pour l'instant."}
+              {weather?.auto_collect?.enabled && weather?.auto_collect?.running
+                ? ` · Auto toutes les ${weather.auto_collect.interval_minutes} min`
+                : ""}
+            </Text>
+            {weather?.values?.temperature != null || weather?.values?.irradiance != null ? (
+              <View style={styles.weatherValues}>
+                {weather?.values?.temperature != null ? (
+                  <View style={styles.weatherValue}>
+                    <Thermometer color={palette.solar} size={14} />
+                    <Text style={[styles.weatherValueText, { color: t.text }]}>
+                      {fmt(weather.values.temperature)} °C
+                    </Text>
+                  </View>
+                ) : null}
+                {weather?.values?.irradiance != null ? (
+                  <View style={styles.weatherValue}>
+                    <Sun color={palette.green} size={14} />
+                    <Text style={[styles.weatherValueText, { color: t.text }]}>
+                      {fmt(weather.values.irradiance)} W/m²
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+          <Pressable
+            onPress={collectWeather}
+            disabled={collecting || !houseId}
+            style={[styles.weatherBtn, { backgroundColor: palette.blue, opacity: collecting ? 0.7 : 1 }]}
+          >
+            {collecting ? (
+              <ActivityIndicator color={palette.white} size="small" />
+            ) : (
+              <CloudSun color={palette.white} size={16} />
+            )}
+            <Text style={styles.weatherBtnText}>
+              {collecting ? "Collecte…" : "Collecter"}
+            </Text>
+          </Pressable>
+        </View>
+        {weatherMsg ? (
+          <Text
+            style={[
+              styles.weatherMsg,
+              { color: weatherMsg.startsWith("Météo") ? palette.green : palette.danger },
+            ]}
+          >
+            {weatherMsg}
+          </Text>
+        ) : null}
+      </Card>
 
       <View style={styles.kpiGrid}>
         <ForecastKpi
@@ -273,6 +387,23 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   error: { marginBottom: 12, fontWeight: "700" },
+  weatherCard: { marginBottom: 12 },
+  weatherRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  weatherIcon: {
+    width: 38, height: 38, borderRadius: 10,
+    alignItems: "center", justifyContent: "center",
+  },
+  weatherTitle: { fontSize: 14, fontWeight: "800" },
+  weatherSub: { marginTop: 2, fontSize: 11, lineHeight: 15 },
+  weatherValues: { flexDirection: "row", gap: 14, marginTop: 6 },
+  weatherValue: { flexDirection: "row", alignItems: "center", gap: 4 },
+  weatherValueText: { fontSize: 12, fontWeight: "700" },
+  weatherBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10,
+  },
+  weatherBtnText: { color: "#fff", fontWeight: "700", fontSize: 12 },
+  weatherMsg: { marginTop: 8, fontSize: 12, fontWeight: "700" },
   sectionHeaderRow: {
     marginTop: 18,
     marginBottom: 8,

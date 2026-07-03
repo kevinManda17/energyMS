@@ -17,6 +17,7 @@ class ImportedModelSerializer(serializers.ModelSerializer):
             "file",
             "file_path",
             "version",
+            "reference_peak_w",
             "input_schema",
             "metrics",
             "is_active",
