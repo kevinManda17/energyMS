@@ -283,7 +283,7 @@ export default function ForecastingScreen() {
           value={fmt(prod60?.value)}
           unit="kW"
           sub={prod60 ? `a ${fmtHour(prod60.horizon)}` : null}
-          color={palette.solar}
+          color={palette.green}
         />
         <ForecastKpi
           icon={Plug}
@@ -291,7 +291,7 @@ export default function ForecastingScreen() {
           value={fmt(cons60?.value)}
           unit="kW"
           sub={cons60 ? `a ${fmtHour(cons60.horizon)}` : null}
-          color={palette.navy}
+          color={palette.blue}
         />
       </View>
 

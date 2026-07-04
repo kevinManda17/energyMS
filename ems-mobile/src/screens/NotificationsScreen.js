@@ -73,8 +73,8 @@ export default function NotificationsScreen() {
       showsVerticalScrollIndicator={false}
     >
       {/* Icon block */}
-      <View style={[styles.iconBlock, { backgroundColor: palette.green + "14" }]}>
-        <Bell color={palette.green} size={38} strokeWidth={1.8} />
+      <View style={[styles.iconBlock, { backgroundColor: palette.blue + "14" }]}>
+        <Bell color={palette.blue} size={38} strokeWidth={1.8} />
       </View>
 
       {message ? <Toast text={message} color={palette.green} /> : null}
@@ -113,7 +113,7 @@ export default function NotificationsScreen() {
         })}
 
         <TouchableOpacity
-          style={[styles.saveBtn, { backgroundColor: palette.green }]}
+          style={[styles.saveBtn, { backgroundColor: palette.blue }]}
           onPress={save}
           activeOpacity={0.85}
         >

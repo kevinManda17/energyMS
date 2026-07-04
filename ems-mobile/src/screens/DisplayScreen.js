@@ -21,8 +21,8 @@ export default function DisplayScreen() {
       showsVerticalScrollIndicator={false}
     >
       {/* Icon block */}
-      <View style={[styles.iconBlock, { backgroundColor: palette.solar + "14" }]}>
-        <Palette color={palette.solar} size={38} strokeWidth={1.8} />
+      <View style={[styles.iconBlock, { backgroundColor: palette.blue + "14" }]}>
+        <Palette color={palette.blue} size={38} strokeWidth={1.8} />
       </View>
 
       {/* Thème */}
@@ -40,20 +40,20 @@ export default function DisplayScreen() {
                 style={[
                   styles.themeCard,
                   {
-                    borderColor: active ? palette.solar : t.border,
-                    backgroundColor: active ? palette.solar + "14" : t.bg,
+                    borderColor: active ? palette.blue : t.border,
+                    backgroundColor: active ? palette.blue + "14" : t.bg,
                   },
                 ]}
               >
                 <Icon
-                  color={active ? palette.solar : t.sub}
+                  color={active ? palette.blue : t.sub}
                   size={22}
                   strokeWidth={2.2}
                 />
-                <Text style={[styles.themeLabel, { color: active ? palette.solar : t.text }]}>
+                <Text style={[styles.themeLabel, { color: active ? palette.blue : t.text }]}>
                   {label}
                 </Text>
-                {active && <View style={[styles.activeDot, { backgroundColor: palette.solar }]} />}
+                {active && <View style={[styles.activeDot, { backgroundColor: palette.blue }]} />}
               </TouchableOpacity>
             );
           })}

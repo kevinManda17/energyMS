@@ -163,8 +163,8 @@ export default function DashboardScreen({ navigation }) {
       {/* Latest decision */}
       <View style={[styles.card, { backgroundColor: t.card, borderColor: t.border }]}>
         <View style={styles.cardHeader}>
-          <View style={[styles.cardIconWrap, { backgroundColor: palette.purpleLight }]}>
-            <Brain color={palette.purple} size={16} strokeWidth={2.4} />
+          <View style={[styles.cardIconWrap, { backgroundColor: palette.blueLight }]}>
+            <Brain color={palette.blue} size={16} strokeWidth={2.4} />
           </View>
           <Text style={[styles.cardTitle, { color: t.text }]}>Dernière décision IA</Text>
         </View>
@@ -197,8 +197,8 @@ export default function DashboardScreen({ navigation }) {
       {/* System status */}
       <View style={[styles.card, { backgroundColor: t.card, borderColor: t.border }]}>
         <View style={styles.cardHeader}>
-          <View style={[styles.cardIconWrap, { backgroundColor: palette.greenLight }]}>
-            <Network color={palette.green} size={16} strokeWidth={2.4} />
+          <View style={[styles.cardIconWrap, { backgroundColor: palette.blueLight }]}>
+            <Network color={palette.blue} size={16} strokeWidth={2.4} />
           </View>
           <Text style={[styles.cardTitle, { color: t.text }]}>État système</Text>
         </View>
@@ -219,10 +219,10 @@ export default function DashboardScreen({ navigation }) {
       {/* Quick actions */}
       <Text style={[styles.sectionLabel, { color: t.sub }]}>Accès rapide</Text>
       <View style={styles.quickGrid}>
-        <QuickButton label="Micro-réseaux" icon={Network} color={palette.blue} onPress={() => navigation.navigate("Reseaux")} />
-        <QuickButton label="Mesures IoT" icon={BarChart2} color={palette.green} onPress={() => navigation.navigate("Mesures")} />
-        <QuickButton label="Prévisions" icon={Zap} color={palette.solar} onPress={() => navigation.navigate("Forecasting")} />
-        <QuickButton label="Décisions IA" icon={Brain} color={palette.purple} onPress={() => navigation.navigate("Decisions")} />
+        <QuickButton label="Micro-réseaux" icon={Network} onPress={() => navigation.navigate("Reseaux")} />
+        <QuickButton label="Mesures IoT" icon={BarChart2} onPress={() => navigation.navigate("Mesures")} />
+        <QuickButton label="Prévisions" icon={Zap} onPress={() => navigation.navigate("Forecasting")} />
+        <QuickButton label="Décisions IA" icon={Brain} onPress={() => navigation.navigate("Decisions")} />
       </View>
     </ScreenScroll>
   );
@@ -277,15 +277,18 @@ function EnergyBalanceCard({ production, consumption, soc, t }) {
   );
 }
 
-function QuickButton({ label, icon: Icon, color, onPress }) {
+function QuickButton({ label, icon: Icon, onPress }) {
+  const t = useTheme();
   return (
     <TouchableOpacity
-      style={[styles.quickBtn, { backgroundColor: color }]}
+      style={[styles.quickBtn, { backgroundColor: t.card, borderColor: t.border }]}
       onPress={onPress}
-      activeOpacity={0.8}
+      activeOpacity={0.75}
     >
-      <Icon color="#fff" size={18} strokeWidth={2.4} />
-      <Text style={styles.quickText}>{label}</Text>
+      <View style={styles.quickIconWrap}>
+        <Icon color={palette.blue} size={18} strokeWidth={2.4} />
+      </View>
+      <Text style={[styles.quickText, { color: t.text }]}>{label}</Text>
     </TouchableOpacity>
   );
 }
@@ -362,10 +365,18 @@ const styles = StyleSheet.create({
     minWidth: "47%",
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
+    gap: 10,
+    borderWidth: 1,
     borderRadius: 12,
-    padding: 13,
+    padding: 12,
   },
-  quickText: { color: "#fff", fontWeight: "700", fontSize: 13 },
+  quickIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.blueLight,
+  },
+  quickText: { fontWeight: "700", fontSize: 13, flexShrink: 1 },
 });

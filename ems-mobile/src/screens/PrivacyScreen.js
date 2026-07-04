@@ -14,7 +14,7 @@ const ITEMS = [
   },
   {
     icon: FileText,
-    color: palette.solar,
+    color: palette.slate,
     title: "Politique de confidentialité",
     desc: "Consultez notre politique de traitement des données personnelles.",
     action: null,
@@ -22,7 +22,7 @@ const ITEMS = [
   },
   {
     icon: Shield,
-    color: palette.green,
+    color: palette.slate,
     title: "Données collectées",
     desc: "Mesures IoT, décisions IA, alertes, profil utilisateur.",
     action: null,

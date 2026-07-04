@@ -55,7 +55,7 @@ export default function AlertDetailScreen({ route, navigation }) {
       {/* Details */}
       <View style={[styles.card, { backgroundColor: t.card, borderColor: t.border }]}>
         <Text style={[styles.cardLabel, { color: t.sub }]}>Détails</Text>
-        <InfoRow icon={Tag} label="Type" value={alert.alert_type} color={palette.purple} t={t} />
+        <InfoRow icon={Tag} label="Type" value={alert.alert_type} color={palette.slate} t={t} />
         <InfoRow icon={Calendar} label="Date" value={fmtDate(alert.created_at)} color={palette.blue} t={t} />
         <InfoRow
           icon={CheckCircle2}

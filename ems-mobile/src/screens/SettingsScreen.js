@@ -161,14 +161,14 @@ export default function SettingsScreen() {
         <Button label="Enregistrer le profil" onPress={saveProfile} />
       </Section>
 
-      <Section icon={Lock} title="Securite" color="#7C3AED" t={t}>
+      <Section icon={Lock} title="Securite" color={palette.blue} t={t}>
         <Input label="Mot de passe actuel" value={passwords.current_password} onChangeText={(v) => setPasswords({ ...passwords, current_password: v })} t={t} secureTextEntry />
         <Input label="Nouveau mot de passe" value={passwords.new_password} onChangeText={(v) => setPasswords({ ...passwords, new_password: v })} t={t} secureTextEntry />
         <Input label="Confirmation" value={passwords.password_confirm} onChangeText={(v) => setPasswords({ ...passwords, password_confirm: v })} t={t} secureTextEntry />
-        <Button label="Modifier le mot de passe" onPress={changePassword} color="#7C3AED" />
+        <Button label="Modifier le mot de passe" onPress={changePassword} color={palette.blue} />
       </Section>
 
-      <Section icon={Palette} title="Affichage" color={palette.solar} t={t}>
+      <Section icon={Palette} title="Affichage" color={palette.blue} t={t}>
         <Text style={[styles.fieldLabel, { color: t.sub }]}>Theme</Text>
         <Segmented
           t={t}
@@ -180,14 +180,14 @@ export default function SettingsScreen() {
         <InfoRow label="Unites" value="kW · kWh · V · A · °C" t={t} />
       </Section>
 
-      <Section icon={Bell} title="Notifications" color={palette.green} t={t}>
+      <Section icon={Bell} title="Notifications" color={palette.blue} t={t}>
         <Toggle label="Alertes critiques" value={preferences.notifications?.critical} onChange={(v) => setNotification("critical", v)} t={t} />
         <Toggle label="Alertes systeme" value={preferences.notifications?.system} onChange={(v) => setNotification("system", v)} t={t} />
         <Toggle label="Rapports" value={preferences.notifications?.reports} onChange={(v) => setNotification("reports", v)} t={t} />
-        <Button label="Enregistrer les notifications" onPress={() => savePreferences(preferences)} color={palette.green} />
+        <Button label="Enregistrer les notifications" onPress={() => savePreferences(preferences)} color={palette.blue} />
       </Section>
 
-      <Section icon={Wifi} title="API mobile" color={palette.navy} t={t}>
+      <Section icon={Wifi} title="API mobile" color={palette.blue} t={t}>
         <View style={styles.modeGroup}>
           {MODES.map((item) => (
             <TouchableOpacity

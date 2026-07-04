@@ -97,8 +97,8 @@ export default function DecisionsScreen({ navigation }) {
             >
               <View style={[styles.card, { backgroundColor: t.card, borderColor: t.border, borderLeftColor: meta.border }]}>
                 <View style={styles.cardTop}>
-                  <View style={[styles.brainIcon, { backgroundColor: palette.purpleLight }]}>
-                    <Brain color={palette.purple} size={15} strokeWidth={2.4} />
+                  <View style={[styles.brainIcon, { backgroundColor: palette.blueLight }]}>
+                    <Brain color={palette.blue} size={15} strokeWidth={2.4} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.cardTitle, { color: t.text }]} numberOfLines={2}>
@@ -158,7 +158,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: palette.purple,
+    backgroundColor: palette.blue,
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 11,

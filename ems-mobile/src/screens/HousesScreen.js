@@ -164,9 +164,9 @@ export default function HousesScreen() {
                       : <Badge value={item.status} />}
                   </View>
                   <View style={[styles.capacityRow, { borderTopColor: t.border }]}>
-                    <CapacityItem icon={Zap}     label="PV"      value={`${item.pv_capacity_kw || 0} kW`}    color={palette.solar}  />
+                    <CapacityItem icon={Zap}     label="PV"      value={`${item.pv_capacity_kw || 0} kW`}    color={palette.green}  />
                     <Sep t={t} />
-                    <CapacityItem icon={Battery} label="Batterie" value={`${item.battery_capacity_kwh || 0} kWh`} color={palette.green} />
+                    <CapacityItem icon={Battery} label="Batterie" value={`${item.battery_capacity_kwh || 0} kWh`} color={palette.solar} />
                     <Sep t={t} />
                     <CapacityItem icon={Wifi}    label="Statut"  value={item.status || "—"}                  color={item.status === "ONLINE" ? palette.green : palette.slate} />
                   </View>

@@ -55,8 +55,8 @@ export default function PasswordScreen() {
       showsVerticalScrollIndicator={false}
     >
       {/* Illustration */}
-      <View style={[styles.iconBlock, { backgroundColor: palette.purple + "14" }]}>
-        <ShieldCheck color={palette.purple} size={38} strokeWidth={1.8} />
+      <View style={[styles.iconBlock, { backgroundColor: palette.blue + "14" }]}>
+        <ShieldCheck color={palette.blue} size={38} strokeWidth={1.8} />
       </View>
 
       {message ? <Toast text={message} color={palette.green} /> : null}
@@ -91,7 +91,7 @@ export default function PasswordScreen() {
         />
 
         <TouchableOpacity
-          style={[styles.saveBtn, { backgroundColor: palette.purple, opacity: loading ? 0.7 : 1 }]}
+          style={[styles.saveBtn, { backgroundColor: palette.blue, opacity: loading ? 0.7 : 1 }]}
           onPress={changePassword}
           disabled={loading}
           activeOpacity={0.85}
@@ -113,7 +113,7 @@ export default function PasswordScreen() {
           "Ne réutilisez pas un ancien mot de passe",
         ].map((tip, i) => (
           <View key={i} style={styles.tipRow}>
-            <View style={[styles.tipDot, { backgroundColor: palette.purple }]} />
+            <View style={[styles.tipDot, { backgroundColor: palette.blue }]} />
             <Text style={{ color: t.sub, fontSize: 13 }}>{tip}</Text>
           </View>
         ))}
@@ -141,12 +141,12 @@ function PasswordField({ label, value, onChangeText, placeholder, t }) {
           textContentType="password"
           autoCapitalize="none"
           autoCorrect={false}
-          selectionColor={palette.purple}
+          selectionColor={palette.blue}
         />
         <TouchableOpacity onPress={() => setHidden((v) => !v)} style={styles.eyeBtn}>
           {hidden
-            ? <Eye color={palette.purple} size={17} strokeWidth={2.2} />
-            : <EyeOff color={palette.purple} size={17} strokeWidth={2.2} />}
+            ? <Eye color={palette.blue} size={17} strokeWidth={2.2} />
+            : <EyeOff color={palette.blue} size={17} strokeWidth={2.2} />}
         </TouchableOpacity>
       </View>
     </View>

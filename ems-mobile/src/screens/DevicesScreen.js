@@ -23,20 +23,20 @@ import { palette } from "../theme/colors";
 import { fmt } from "../utils/format";
 
 const SENSOR_ICONS = {
-  voltage:      { icon: Zap,          color: palette.solar },
-  current:      { icon: Activity,     color: palette.blue },
-  temperature:  { icon: Thermometer,  color: palette.danger },
+  voltage:      { icon: Zap,          color: palette.slate },
+  current:      { icon: Activity,     color: palette.slate },
+  temperature:  { icon: Thermometer,  color: palette.slate },
   production:   { icon: CircuitBoard, color: palette.green },
   consumption:  { icon: Cpu,          color: palette.blue },
-  battery:      { icon: Radio,        color: palette.purple },
+  battery:      { icon: Radio,        color: palette.solar },
 };
 
 const EQUIP_ICONS = {
-  SOLAR_PANEL: { icon: CircuitBoard, color: palette.solar },
-  BATTERY:     { icon: Radio,        color: palette.green },
+  SOLAR_PANEL: { icon: CircuitBoard, color: palette.green },
+  BATTERY:     { icon: Radio,        color: palette.solar },
   INVERTER:    { icon: Zap,          color: palette.blue },
   LOAD:        { icon: Cpu,          color: palette.slate },
-  APPLIANCE:   { icon: Settings2,    color: palette.purple },
+  APPLIANCE:   { icon: Settings2,    color: palette.slate },
 };
 
 const EQUIP_TYPES = ["LOAD", "SOLAR_PANEL", "BATTERY", "INVERTER", "APPLIANCE"];
@@ -124,7 +124,7 @@ export default function DevicesScreen() {
       })}
 
       {/* Équipements */}
-      <SectionHeader icon={Cpu} color={palette.purple} label="Charges & appareils" count={equipment.length} t={t} />
+      <SectionHeader icon={Cpu} color={palette.slate} label="Charges & appareils" count={equipment.length} t={t} />
       {equipment.length === 0 && <EmptyText text="Aucun équipement enregistré." t={t} />}
       {equipment.map((item) => {
         const meta = getEquipMeta(item);

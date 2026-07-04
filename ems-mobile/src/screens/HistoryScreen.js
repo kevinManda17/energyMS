@@ -20,9 +20,9 @@ const TYPE_COLOR = {
   production: palette.green,
   consumption: palette.blue,
   battery_soc: palette.solar,
-  voltage: palette.navy,
-  current: "#7C3AED",
-  temperature: palette.danger,
+  voltage: palette.slate,
+  current: palette.slate,
+  temperature: palette.slate,
 };
 
 const TYPE_UNIT = {

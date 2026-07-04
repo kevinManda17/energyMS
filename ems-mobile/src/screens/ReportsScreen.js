@@ -57,8 +57,8 @@ export default function ReportsScreen() {
       label: "Décisions prises",
       value: String(report?.decisions_count ?? "—"),
       unit: "",
-      color: palette.purple,
-      bg: palette.purpleLight,
+      color: palette.slate,
+      bg: "#F1F5F9",
       icon: FileText,
     },
     {

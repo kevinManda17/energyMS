@@ -13,10 +13,10 @@ const FACT_ICONS = {
   battery_soc:      { icon: Battery,     color: palette.solar,  unit: "%" },
   production:       { icon: Zap,         color: palette.green,  unit: "kW" },
   consumption:      { icon: Activity,    color: palette.blue,   unit: "kW" },
-  balance:          { icon: Percent,     color: palette.purple, unit: "kW" },
+  balance:          { icon: Percent,     color: palette.slate,  unit: "kW" },
   hour:             { icon: Cpu,         color: palette.slate,  unit: "h" },
-  irradiance:       { icon: Zap,         color: palette.solar,  unit: "W/m²" },
-  temperature:      { icon: Activity,    color: palette.danger, unit: "°C" },
+  irradiance:       { icon: Zap,         color: palette.slate,  unit: "W/m²" },
+  temperature:      { icon: Activity,    color: palette.slate,  unit: "°C" },
   load_shedding:    { icon: AlertTriangle,color: palette.solar,  unit: "%" },
 };
 
@@ -89,7 +89,7 @@ export default function DecisionDetailScreen({ route }) {
           { label: "Confiance",      value: `${fmt((decision.confidence_score || 0) * 100, 0)}%`, icon: CheckCircle2, color: palette.green  },
           { label: "Risque",         value: `${fmt(decision.risk_score, 1)}%`,                    icon: AlertTriangle, color: palette.danger  },
           { label: "Délestage",      value: `${fmt(decision.shedding_level, 1)}%`,                icon: Zap,           color: palette.solar   },
-          { label: "Ch. batterie",   value: `${fmt(decision.charge_battery_score, 1)}%`,          icon: Battery,       color: palette.green   },
+          { label: "Ch. batterie",   value: `${fmt(decision.charge_battery_score, 1)}%`,          icon: Battery,       color: palette.solar   },
           { label: "Dé. batterie",   value: `${fmt(decision.discharge_battery_score, 1)}%`,       icon: Battery,       color: palette.solar   },
           { label: "Protection",     value: `${fmt(decision.protect_battery_score, 1)}%`,         icon: Shield,        color: palette.blue    },
         ].reduce((rows, score, i) => {
