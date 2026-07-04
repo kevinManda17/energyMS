@@ -74,6 +74,12 @@ export const alertsApi = {
 
 export const reportsApi = {
   daily: (params) => getWithCache("/reports/daily/", params, "report_daily"),
+  summary: (params) =>
+    getWithCache(
+      "/reports/summary/",
+      params,
+      `report_summary_${params?.house || "all"}_${params?.days || "7"}`
+    ),
   async exportCsvUrl() {
     const base = await resolveBaseUrl();
     return `${base}/reports/export/csv/`;
