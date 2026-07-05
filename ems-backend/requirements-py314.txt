@@ -1,3 +1,11 @@
+# Dépendances pour Python 3.14+ (Windows inclus).
+#
+# TensorFlow ne publie pas encore de wheels pour Python 3.14 : il est donc
+# exclu de ce fichier. Conséquence : les modèles Keras (GRU/LSTM) ne sont pas
+# chargés — le service de prévision bascule automatiquement sur les modèles
+# scikit-learn (le chargement Keras est protégé par try/except dans
+# apps/forecasting/services.py). Pour un support ML complet, utilisez
+# Python 3.11 ou 3.12 avec requirements.txt.
 Django>=4.2,<5.1
 djangorestframework>=3.15
 djangorestframework-simplejwt>=5.3
@@ -16,11 +24,6 @@ numpy>=1.26
 # scikit-fuzzy>=0.4.2
 joblib>=1.4
 requests>=2.32
-# Keras / TensorFlow pour les modèles GRU et LSTM.
-# Pas de wheels pour Python >= 3.14 : le marqueur l'exclut automatiquement
-# (les prévisions basculent alors sur les modèles scikit-learn).
-# Voir aussi requirements-py314.txt.
-tensorflow>=2.16; python_version < "3.14"
 gunicorn>=22.0
 # dev / tests
 pytest>=8.0
