@@ -16,18 +16,18 @@ import { useTheme } from "../hooks/useTheme";
 import { palette } from "../theme/colors";
 
 const TOOLS = [
-  { label: "Equipements",  screen: "Devices",     icon: Cpu      },
-  { label: "Prévisions",   screen: "Forecasting", icon: ChartLine },
-  { label: "Rapports",     screen: "Reports",     icon: FileText  },
+  { label: "Equipements",  screen: "Devices",     icon: Cpu,       color: palette.blue  },
+  { label: "Prévisions",   screen: "Forecasting", icon: ChartLine, color: palette.green },
+  { label: "Rapports",     screen: "Reports",     icon: FileText,  color: palette.solar },
 ];
 
 const ACCOUNT = [
-  { label: "Profil",          screen: "Profile",       icon: User    },
-  { label: "Mot de passe",    screen: "Password",      icon: Lock    },
-  { label: "Affichage",       screen: "Display",       icon: Palette },
-  { label: "Notifications",   screen: "Notifications", icon: Bell    },
-  { label: "Réseau",          screen: "Network",       icon: Wifi    },
-  { label: "Confidentialité", screen: "Privacy",       icon: Shield  },
+  { label: "Profil",          screen: "Profile",       icon: User,    color: palette.blue  },
+  { label: "Mot de passe",    screen: "Password",      icon: Lock,    color: palette.navy  },
+  { label: "Affichage",       screen: "Display",       icon: Palette, color: palette.solar },
+  { label: "Notifications",   screen: "Notifications", icon: Bell,    color: palette.green },
+  { label: "Réseau",          screen: "Network",       icon: Wifi,    color: palette.blue  },
+  { label: "Confidentialité", screen: "Privacy",       icon: Shield,  color: palette.slate },
 ];
 
 export default function MoreScreen({ navigation }) {
@@ -73,8 +73,8 @@ function NavRow({ item, navigation, t }) {
       onPress={() => navigation.navigate(item.screen)}
       activeOpacity={0.75}
     >
-      <View style={[styles.iconWrap, { backgroundColor: palette.blueLight }]}>
-        <Icon color={palette.blue} size={19} strokeWidth={2.2} />
+      <View style={[styles.iconWrap, { backgroundColor: item.color + "15" }]}>
+        <Icon color={item.color} size={19} strokeWidth={2.2} />
       </View>
       <Text style={[styles.navLabel, { color: t.text }]}>{item.label}</Text>
       <ChevronRight color={t.sub} size={18} strokeWidth={2.4} />
@@ -90,8 +90,8 @@ function GroupRow({ item, navigation, t, last }) {
       onPress={() => navigation.navigate(item.screen)}
       activeOpacity={0.75}
     >
-      <View style={[styles.iconWrap, { backgroundColor: palette.blueLight }]}>
-        <Icon color={palette.blue} size={18} strokeWidth={2.2} />
+      <View style={[styles.iconWrap, { backgroundColor: item.color + "15" }]}>
+        <Icon color={item.color} size={18} strokeWidth={2.2} />
       </View>
       <Text style={[styles.navLabel, { color: t.text }]}>{item.label}</Text>
       <ChevronRight color={t.sub} size={17} strokeWidth={2.4} />
