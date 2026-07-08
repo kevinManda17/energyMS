@@ -16,7 +16,10 @@
  *  - backend muet : dernier état conservé, puis délestage de la ligne
  *    non prioritaire (L2) après BACKEND_MAX_FAILURES échecs consécutifs.
  *
- * Toute la configuration (pins, calibration, seuils, Wi-Fi) : include/config.h
+ * Toute la configuration (pins, calibration, seuils, Wi-Fi) : config.h
+ * (onglet à côté de ce fichier — Arduino IDE le compile automatiquement,
+ * aucun copier-coller n'est nécessaire tant que les deux fichiers restent
+ * dans le même dossier de croquis).
  */
 
 #include <Arduino.h>

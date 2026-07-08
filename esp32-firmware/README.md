@@ -8,10 +8,20 @@ automatique (règles locales de secours, ou système expert backend via HTTP).
 esp32-firmware/
 ├── platformio.ini      # configuration PlatformIO (carte esp32dev)
 ├── include/
-│   └── config.h        # TOUT ce qui se règle : pins, calibration, seuils, Wi-Fi
-└── src/
-    └── main.cpp        # logique du firmware
+│   └── config.h        # config PlatformIO : pins, calibration, seuils, Wi-Fi
+├── src/
+│   └── main.cpp        # logique du firmware (PlatformIO)
+└── arduino/
+    └── EMS_ESP32/      # même firmware, prêt pour l'IDE Arduino
+        ├── EMS_ESP32.ino
+        └── config.h
 ```
+
+> **PlatformIO ou Arduino IDE ?** Les deux versions contiennent le même code.
+> PlatformIO compile `src/main.cpp` + `include/config.h`. L'IDE Arduino, lui, ne
+> lit **que** les fichiers du dossier de croquis : utilisez alors `arduino/EMS_ESP32/`,
+> qui contient déjà `config.h` **à côté** du `.ino` (aucun copier-coller). Si vous
+> modifiez la configuration, pensez à répercuter le changement dans les deux `config.h`.
 
 ## Câblage (NE PAS MODIFIER SANS REVALIDER)
 
@@ -70,10 +80,16 @@ Gestionnaire de périphériques Windows).
 ## Alternative : Arduino IDE
 
 1. Installer le support ESP32 (Gestionnaire de cartes → « esp32 » par Espressif).
-2. Carte : **ESP32 Dev Module** ; vitesse moniteur : **115200**.
-3. Créer un sketch, copier le contenu de `src/main.cpp`, puis coller le
-   contenu de `include/config.h` **à la place** de la ligne `#include "config.h"`.
+2. Ouvrir **`arduino/EMS_ESP32/EMS_ESP32.ino`** (le fichier `config.h` s'ouvre
+   automatiquement dans un second onglet, car il est dans le même dossier —
+   l'IDE Arduino le compile sans aucun copier-coller).
+3. Carte : **ESP32 Dev Module** ; vitesse moniteur : **115200**.
 4. Téléverser.
+
+> Ne pas ouvrir `src/main.cpp` directement dans l'IDE Arduino : il ne trouverait
+> pas `config.h` (rangé dans `include/` pour PlatformIO), d'où les erreurs
+> « `RELAY_ACTIVE_LOW` was not declared in this scope ». Utilisez le dossier
+> `arduino/EMS_ESP32/`.
 
 ## Commandes série (moniteur à 115200 bauds)
 
