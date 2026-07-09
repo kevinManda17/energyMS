@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  View, Text, TextInput, TouchableOpacity,
+  View, Text, TextInput, TouchableOpacity, Switch,
   StyleSheet, Modal, KeyboardAvoidingView, Platform, Pressable,
 } from "react-native";
 import {
   Activity,
   CircuitBoard,
   Cpu,
+  Lightbulb,
   Plus,
+  Power,
+  PowerOff,
   Radio,
   Settings2,
   Thermometer,
@@ -16,11 +19,17 @@ import {
 } from "lucide-react-native";
 import { Badge } from "../components/Badge";
 import { ScreenScroll, PageTitle } from "../components/Screen";
-import { devicesApi } from "../api/endpoints";
+import { devicesApi, relaysApi } from "../api/endpoints";
 import { useActiveHouse } from "../hooks/useActiveHouse";
 import { useTheme } from "../hooks/useTheme";
 import { palette } from "../theme/colors";
 import { fmt } from "../utils/format";
+
+const RELAY_LINES = [
+  { key: "line1", label: "Ligne 1", desc: "Lampe 10 W + prise 1" },
+  { key: "line2", label: "Ligne 2", desc: "Lampe 10 W + prise 2" },
+  { key: "line3", label: "Ligne 3", desc: "Lampe 20 W" },
+];
 
 const SENSOR_ICONS = {
   voltage:      { icon: Zap,          color: palette.slate },
@@ -107,6 +116,9 @@ export default function DevicesScreen() {
           <Plus color="#fff" size={18} strokeWidth={2.6} />
         </TouchableOpacity>
       </View>
+
+      {/* Contrôle des lignes (relais ESP32) */}
+      {houseId ? <RelayControl houseId={houseId} t={t} /> : null}
 
       {/* Capteurs */}
       <SectionHeader icon={Radio} color={palette.blue} label="Capteurs" count={sensors.length} t={t} />
@@ -234,6 +246,133 @@ export default function DevicesScreen() {
   );
 }
 
+/* ── Contrôle des lignes (relais) ── */
+
+function contactLabel(iso) {
+  if (!iso) return "Jamais contacté";
+  const diffMs = Date.now() - new Date(iso).getTime();
+  if (diffMs < 15000) return "En ligne";
+  const mins = Math.round(diffMs / 60000);
+  if (mins < 60) return `Vu il y a ${Math.max(1, mins)} min`;
+  return `Vu le ${new Date(iso).toLocaleDateString("fr-FR")}`;
+}
+
+function RelayControl({ houseId, t }) {
+  const [state, setState] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const msgTimer = useRef(null);
+
+  const flash = useCallback((text) => {
+    setMsg(text);
+    if (msgTimer.current) clearTimeout(msgTimer.current);
+    msgTimer.current = setTimeout(() => setMsg(""), 3000);
+  }, []);
+
+  const load = useCallback(async () => {
+    if (!houseId) return;
+    try {
+      setState(await relaysApi.get(houseId));
+    } catch {
+      /* silencieux : la carte affiche l'état connu ou rien */
+    }
+  }, [houseId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // Rafraîchit périodiquement pour refléter le dernier contact du nœud.
+  useEffect(() => {
+    const id = setInterval(load, 5000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  useEffect(() => () => { if (msgTimer.current) clearTimeout(msgTimer.current); }, []);
+
+  async function apply(patch, note) {
+    if (!houseId || busy) return;
+    setBusy(true);
+    try {
+      const next = await relaysApi.set(houseId, patch);
+      setState(next);
+      flash(note || "Commande envoyée.");
+    } catch {
+      flash("Échec de l'envoi de la commande.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const online = state?.last_contact_at
+    ? Date.now() - new Date(state.last_contact_at).getTime() < 15000
+    : false;
+  const anyOn = state ? RELAY_LINES.some((l) => state[l.key]) : false;
+
+  return (
+    <View style={[styles.relayCard, { backgroundColor: t.card, borderColor: t.border }]}>
+      <View style={styles.relayHeader}>
+        <Power color={palette.blue} size={16} strokeWidth={2.4} />
+        <Text style={[styles.relayTitle, { color: t.text }]}>Contrôle des lignes</Text>
+        <View style={[styles.onlinePill, { backgroundColor: online ? palette.greenLight : "#F1F5F9" }]}>
+          <View style={[styles.onlineDot, { backgroundColor: online ? palette.green : palette.slate }]} />
+          <Text style={{ color: online ? palette.green : palette.slate, fontSize: 10, fontWeight: "700" }}>
+            {contactLabel(state?.last_contact_at)}
+          </Text>
+        </View>
+      </View>
+
+      {RELAY_LINES.map((line) => {
+        const on = !!state?.[line.key];
+        return (
+          <View key={line.key} style={[styles.relayRow, { borderTopColor: t.border }]}>
+            <View style={[styles.relayIcon, { backgroundColor: on ? palette.solarLight : "#F1F5F9" }]}>
+              <Lightbulb color={on ? palette.solar : palette.slate} size={17} strokeWidth={2.2} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.relayLabel, { color: t.text }]}>{line.label}</Text>
+              <Text style={[styles.relaySub, { color: t.sub }]}>{line.desc}</Text>
+              <Text style={{ color: on ? palette.green : palette.slate, fontSize: 11, fontWeight: "700", marginTop: 1 }}>
+                {on ? "Connectée" : "Déconnectée"}
+              </Text>
+            </View>
+            <Switch
+              value={on}
+              disabled={busy || state == null}
+              onValueChange={(next) =>
+                apply({ [line.key]: next }, `${line.label} ${next ? "connectée" : "déconnectée"}.`)
+              }
+              trackColor={{ false: "#CBD5E1", true: palette.green }}
+              thumbColor="#fff"
+            />
+          </View>
+        );
+      })}
+
+      <TouchableOpacity
+        style={[styles.cutAllBtn, { opacity: busy || !anyOn ? 0.4 : 1 }]}
+        onPress={() => apply({ line1: false, line2: false, line3: false }, "Toutes les lignes coupées.")}
+        disabled={busy || !anyOn}
+        activeOpacity={0.85}
+      >
+        <PowerOff color={palette.danger} size={15} strokeWidth={2.4} />
+        <Text style={{ color: palette.danger, fontWeight: "800", fontSize: 13 }}>Tout couper</Text>
+      </TouchableOpacity>
+
+      <Text style={[styles.relayHint, { color: t.sub }]}>
+        Ordre appliqué par le nœud ESP32 (mode auto) au prochain relevé (~3 s).
+      </Text>
+      {state?.device_token ? (
+        <Text style={[styles.relayHint, { color: t.sub }]} numberOfLines={1}>
+          Jeton appareil (firmware) : {state.device_token}
+        </Text>
+      ) : null}
+
+      {msg ? <Text style={styles.relayMsg}>{msg}</Text> : null}
+    </View>
+  );
+}
+
 /* ── Sub-components ── */
 
 function SectionHeader({ icon: Icon, color, label, count, t }) {
@@ -273,6 +412,30 @@ const styles = StyleSheet.create({
   sectionHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
   sectionTitle: { fontSize: 15, fontWeight: "800", flex: 1 },
   countBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
+
+  /* Contrôle des lignes (relais) */
+  relayCard: { borderWidth: 1, borderRadius: 14, padding: 14, marginTop: 14, marginBottom: 4 },
+  relayHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
+  relayTitle: { fontSize: 15, fontWeight: "800", flex: 1 },
+  onlinePill: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999,
+  },
+  onlineDot: { width: 7, height: 7, borderRadius: 4 },
+  relayRow: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    paddingVertical: 12, borderTopWidth: 1, marginTop: 8,
+  },
+  relayIcon: { width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  relayLabel: { fontSize: 14, fontWeight: "700" },
+  relaySub: { fontSize: 12, lineHeight: 16 },
+  cutAllBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    borderWidth: 1.5, borderColor: palette.danger, borderRadius: 12,
+    paddingVertical: 11, marginTop: 12,
+  },
+  relayHint: { fontSize: 11, lineHeight: 15, marginTop: 8 },
+  relayMsg: { fontSize: 12, fontWeight: "700", color: palette.green, marginTop: 8 },
   empty: { marginBottom: 10, fontSize: 13 },
   deviceCard: {
     flexDirection: "row", alignItems: "center",

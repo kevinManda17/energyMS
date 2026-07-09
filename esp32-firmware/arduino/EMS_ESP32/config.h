@@ -29,8 +29,8 @@
  * Passer à 1 quand le backend expert est joignable. */
 #define USE_WIFI 0
 
-constexpr const char* WIFI_SSID     = "TON_WIFI";
-constexpr const char* WIFI_PASSWORD = "TON_MOT_DE_PASSE";
+constexpr const char* WIFI_SSID     = "iphone de IRON MANDA";
+constexpr const char* WIFI_PASSWORD = "iron@17kev_@09electronics12a12K17";
 
 /* Le backend reçoit les mesures en JSON (POST) et répond en texte simple :
  *   L1=1;L2=0;L3=1                                                       */

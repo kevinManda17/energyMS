@@ -33,9 +33,12 @@ constexpr const char* WIFI_SSID     = "TON_WIFI";
 constexpr const char* WIFI_PASSWORD = "TON_MOT_DE_PASSE";
 
 /* Le backend reçoit les mesures en JSON (POST) et répond en texte simple :
- *   L1=1;L2=0;L3=1                                                       */
+ *   L1=1;L2=0;L3=1
+ * L'URL DOIT inclure le jeton de l'appareil (?token=...), visible dans
+ * l'interface web/mobile sur la page Équipements > Contrôle des lignes.
+ * Remplacez l'IP par celle du serveur EMS sur votre réseau local.       */
 constexpr const char* BACKEND_DECISION_URL =
-    "http://192.168.1.10:8000/api/ems/decision/";
+    "http://192.168.1.10:8000/api/ems/decision/?token=COLLER_LE_JETON_ICI";
 
 constexpr uint16_t HTTP_TIMEOUT_MS = 3000;
 

@@ -43,7 +43,12 @@ struct Decision {
   bool l3 = false;
 };
 
-bool manualMode   = true;   // sécurité : démarrage en mode manuel
+/* Sans Wi-Fi : démarrage en mode manuel (pilotage série uniquement).
+ * Avec Wi-Fi : démarrage en mode auto pour que l'appareil soit
+ * commandable à distance depuis les interfaces dès le boot (les relais
+ * restent malgré tout OFF tant que le premier sondage backend n'a pas
+ * répondu — cf. initRelayPin + applyRelays(false...) dans setup()). */
+bool manualMode   = (USE_WIFI == 0);
 bool relayL1State = false;
 bool relayL2State = false;
 bool relayL3State = false;

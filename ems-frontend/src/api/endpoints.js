@@ -46,6 +46,13 @@ export const devicesApi = {
   removeEquipment: (id) => api.delete(`/equipment/${id}/`),
 };
 
+// ---- Commande des relais (3 lignes du prototype) --------------------------
+export const relaysApi = {
+  get: (houseId) => api.get(`/houses/${houseId}/relays/`).then((r) => r.data),
+  set: (houseId, patch) =>
+    api.patch(`/houses/${houseId}/relays/`, patch).then((r) => r.data),
+};
+
 export const measurementsApi = {
   list: (params) => api.get("/measurements/", { params }).then((r) => r.data),
   latest: (houseId) =>

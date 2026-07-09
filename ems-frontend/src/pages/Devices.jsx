@@ -1,19 +1,29 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   Battery,
   Cpu,
   Lightbulb,
   Plug,
+  Power,
+  PowerOff,
   Sun,
   Thermometer,
   Wind,
   Zap,
 } from "lucide-react";
 import { PageHeader, Loading, Empty } from "../components/ui";
-import { devicesApi } from "../api/endpoints";
+import { devicesApi, relaysApi } from "../api/endpoints";
 import { useHouseId } from "../hooks/useHouseId";
 import { fmt } from "../utils/format";
+
+/* Les trois lignes commutables du prototype (relais pilotés par l'ESP32). */
+const RELAY_LINES = [
+  { key: "line1", label: "Ligne 1", desc: "Lampe 10 W + prise 1" },
+  { key: "line2", label: "Ligne 2", desc: "Lampe 10 W + prise 2" },
+  { key: "line3", label: "Ligne 3", desc: "Lampe 20 W" },
+];
 
 /* ── Icônes et couleurs par type ── */
 const SENSOR_ICON = {
@@ -76,6 +86,9 @@ export default function Devices() {
     <>
       <PageHeader title="Équipements" subtitle="Capteurs et charges du micro-réseau." />
 
+      {/* Contrôle des lignes (relais ESP32) */}
+      <RelayControl houseId={houseId} />
+
       {/* Capteurs */}
       <Section
         title="Capteurs IoT"
@@ -120,6 +133,156 @@ export default function Devices() {
         </div>
       </Section>
     </>
+  );
+}
+
+/* ── Contrôle des lignes (relais) ── */
+
+function contactLabel(iso) {
+  if (!iso) return "Jamais contacté";
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const online = diffMs < 15000; // ~5 sondages ratés à 3 s
+  const mins = Math.round(diffMs / 60000);
+  if (online) return "En ligne";
+  if (mins < 60) return `Vu il y a ${Math.max(1, mins)} min`;
+  return `Vu le ${new Date(iso).toLocaleString("fr-FR")}`;
+}
+
+function RelayControl({ houseId }) {
+  const qc = useQueryClient();
+  const [toast, setToast] = useState(null); // { type, msg }
+
+  const { data: state, isLoading } = useQuery({
+    queryKey: ["relays", houseId],
+    queryFn: () => relaysApi.get(houseId),
+    enabled: !!houseId,
+    refetchInterval: 5000, // reflète le dernier contact du nœud
+  });
+
+  const mutation = useMutation({
+    mutationFn: (patch) => relaysApi.set(houseId, patch),
+    onSuccess: (data) => {
+      qc.setQueryData(["relays", houseId], data);
+      setToast({ type: "success", msg: "Commande envoyée au micro-réseau." });
+      setTimeout(() => setToast(null), 3000);
+    },
+    onError: () => {
+      setToast({ type: "error", msg: "Échec de l'envoi de la commande." });
+      setTimeout(() => setToast(null), 3500);
+    },
+  });
+
+  if (!houseId) return null;
+
+  const online = state?.last_contact_at
+    ? Date.now() - new Date(state.last_contact_at).getTime() < 15000
+    : false;
+  const anyOn = state ? RELAY_LINES.some((l) => state[l.key]) : false;
+
+  return (
+    <div className="card mb-6 p-5">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 dark:bg-white/5">
+          <Power size={15} className="text-electric" strokeWidth={2.2} />
+        </span>
+        <h3 className="font-semibold text-navy dark:text-white">Contrôle des lignes</h3>
+        <span
+          className={`badge ml-2 ${
+            online
+              ? "bg-green-50 text-energy dark:bg-green-500/10"
+              : "bg-slate-100 text-slate-500 dark:bg-white/5"
+          }`}
+        >
+          <span className={`mr-1 inline-block h-2 w-2 rounded-full ${online ? "bg-energy" : "bg-slate-400"}`} />
+          {contactLabel(state?.last_contact_at)}
+        </span>
+        <button
+          onClick={() => mutation.mutate({ line1: false, line2: false, line3: false })}
+          disabled={isLoading || mutation.isPending || !anyOn}
+          className="ml-auto inline-flex items-center gap-1.5 rounded-xl border border-danger/30 px-3 py-1.5 text-sm font-semibold text-danger transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-red-500/10"
+        >
+          <PowerOff size={15} strokeWidth={2.2} /> Tout couper
+        </button>
+      </div>
+
+      {isLoading ? (
+        <Loading label="Lecture de l'état des lignes…" />
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-3">
+          {RELAY_LINES.map((line) => {
+            const on = !!state?.[line.key];
+            return (
+              <div
+                key={line.key}
+                className="flex items-start gap-3 rounded-xl border border-slate-100 p-4 dark:border-white/5"
+              >
+                <span
+                  className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${
+                    on ? "bg-amber-50 dark:bg-amber-500/10" : "bg-slate-100 dark:bg-white/5"
+                  }`}
+                >
+                  <Lightbulb
+                    size={18}
+                    className={on ? "text-solar" : "text-slate-400"}
+                    strokeWidth={2.2}
+                  />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-navy dark:text-white">{line.label}</p>
+                  <p className="text-xs text-slate-400">{line.desc}</p>
+                  <p className={`mt-0.5 text-xs font-semibold ${on ? "text-energy" : "text-slate-400"}`}>
+                    {on ? "Connectée" : "Déconnectée"}
+                  </p>
+                </div>
+                <Toggle
+                  on={on}
+                  disabled={mutation.isPending}
+                  onChange={(next) => mutation.mutate({ [line.key]: next })}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <p className="mt-4 text-xs text-slate-400">
+        Ordre appliqué par le nœud ESP32 (mode automatique) au prochain relevé
+        (~3 s). Jeton de l'appareil à coller dans le firmware :{" "}
+        <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-600 dark:bg-white/10 dark:text-slate-300">
+          {state?.device_token || "—"}
+        </code>
+      </p>
+
+      {toast && (
+        <div
+          className={`mt-3 rounded-lg px-3 py-2 text-sm font-medium text-white ${
+            toast.type === "success" ? "bg-energy" : "bg-danger"
+          }`}
+        >
+          {toast.msg}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Toggle({ on, disabled, onChange }) {
+  return (
+    <button
+      role="switch"
+      aria-checked={on}
+      disabled={disabled}
+      onClick={() => onChange(!on)}
+      className={`relative mt-0.5 h-6 w-11 flex-shrink-0 rounded-full transition disabled:opacity-50 ${
+        on ? "bg-energy" : "bg-slate-300 dark:bg-white/20"
+      }`}
+    >
+      <span
+        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
+          on ? "left-[22px]" : "left-0.5"
+        }`}
+      />
+    </button>
   );
 }
 

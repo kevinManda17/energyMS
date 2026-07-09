@@ -124,27 +124,48 @@ puissance, plus la puissance totale.
    règles locales s'appliquent (L3 prioritaire, L1 moyenne, L2 délestée
    en premier ; seuils 80 W/ligne, 120 W total — onduleur 150 W).
 
-## Intégration backend (plus tard)
+## Commande depuis les interfaces web / mobile
 
-1. Dans `config.h` : `USE_WIFI 1`, renseigner `WIFI_SSID`,
-   `WIFI_PASSWORD` et `BACKEND_DECISION_URL`.
-2. Le firmware POSTe les mesures en JSON :
+Le firmware sait interroger le backend EMS pour recevoir l'état voulu des
+3 lignes ; les interfaces (page **Équipements → Contrôle des lignes**)
+écrivent cet état. Chaîne complète :
 
-```json
-{
-  "line1": {"voltage": 0.0, "current": 0.0, "power": 0.0},
-  "line2": {"voltage": 0.0, "current": 0.0, "power": 0.0},
-  "line3": {"voltage": 0.0, "current": 0.0, "power": 0.0}
-}
+```
+Interface (toggle Ligne 1/2/3)  ->  backend (état mémorisé par maison)
+                                        ^
+                                        | sondage HTTP toutes les ~3 s
+                                 ESP32 (mode auto)  ->  relais  ->  charges
 ```
 
-3. Réponse attendue (texte brut) : `L1=1;L2=0;L3=1`
+Mise en service :
+
+1. Démarrer le backend EMS sur le réseau local (ex. `http://192.168.1.10:8000`).
+2. Dans l'interface, ouvrir **Équipements** : la carte « Contrôle des lignes »
+   affiche le **jeton de l'appareil** (device token).
+3. Dans `config.h` : passer `USE_WIFI` à `1`, renseigner `WIFI_SSID` /
+   `WIFI_PASSWORD`, et coller l'IP + le jeton dans `BACKEND_DECISION_URL` :
+   `http://192.168.1.10:8000/api/ems/decision/?token=LE_JETON`.
+4. Re-téléverser. Avec `USE_WIFI 1`, l'ESP32 démarre directement en mode auto
+   (relais OFF jusqu'au premier sondage réussi) et applique ensuite l'état
+   commandé depuis les interfaces.
+
+Échange réseau :
+
+- POST des mesures en JSON (`{"line1":{...},"line2":{...},"line3":{...}}`) sur
+  `BACKEND_DECISION_URL` ;
+- réponse texte : `L1=1;L2=0;L3=1` (état voulu, 1 = ligne connectée).
 
 **Comportement de sécurité :**
 
-- au démarrage : mode manuel, tous relais OFF (niveau inactif imposé avant
-  même la configuration des pins — pas de claquement au boot) ;
+- au démarrage : tous relais OFF (niveau inactif imposé avant même la
+  configuration des pins — pas de claquement au boot) ; sans Wi-Fi, mode
+  manuel (série) ; avec Wi-Fi, mode auto ;
 - backend injoignable : dernier état conservé ; après 3 échecs consécutifs,
   la ligne non prioritaire (L2) est coupée par précaution ;
-- garde-fou local : même une décision backend ne peut pas activer une ligne
-  que les règles de surcharge interdisent.
+- garde-fou local : même une commande reçue ne peut pas activer une ligne que
+  les règles de surcharge interdisent (seuils 80 W/ligne, 120 W total) — ce
+  garde-fou ne devient effectif qu'une fois les capteurs calibrés.
+
+> Latence : le changement d'un interrupteur dans l'interface est appliqué au
+> prochain sondage du nœud (`MEASURE_INTERVAL_MS`, 3 s par défaut ; réduire
+> cette valeur pour une réaction plus rapide).

@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from apps.energy_assets.models import EnergyAsset
 
-from .models import Equipment, Sensor
+from .models import Equipment, RelayState, Sensor
 
 
 class SensorSerializer(serializers.ModelSerializer):
@@ -55,3 +55,27 @@ class EquipmentSerializer(serializers.ModelSerializer):
             "created_at",
         )
         read_only_fields = ("id", "created_at")
+
+
+class RelayStateSerializer(serializers.ModelSerializer):
+    """État des 3 lignes exposé aux interfaces (le nœud IoT, lui, reçoit du texte)."""
+
+    class Meta:
+        model = RelayState
+        fields = (
+            "line1",
+            "line2",
+            "line3",
+            "device_token",
+            "last_contact_at",
+            "last_report",
+            "updated_at",
+        )
+        # Seuls les états de ligne sont modifiables par l'interface ;
+        # le jeton et l'horodatage de contact sont gérés côté serveur.
+        read_only_fields = (
+            "device_token",
+            "last_contact_at",
+            "last_report",
+            "updated_at",
+        )

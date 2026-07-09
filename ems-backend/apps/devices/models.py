@@ -1,7 +1,15 @@
+import secrets
+
+from django.conf import settings
 from django.db import models
 
 from apps.energy_assets.models import EnergyAsset
 from apps.houses.models import House
+
+
+def _generate_device_token() -> str:
+    """Jeton partagé ESP32 <-> backend (transmis en clair dans l'URL du nœud)."""
+    return secrets.token_urlsafe(24)
 
 
 class Sensor(models.Model):
@@ -76,3 +84,46 @@ class Equipment(models.Model):
 
     def __str__(self) -> str:
         return f"{self.name} [{self.priority}]"
+
+
+class RelayState(models.Model):
+    """État commandé des trois lignes électriques du prototype (relais ESP32).
+
+    Le nœud IoT (ESP32 en mode automatique) interroge périodiquement le backend
+    et applique ces états sur ses relais (canal 1 -> ligne 1, canal 3 -> ligne 2,
+    canal 6 -> ligne 3). Les interfaces web et mobile écrivent ces états ;
+    le backend ne fait que les mémoriser puis les restituer au nœud.
+
+    `True`  = ligne alimentée (relais fermé, charge connectée) ;
+    `False` = ligne coupée (relais ouvert, charge déconnectée).
+    """
+
+    house = models.OneToOneField(
+        House, on_delete=models.CASCADE, related_name="relay_state"
+    )
+    line1 = models.BooleanField(default=True)
+    line2 = models.BooleanField(default=True)
+    line3 = models.BooleanField(default=True)
+    # Jeton partagé avec le nœud IoT (transmis dans l'URL de sondage HTTP).
+    device_token = models.CharField(
+        max_length=64, unique=True, default=_generate_device_token
+    )
+    # Dernier contact du nœud IoT (mis à jour à chaque sondage réussi).
+    last_contact_at = models.DateTimeField(null=True, blank=True)
+    # Dernier relevé remonté par le nœud (mesures brutes par ligne).
+    last_report = models.JSONField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="relay_updates",
+    )
+
+    class Meta:
+        verbose_name = "relay state"
+        verbose_name_plural = "relay states"
+
+    def __str__(self) -> str:
+        return f"Relais {self.house_id}: L1={int(self.line1)} L2={int(self.line2)} L3={int(self.line3)}"
