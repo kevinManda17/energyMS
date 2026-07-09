@@ -7,7 +7,7 @@ if nobody presses the manual "collect" button.
 
 Configuration (environment variables):
   WEATHER_AUTO_COLLECT              "1" (default) to enable, "0" to disable
-  WEATHER_COLLECT_INTERVAL_MINUTES  collection cadence (default 15)
+  WEATHER_COLLECT_INTERVAL_MINUTES  collection cadence (default 2)
 
 The thread only starts inside a serving process (runserver's main process or
 gunicorn/uwsgi workers) — never during migrate, tests, shell or other
@@ -22,7 +22,7 @@ import threading
 logger = logging.getLogger("ems.weather")
 
 _ENABLED = os.getenv("WEATHER_AUTO_COLLECT", "1") not in {"0", "false", "False"}
-_INTERVAL_MINUTES = max(5, int(os.getenv("WEATHER_COLLECT_INTERVAL_MINUTES", "15")))
+_INTERVAL_MINUTES = max(1, int(os.getenv("WEATHER_COLLECT_INTERVAL_MINUTES", "2")))
 _INITIAL_DELAY_SECONDS = 20  # let the server finish booting before the 1st fetch
 
 _stop = threading.Event()

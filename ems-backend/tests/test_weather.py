@@ -111,7 +111,7 @@ def test_weather_status_reflects_last_collection(weather_client):
 
     assert resp.data["timestamp"] is not None
     assert resp.data["values"]["temperature"] == 27.5
-    assert resp.data["auto_collect"]["interval_minutes"] >= 5
+    assert resp.data["auto_collect"]["interval_minutes"] >= 1
 
 
 # --------------------------------------------------------------------------- #
