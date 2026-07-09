@@ -1,7 +1,7 @@
 import axios from "axios";
 
 const BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+  import.meta.env.VITE_API_BASE_URL || "http://172.20.10.14:8000/api";
 
 export const TOKEN_KEY = "ems_access";
 export const REFRESH_KEY = "ems_refresh";

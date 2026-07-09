@@ -27,15 +27,16 @@
 /* ==================== WIFI / BACKEND ==================== */
 /* Laisser USE_WIFI à 0 pour les premiers tests sur table.
  * Passer à 1 quand le backend expert est joignable. */
-#define USE_WIFI 0
+#define USE_WIFI 1
 
 constexpr const char* WIFI_SSID     = "iphone de IRON MANDA";
 constexpr const char* WIFI_PASSWORD = "iron@17kev_@09electronics12a12K17";
 
-/* Le backend reçoit les mesures en JSON (POST) et répond en texte simple :
- *   L1=1;L2=0;L3=1                                                       */
+/* Le backend répond en texte simple : L1=1;L2=0;L3=1
+ * Liaison AUTOMATIQUE (sans jeton) : le nœud suit le micro-réseau que vous
+ * pilotez depuis l'app. Adaptez seulement l'IP du serveur EMS.          */
 constexpr const char* BACKEND_DECISION_URL =
-    "http://192.168.1.10:8000/api/ems/decision/";
+    "http://172.20.10.14:8000/api/ems/decision/";
 
 constexpr uint16_t HTTP_TIMEOUT_MS = 3000;
 
