@@ -91,7 +91,9 @@ class HouseRelayView(APIView):
         state = self._get_relay_state()
         serializer = RelayStateSerializer(state, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save(updated_by=request.user)
+        # last_commanded_at fait de ce micro-réseau la cible active du nœud
+        # sans jeton (liaison automatique au dernier réseau piloté).
+        serializer.save(updated_by=request.user, last_commanded_at=timezone.now())
         return Response(RelayStateSerializer(state).data)
 
 
@@ -116,14 +118,25 @@ class EmsDecisionView(APIView):
             or request.query_params.get("device_token")
             or ""
         ).strip()
-        if not token:
-            return HttpResponse("ERR=missing_token", status=401,
-                                content_type="text/plain")
 
-        state = RelayState.objects.filter(device_token=token).first()
-        if state is None:
-            return HttpResponse("ERR=invalid_token", status=403,
-                                content_type="text/plain")
+        if token:
+            # Mode explicite : le nœud vise un micro-réseau précis par jeton.
+            state = RelayState.objects.filter(device_token=token).first()
+            if state is None:
+                return HttpResponse("ERR=invalid_token", status=403,
+                                    content_type="text/plain")
+        else:
+            # Mode automatique (sans jeton) : le nœud suit le micro-réseau le
+            # plus récemment piloté depuis une interface.
+            state = (
+                RelayState.objects.exclude(last_commanded_at=None)
+                .order_by("-last_commanded_at")
+                .first()
+            )
+            if state is None:
+                # Aucun ordre encore donné : tout OFF par sécurité. Basculez un
+                # interrupteur dans l'app pour lier le nœud à ce micro-réseau.
+                return HttpResponse("L1=0;L2=0;L3=0", content_type="text/plain")
 
         # Mémorise le dernier relevé remonté par le nœud (best-effort).
         payload = request.data if isinstance(request.data, dict) else None

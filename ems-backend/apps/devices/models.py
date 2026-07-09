@@ -110,6 +110,10 @@ class RelayState(models.Model):
     )
     # Dernier contact du nœud IoT (mis à jour à chaque sondage réussi).
     last_contact_at = models.DateTimeField(null=True, blank=True)
+    # Dernière commande envoyée depuis une interface (et non par le nœud).
+    # Sert à lier automatiquement un nœud sans jeton au micro-réseau le plus
+    # récemment piloté.
+    last_commanded_at = models.DateTimeField(null=True, blank=True)
     # Dernier relevé remonté par le nœud (mesures brutes par ligne).
     last_report = models.JSONField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)

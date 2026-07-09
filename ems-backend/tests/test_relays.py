@@ -49,11 +49,6 @@ def test_relays_isolation_between_users(auth_client):
     assert resp.status_code in (403, 404)
 
 
-def test_ems_decision_requires_token():
-    resp = APIClient().post("/api/ems/decision/", {}, format="json")
-    assert resp.status_code == 401
-
-
 def test_ems_decision_invalid_token():
     resp = APIClient().post(
         "/api/ems/decision/?token=nope", {}, format="json"
@@ -82,6 +77,31 @@ def test_ems_decision_returns_commanded_state(auth_client):
     state = RelayState.objects.get(house=house)
     assert state.last_contact_at is not None
     assert state.last_report == {"line1": {"voltage": 0, "current": 0, "power": 0}}
+
+
+def test_ems_decision_no_token_before_any_command(auth_client):
+    # Aucun ordre encore donné : le noeud sans jeton reçoit tout OFF (sécurité).
+    resp = APIClient().post("/api/ems/decision/", {}, format="json")
+    assert resp.status_code == 200
+    assert resp.content.decode() == "L1=0;L2=0;L3=0"
+
+
+def test_ems_decision_no_token_follows_last_commanded_house(auth_client):
+    client, house = auth_client
+    # Un second micro-réseau du même utilisateur, commandé en dernier.
+    house2 = House.objects.create(owner=house.owner, name="Prototype 2")
+    client.get(f"/api/houses/{house.id}/relays/")
+    client.get(f"/api/houses/{house2.id}/relays/")
+    # On coupe L3 sur house2 : il devient la cible automatique du noeud.
+    client.patch(f"/api/houses/{house2.id}/relays/", {"line3": False}, format="json")
+
+    resp = APIClient().post("/api/ems/decision/", {}, format="json")
+    assert resp.content.decode() == "L1=1;L2=1;L3=0"
+
+    # Piloter house ensuite bascule la cible du noeud vers house.
+    client.patch(f"/api/houses/{house.id}/relays/", {"line1": False}, format="json")
+    resp = APIClient().post("/api/ems/decision/", {}, format="json")
+    assert resp.content.decode() == "L1=0;L2=1;L3=1"
 
 
 def test_ems_decision_all_off(auth_client):

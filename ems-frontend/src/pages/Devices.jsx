@@ -246,11 +246,9 @@ function RelayControl({ houseId }) {
       )}
 
       <p className="mt-4 text-xs text-slate-400">
-        Ordre appliqué par le nœud ESP32 (mode automatique) au prochain relevé
-        (~3 s). Jeton de l'appareil à coller dans le firmware :{" "}
-        <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-600 dark:bg-white/10 dark:text-slate-300">
-          {state?.device_token || "—"}
-        </code>
+        Ordre appliqué par le nœud ESP32 au prochain relevé (~3 s). Le nœud se
+        lie automatiquement à ce micro-réseau dès que vous actionnez une ligne
+        — aucun jeton à configurer dans le firmware.
       </p>
 
       {toast && (

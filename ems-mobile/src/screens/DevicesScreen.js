@@ -360,13 +360,10 @@ function RelayControl({ houseId, t }) {
       </TouchableOpacity>
 
       <Text style={[styles.relayHint, { color: t.sub }]}>
-        Ordre appliqué par le nœud ESP32 (mode auto) au prochain relevé (~3 s).
+        Ordre appliqué par le nœud ESP32 au prochain relevé (~3 s). Le nœud se
+        lie automatiquement à ce micro-réseau dès que vous actionnez une ligne —
+        aucun jeton à configurer.
       </Text>
-      {state?.device_token ? (
-        <Text style={[styles.relayHint, { color: t.sub }]} numberOfLines={1}>
-          Jeton appareil (firmware) : {state.device_token}
-        </Text>
-      ) : null}
 
       {msg ? <Text style={styles.relayMsg}>{msg}</Text> : null}
     </View>

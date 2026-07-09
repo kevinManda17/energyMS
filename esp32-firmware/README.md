@@ -137,17 +137,21 @@ Interface (toggle Ligne 1/2/3)  ->  backend (état mémorisé par maison)
                                  ESP32 (mode auto)  ->  relais  ->  charges
 ```
 
-Mise en service :
+Mise en service (liaison **automatique**, sans jeton) :
 
-1. Démarrer le backend EMS sur le réseau local (ex. `http://192.168.1.10:8000`).
-2. Dans l'interface, ouvrir **Équipements** : la carte « Contrôle des lignes »
-   affiche le **jeton de l'appareil** (device token).
-3. Dans `config.h` : passer `USE_WIFI` à `1`, renseigner `WIFI_SSID` /
-   `WIFI_PASSWORD`, et coller l'IP + le jeton dans `BACKEND_DECISION_URL` :
-   `http://192.168.1.10:8000/api/ems/decision/?token=LE_JETON`.
-4. Re-téléverser. Avec `USE_WIFI 1`, l'ESP32 démarre directement en mode auto
-   (relais OFF jusqu'au premier sondage réussi) et applique ensuite l'état
-   commandé depuis les interfaces.
+1. Démarrer le backend EMS sur le réseau local (ex. `http://172.20.10.14:8000`).
+2. Dans `config.h` : passer `USE_WIFI` à `1`, renseigner `WIFI_SSID` /
+   `WIFI_PASSWORD`, et l'IP du serveur dans `BACKEND_DECISION_URL`
+   (`http://172.20.10.14:8000/api/ems/decision/`, sans jeton).
+3. Re-téléverser. Avec `USE_WIFI 1`, l'ESP32 démarre en mode auto (relais OFF
+   jusqu'au premier sondage).
+4. Dans l'app, ouvrir **Équipements → Contrôle des lignes** du micro-réseau à
+   piloter et actionner une ligne : le nœud se lie automatiquement à ce
+   micro-réseau et applique ensuite ses commandes.
+
+> Option avancée : pour figer le nœud sur un micro-réseau précis quel que soit
+> le dernier piloté, ajoutez `?token=LE_JETON` à l'URL (jeton renvoyé par
+> `GET /api/houses/<id>/relays/`).
 
 Échange réseau :
 
