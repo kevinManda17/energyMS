@@ -64,9 +64,16 @@ export default function WeatherPanel({ houseId }) {
   const collect = useMutation({
     mutationFn: () => weatherApi.collect(houseId),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["weatherStatus"] });
-      qc.invalidateQueries({ queryKey: ["predict"] });
-      flash("success", "Météo mise à jour — les prévisions utilisent les nouvelles données.");
+      // Collecte non-bloquante côté serveur (202) : elle tourne en tâche de
+      // fond. On rafraîchit le statut plusieurs fois pour afficher les
+      // valeurs fraîches dès qu'elles arrivent.
+      flash("success", "Collecte lancée — actualisation dans quelques secondes.");
+      [3000, 6000, 9000, 12000].forEach((ms) =>
+        setTimeout(() => {
+          qc.invalidateQueries({ queryKey: ["weatherStatus"] });
+          qc.invalidateQueries({ queryKey: ["predict"] });
+        }, ms)
+      );
     },
     onError: () => flash("error", "Collecte impossible. Vérifiez la connexion Internet."),
   });

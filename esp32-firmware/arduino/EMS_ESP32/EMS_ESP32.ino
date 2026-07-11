@@ -208,15 +208,17 @@ Decision backendDecision(const LineData& l1, const LineData& l2,
   d.l3 = relayL3State;
 
   bool ok = false;
+  bool wifiUp = (WiFi.status() == WL_CONNECTED);
+  int httpCode = 0;  // 0 = aucune tentative (Wi-Fi coupe)
 
-  if (WiFi.status() == WL_CONNECTED) {
+  if (wifiUp) {
     HTTPClient http;
     http.setTimeout(HTTP_TIMEOUT_MS);
     http.setConnectTimeout(HTTP_TIMEOUT_MS);
     if (http.begin(BACKEND_DECISION_URL)) {
       http.addHeader("Content-Type", "application/json");
-      int code = http.POST(buildMeasurementsPayload(l1, l2, l3));
-      if (code >= 200 && code < 300) {
+      httpCode = http.POST(buildMeasurementsPayload(l1, l2, l3));
+      if (httpCode >= 200 && httpCode < 300) {
         Decision received;
         if (parseDecisionText(http.getString(), received)) {
           d = received;
@@ -234,7 +236,18 @@ Decision backendDecision(const LineData& l1, const LineData& l2,
     if (backendFailures >= BACKEND_MAX_FAILURES) {
       d.l2 = false;  // délestage de précaution : ligne non prioritaire
     }
-    Serial.print("{\"warning\":\"backend_unreachable\",\"failures\":");
+    /* Diagnostic explicite :
+     *   wifi=0            -> pas connecte au Wi-Fi (2,4 GHz / identifiants)
+     *   wifi=1, http<=0   -> serveur injoignable (pare-feu / mauvaise IP / VPN)
+     *   wifi=1, http=404  -> mauvaise route backend
+     *   wifi=1, http=200  -> reponse recue mais format inattendu             */
+    Serial.print("{\"warning\":\"backend_unreachable\",\"wifi\":");
+    Serial.print(wifiUp ? 1 : 0);
+    Serial.print(",\"ip\":\"");
+    Serial.print(wifiUp ? WiFi.localIP().toString() : String("-"));
+    Serial.print("\",\"http\":");
+    Serial.print(httpCode);
+    Serial.print(",\"failures\":");
     Serial.print(backendFailures);
     Serial.println("}");
   }
@@ -244,10 +257,22 @@ Decision backendDecision(const LineData& l1, const LineData& l2,
 
 void ensureWifi() {
   static unsigned long lastAttemptMs = 0;
-  if (WiFi.status() == WL_CONNECTED) return;
+  static bool wasConnected = false;
+
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!wasConnected) {           // transition : on vient de se connecter
+      wasConnected = true;
+      Serial.print("WiFi connecte. IP : ");
+      Serial.println(WiFi.localIP());
+    }
+    return;
+  }
+
+  wasConnected = false;
   unsigned long now = millis();
   if (now - lastAttemptMs < 10000) return;  // nouvelle tentative toutes les 10 s
   lastAttemptMs = now;
+  Serial.println("WiFi non connecte, nouvelle tentative...");
   WiFi.disconnect();
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 }
@@ -285,7 +310,7 @@ void printMeasurements(const LineData& l1, const LineData& l2,
 
   printLineJson("line1", l1);
   printLineJson("line2", l2);
-  printLineJson("line3", l3);
+  printLineJson("line3", l3, true);   // last=true : pas de virgule en trop
   Serial.print(",\"totalPower\":");
   Serial.print(totalPower, 3);
   Serial.println("}");
@@ -387,8 +412,10 @@ void setup() {
 #endif
 
   Serial.println("EMS ESP32 pret.");
-  Serial.println("Mode initial : manuel, tous les relais OFF.");
-  Serial.println("Teste d'abord sans AC : on 1, off 1, on 2, off 2, on 3, off 3.");
+  Serial.print("Mode initial : ");
+  Serial.println(manualMode ? "manuel (pilotage serie)"
+                            : "auto (pilote par le backend)");
+  Serial.println("Relais OFF au demarrage. Test relais : on 1, off 1, ...");
   printHelp();
 }
 

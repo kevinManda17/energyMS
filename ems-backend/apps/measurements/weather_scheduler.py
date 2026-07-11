@@ -24,6 +24,11 @@ logger = logging.getLogger("ems.weather")
 _ENABLED = os.getenv("WEATHER_AUTO_COLLECT", "1") not in {"0", "false", "False"}
 _INTERVAL_MINUTES = max(1, int(os.getenv("WEATHER_COLLECT_INTERVAL_MINUTES", "2")))
 _INITIAL_DELAY_SECONDS = 20  # let the server finish booting before the 1st fetch
+# Fenêtre d'activité : on ne collecte que pour les micro-réseaux consultés
+# dans les N dernières minutes (évite d'appeler l'API pour des maisons figées).
+_ACTIVE_WINDOW_MINUTES = max(
+    _INTERVAL_MINUTES, int(os.getenv("WEATHER_ACTIVE_WINDOW_MINUTES", "15"))
+)
 
 _stop = threading.Event()
 _thread: threading.Thread | None = None
@@ -37,11 +42,17 @@ def scheduler_info() -> dict:
     }
 
 
-def _collect_all_houses():
+def _collect_active_houses():
+    """Ne collecte la météo que pour les micro-réseaux réellement consultés
+    récemment (dashboard / météo), au lieu de balayer toutes les maisons
+    figées. `last_activity_at` est mis à jour par les endpoints applicatifs."""
+    from django.utils import timezone
+
     from apps.houses.models import House
     from apps.measurements.services import collect_weather_for_house
 
-    houses = list(House.objects.all())
+    since = timezone.now() - timezone.timedelta(minutes=_ACTIVE_WINDOW_MINUTES)
+    houses = list(House.objects.filter(last_activity_at__gte=since))
     if not houses:
         return
     ok = 0
@@ -51,14 +62,14 @@ def _collect_all_houses():
                 ok += 1
         except Exception:
             logger.exception("Auto weather collection failed for house %s", house.pk)
-    logger.info("Auto weather collection: %d/%d house(s) updated.", ok, len(houses))
+    logger.info("Auto weather collection: %d/%d micro-réseau(x) actif(s) mis à jour.", ok, len(houses))
 
 
 def _run():
     if _stop.wait(_INITIAL_DELAY_SECONDS):
         return
     while True:
-        _collect_all_houses()
+        _collect_active_houses()
         if _stop.wait(_INTERVAL_MINUTES * 60):
             return
 

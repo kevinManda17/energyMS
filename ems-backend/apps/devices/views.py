@@ -7,9 +7,51 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.houses.models import House
+from apps.measurements.models import Measurement
 
 from .models import Equipment, RelayState, Sensor
 from .serializers import EquipmentSerializer, RelayStateSerializer, SensorSerializer
+
+# Le nœud sonde toutes les 3 s ; on ne persiste les mesures que toutes les 30 s
+# pour ne pas saturer la base tout en gardant un suivi temps quasi réel.
+MEASUREMENT_STORE_INTERVAL_S = 30
+
+
+def _to_float(d, key):
+    try:
+        value = d.get(key)
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _store_line_measurements(house, payload, ts):
+    """Convertit le relevé 3-lignes de l'ESP32 en mesures agrégées du
+    micro-réseau : consommation (somme des puissances), tension (moyenne) et
+    courant (somme). C'est ce qui alimente le moteur expert en données réelles.
+    """
+    lines = [payload.get(k) for k in ("line1", "line2", "line3")]
+    lines = [d for d in lines if isinstance(d, dict)]
+    if not lines:
+        return
+
+    powers = [p for p in (_to_float(d, "power") for d in lines) if p is not None]
+    volts = [v for v in (_to_float(d, "voltage") for d in lines) if v is not None]
+    amps = [a for a in (_to_float(d, "current") for d in lines) if a is not None]
+
+    rows = []
+    if powers:
+        rows.append(("consumption", sum(powers), "kW"))
+    if volts:
+        rows.append(("voltage", sum(volts) / len(volts), "V"))
+    if amps:
+        rows.append(("current", sum(amps), "A"))
+
+    for mtype, value, unit in rows:
+        Measurement.objects.create(
+            house=house, measurement_type=mtype,
+            value=round(value, 4), unit=unit, timestamp=ts,
+        )
 
 
 def _accessible_houses(user):
@@ -138,12 +180,25 @@ class EmsDecisionView(APIView):
                 # interrupteur dans l'app pour lier le nœud à ce micro-réseau.
                 return HttpResponse("L1=0;L2=0;L3=0", content_type="text/plain")
 
-        # Mémorise le dernier relevé remonté par le nœud (best-effort).
+        # Mémorise le dernier relevé remonté par le nœud (best-effort) et le
+        # persiste comme mesures réelles (throttle) pour le moteur expert.
         payload = request.data if isinstance(request.data, dict) else None
-        state.last_contact_at = timezone.now()
+        now = timezone.now()
+        state.last_contact_at = now
+        fields = ["last_contact_at", "updated_at"]
         if payload:
             state.last_report = payload
-        state.save(update_fields=["last_contact_at", "last_report", "updated_at"])
+            fields.append("last_report")
+            due = (
+                state.last_measurement_at is None
+                or (now - state.last_measurement_at).total_seconds()
+                >= MEASUREMENT_STORE_INTERVAL_S
+            )
+            if due:
+                _store_line_measurements(state.house, payload, now)
+                state.last_measurement_at = now
+                fields.append("last_measurement_at")
+        state.save(update_fields=fields)
 
         body = (
             f"L1={int(state.line1)};"

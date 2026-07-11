@@ -29,6 +29,10 @@ class House(models.Model):
     status = models.CharField(
         max_length=15, choices=Status.choices, default=Status.ONLINE
     )
+    # Dernier accès applicatif à ce micro-réseau (dashboard / météo). Sert à
+    # ne collecter la météo que pour les micro-réseaux réellement consultés,
+    # au lieu de balayer toutes les maisons figées.
+    last_activity_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -32,9 +32,10 @@
 constexpr const char* WIFI_SSID     = "iphone de IRON MANDA";
 constexpr const char* WIFI_PASSWORD = "iron@17kev_@09electronics12a12K17";
 
-/* Le backend répond en texte simple : L1=1;L2=0;L3=1
- * Liaison AUTOMATIQUE (sans jeton) : le nœud suit le micro-réseau que vous
- * pilotez depuis l'app. Adaptez seulement l'IP du serveur EMS.          */
+
+
+/* Le backend reçoit les mesures en JSON (POST) et répond en texte simple :
+ *   L1=1;L2=0;L3=1                                                       */
 constexpr const char* BACKEND_DECISION_URL =
     "http://172.20.10.14:8000/api/ems/decision/";
 

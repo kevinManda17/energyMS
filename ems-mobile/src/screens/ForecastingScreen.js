@@ -150,10 +150,16 @@ export default function ForecastingScreen() {
   async function collectWeather() {
     if (!houseId || collecting) return;
     setCollecting(true);
-    setWeatherMsg("");
+    setWeatherMsg("Collecte en cours…");
     try {
+      // Non-bloquant côté serveur (202) : la collecte Open-Meteo tourne en
+      // tâche de fond. On relit le statut quelques fois pour afficher les
+      // valeurs fraîches dès qu'elles arrivent.
       await weatherApi.collect(houseId);
-      await loadWeather();
+      for (let i = 0; i < 5; i++) {
+        await new Promise((r) => setTimeout(r, 2500));
+        await loadWeather();
+      }
       await load();
       setWeatherMsg("Météo mise à jour — prévisions actualisées.");
     } catch {

@@ -11,20 +11,19 @@ collecte IoT -> mesures -> modeles pre-entraines importes -> prevision -> decisi
 Le backend n'est pas une plateforme d'entrainement Machine Learning. Les modeles sont entraines hors plateforme, puis importes dans EMS pour l'inference sur les donnees collectees.
 
 ```text
-Capteurs / ESP32
-   -> MQTT Mosquitto
-   -> mqtt_worker Django
-   -> Measurements API
-   -> PostgreSQL
-   -> Forecasting inference
-   -> Fuzzy engine
-   -> Alerts / Reports
-   -> React Web + React Native
+Noeud ESP32 (prototype 3 lignes)
+   -> HTTP POST /api/ems/decision/  (releve tension/courant/puissance par ligne)
+   -> Measurements (consommation/tension/courant) + PostgreSQL
+   -> Forecasting inference (modeles enregistres) + Open-Meteo
+   -> Fuzzy engine (decision sur mesures reelles)
+   -> reponse "L1=x;L2=x;L3=x" -> relais -> charges
+   -> Alerts / Reports -> React Web + React Native
 
-Edge Gateway
-   -> cache SQLite local
-   -> synchronisation differee vers l'API
-   -> API locale mobile en mode edge/local
+Voie MQTT (disponible, non utilisee par le prototype actuel)
+   Capteurs -> MQTT Mosquitto -> mqtt_worker Django -> Measurements
+
+Edge Gateway (module present, non integre a la demo)
+   -> cache SQLite local -> synchronisation differee vers l'API
 ```
 
 ## Modules backend
@@ -36,7 +35,7 @@ Edge Gateway
 | `energy_assets` | Actifs energetiques physiques : PV, batterie, onduleur, regulateur, reseau, generateur. |
 | `devices` | Capteurs et equipements/charges. Les capteurs peuvent pointer vers un `EnergyAsset`. |
 | `measurements` | Mesures IoT : production, consommation, SoC batterie, tension, courant, puissance, temperature, luminosite, irradiance. |
-| `forecasting` | Import de modeles pre-entraines, inference, fallback horaire `HourlyProfileForecast`, stockage des `Forecast`. |
+| `forecasting` | Modeles pre-entraines enregistres (`register_models`), inference (GRU/RF actifs), stockage des `Forecast`. Pas de repli mathematique. |
 | `fuzzy_engine` | Systeme expert flou, decisions explicables, lien vers la prevision utilisee. |
 | `alerts` | Alertes critiques/warning/info, lien possible vers une decision. |
 | `reports` | Rapports journaliers, exports CSV et historique `DataExport`. |
@@ -69,13 +68,19 @@ User -> DataExport
 1. Un administrateur importe un modele pre-entraine via `/api/forecasting/models/import/`.
 2. L'utilisateur ou le systeme demande une prevision via `/api/forecasting/predict/`.
 3. Le service prepare les entrees depuis les mesures recentes et les actifs energetiques.
-4. Si un modele importe actif est utilisable, il execute l'inference.
-5. Sinon, le fallback horaire `HourlyProfileForecast` produit une prevision simple.
+4. Le modele actif (GRU pour la consommation, RF pour la production) execute l'inference.
+5. En l'absence de modele actif, une erreur explicite est levee (pas de prevision de repli).
 6. Les resultats sont stockes dans `Forecast`.
 
-## Flux decision
+## Flux decision (sur donnees reelles)
 
-1. `/api/decisions/trigger/` lit les dernieres mesures, les previsions et les equipements actifs.
-2. Le moteur flou evalue les regles et produit une `Decision` explicable.
+1. `/api/decisions/trigger/` lit les **dernieres mesures reelles**, les previsions et les equipements actifs du micro-reseau.
+2. Le moteur flou (`engine.py` -> `core/`) evalue les 24 regles et produit une `Decision` explicable (regles activees, scores, faits d'entree).
 3. La decision peut etre reliee a un `Forecast`.
 4. Une alerte est creee pour les situations critiques ou warning.
+
+## Flux commande (backend -> ESP32)
+
+1. Depuis le web/mobile, l'utilisateur bascule une ligne via `PATCH /api/houses/{id}/relays/`.
+2. Le noeud ESP32 (mode auto) sonde `/api/ems/decision/` toutes les ~3 s.
+3. Le backend renvoie l'etat commande `L1=x;L2=x;L3=x` ; l'ESP32 applique les relais (garde-fou de puissance local en surcouche).

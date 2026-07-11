@@ -9,6 +9,7 @@ from apps.forecasting.models import ImportedModel
 from apps.forecasting.services import pv_capacity_estimate_kw, pv_scale_factor
 from apps.houses.models import House
 from apps.measurements.models import Measurement
+from apps.measurements.services import collect_weather_for_house
 
 User = get_user_model()
 pytestmark = pytest.mark.django_db
@@ -41,38 +42,44 @@ def weather_client(monkeypatch):
     return client, house
 
 
-def test_weather_collect_stores_measurements(weather_client):
-    client, house = weather_client
+def test_weather_service_stores_measurements(weather_client):
+    # La collecte via l'endpoint est asynchrone ; le stockage lui-même est
+    # testé directement sur le service (synchrone, déterministe).
+    _client, house = weather_client
 
-    resp = client.post("/api/measurements/weather/collect/", {"house": house.id}, format="json")
+    outcome = collect_weather_for_house(house)
 
-    assert resp.status_code == 200
-    result = resp.data["results"][0]
-    assert result["house"] == house.id
-    assert result["stored"] == len(FAKE_SNAPSHOT) - 1  # minus _timestamp
-    assert result["values"]["irradiance"] == 640.0
+    assert outcome["stored"] == len(FAKE_SNAPSHOT) - 1  # minus _timestamp
+    assert outcome["values"]["irradiance"] == 640.0
     assert Measurement.objects.filter(house=house, measurement_type="irradiance").count() == 1
 
 
-def test_weather_collect_is_idempotent_within_the_hour(weather_client):
-    client, house = weather_client
+def test_weather_service_is_idempotent_within_the_hour(weather_client):
+    _client, house = weather_client
 
-    client.post("/api/measurements/weather/collect/", {"house": house.id}, format="json")
-    client.post("/api/measurements/weather/collect/", {"house": house.id}, format="json")
+    collect_weather_for_house(house)
+    collect_weather_for_house(house)
 
     # Same Open-Meteo hourly timestamp → rows updated, never duplicated.
     assert Measurement.objects.filter(house=house, measurement_type="temperature").count() == 1
 
 
-def test_weather_collect_defaults_to_all_accessible_houses(weather_client):
+def test_weather_collect_endpoint_is_async(weather_client):
+    client, house = weather_client
+    resp = client.post("/api/measurements/weather/collect/", {"house": house.id}, format="json")
+    assert resp.status_code == 202
+    assert resp.data["houses"] == [house.id]
+
+
+def test_weather_collect_targets_only_accessible_houses(weather_client):
     client, house = weather_client
     other_owner = User.objects.create_user("autre", "autre@x.com", "pass12345")
     House.objects.create(owner=other_owner, name="Pas a moi")
 
     resp = client.post("/api/measurements/weather/collect/", {}, format="json")
 
-    assert resp.status_code == 200
-    assert [r["house"] for r in resp.data["results"]] == [house.id]
+    assert resp.status_code == 202
+    assert resp.data["houses"] == [house.id]  # jamais la maison d'un autre
 
 
 def test_weather_collect_rejects_foreign_house(weather_client):
@@ -88,14 +95,12 @@ def test_weather_collect_rejects_foreign_house(weather_client):
 
 
 def test_weather_collect_reports_upstream_failure(weather_client, monkeypatch):
-    client, house = weather_client
+    _client, house = weather_client
     monkeypatch.setattr(
         "apps.measurements.services.fetch_solar_snapshot", lambda lat, lon: None
     )
 
-    resp = client.post("/api/measurements/weather/collect/", {"house": house.id}, format="json")
-
-    assert resp.status_code == 502
+    assert collect_weather_for_house(house) is None
 
 
 def test_weather_status_reflects_last_collection(weather_client):
@@ -106,7 +111,7 @@ def test_weather_status_reflects_last_collection(weather_client):
     assert resp.data["timestamp"] is None
     assert "auto_collect" in resp.data
 
-    client.post("/api/measurements/weather/collect/", {"house": house.id}, format="json")
+    collect_weather_for_house(house)  # collecte synchrone (déterministe)
     resp = client.get(f"/api/measurements/weather/status/?house={house.id}")
 
     assert resp.data["timestamp"] is not None

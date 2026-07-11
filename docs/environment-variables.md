@@ -24,6 +24,10 @@
 | `FRONTEND_URL` | `http://localhost:5173` | URL utilisee dans les liens e-mail |
 | `PASSWORD_RESET_TOKEN_MINUTES` | `30` | Duree de validite reset password |
 | `EMAIL_VERIFICATION_TOKEN_MINUTES` | `60` | Duree de validite verification e-mail |
+| `WEATHER_AUTO_COLLECT` | `1` | Active la collecte meteo de fond (`0` pour desactiver) |
+| `WEATHER_COLLECT_INTERVAL_MINUTES` | `2` | Cadence de la collecte meteo automatique |
+| `WEATHER_ACTIVE_WINDOW_MINUTES` | `15` | Ne collecte que les micro-reseaux consultes dans cette fenetre |
+| `WEATHER_LATITUDE` / `WEATHER_LONGITUDE` | `-4.3276` / `15.3136` | Coordonnees de repli si un micro-reseau n'a pas les siennes |
 
 Sans `DATABASE_URL`, le backend bascule sur SQLite en local.
 

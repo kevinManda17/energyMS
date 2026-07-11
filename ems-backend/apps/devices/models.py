@@ -116,6 +116,9 @@ class RelayState(models.Model):
     last_commanded_at = models.DateTimeField(null=True, blank=True)
     # Dernier relevé remonté par le nœud (mesures brutes par ligne).
     last_report = models.JSONField(null=True, blank=True)
+    # Dernier instant où le relevé du nœud a été persisté comme Measurement
+    # (throttle : on ne stocke pas à chaque sondage de 3 s).
+    last_measurement_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

@@ -44,6 +44,14 @@ Types principaux : `PV_PANEL`, `BATTERY`, `INVERTER`, `SOLAR_CONTROLLER`, `GRID_
 | GET/POST | `/houses/{id}/sensors/` | Capteurs d'une maison, lien optionnel vers `energy_asset` |
 | GET/POST | `/houses/{id}/equipment/` | Equipements/charges d'une maison |
 | GET/PUT/PATCH/DELETE | `/equipment/{id}/` | Detail equipement |
+| GET/PATCH | `/houses/{id}/relays/` | Etat commande des 3 lignes du prototype (`line1/2/3`, `device_token`) |
+| POST | `/ems/decision/?token=` | Sondage du noeud ESP32 : recoit les mesures, renvoie `L1=x;L2=x;L3=x` |
+
+Le noeud ESP32 interroge `/ems/decision/` toutes les ~3 s. Sans jeton, il suit
+le micro-reseau le plus recemment pilote depuis l'interface (liaison auto). Le
+releve 3-lignes recu (`{"line1":{voltage,current,power},...}`) est persiste
+comme mesures reelles du micro-reseau (consommation, tension, courant), toutes
+les 30 s, ce qui alimente le moteur expert en temps quasi reel.
 
 ## Measurements
 
@@ -51,10 +59,17 @@ Types principaux : `PV_PANEL`, `BATTERY`, `INVERTER`, `SOLAR_CONTROLLER`, `GRID_
 | --- | --- | --- |
 | POST | `/measurements/` | Creer une mesure |
 | GET | `/measurements/` | Liste filtree par `house`, `sensor`, `measurement_type` |
-| GET | `/measurements/latest/` | Dernieres valeurs par type |
+| GET | `/measurements/latest/` | Dernieres valeurs par type (marque le micro-reseau comme actif) |
 | GET | `/measurements/history/` | Historique pagine avec `start`/`end` |
+| POST | `/measurements/weather/collect/` | Lance la collecte Open-Meteo (non-bloquant, `202`) |
+| GET | `/measurements/weather/status/` | Derniere meteo collectee + etat de la collecte auto |
 
-Types supportes : `production`, `consumption`, `battery_soc`, `voltage`, `current`, `power`, `temperature`, `luminosity`, `irradiance`.
+Types supportes : `production`, `consumption`, `battery_soc`, `voltage`, `current`, `power`, `temperature`, `luminosity`, `irradiance` (+ variables meteo/PV derivees).
+
+Sources reelles des mesures : le noeud ESP32 (via `/ems/decision/`) pour
+consommation/tension/courant, et Open-Meteo pour la meteo/irradiance. La
+collecte meteo automatique ne vise que les micro-reseaux consultes recemment
+(fenetre `WEATHER_ACTIVE_WINDOW_MINUTES`), et non plus toutes les maisons.
 
 ## Forecasting
 
@@ -66,7 +81,7 @@ Types supportes : `production`, `consumption`, `battery_soc`, `voltage`, `curren
 | GET | `/forecasting/forecasts/` | Historique des previsions |
 | GET | `/forecasting/forecasts/latest/` | Derniere prevision |
 
-Le backend ne propose plus d'endpoint d'entrainement utilisateur. Le fallback `HourlyProfileForecast` reste disponible si aucun modele importe actif n'est utilisable.
+Le backend ne propose pas d'endpoint d'entrainement utilisateur : les modeles sont entraines hors-ligne puis enregistres via `python manage.py register_models` (lit `ems-backend/ml_models/`). Modeles actifs par defaut : **GRU** (consommation), **Random Forest** (production ; le LSTM reste enregistre en reference). En l'absence de modele actif pour une cible, la prevision ne renvoie pas d'estimation de repli : une erreur explicite est levee.
 
 ## Decisions
 
@@ -90,6 +105,7 @@ Le backend ne propose plus d'endpoint d'entrainement utilisateur. Le fallback `H
 | Methode | Endpoint | Description |
 | --- | --- | --- |
 | GET | `/reports/daily/?house=&date=` | Resume journalier |
+| GET | `/reports/summary/?house=&days=` | Agregation journaliere d'energie (kWh) par integration trapezoidale des mesures de puissance |
 | GET | `/reports/export/csv/?house=&type=` | Export CSV `measurements`, `forecasts`, `decisions` ou `full` |
 | GET | `/reports/exports/` | Historique `DataExport` |
 

@@ -1,3 +1,7 @@
+import logging
+import threading
+
+from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
@@ -13,12 +17,38 @@ from .serializers import MeasurementSerializer
 from .services import collect_weather_for_house, weather_status_for_house
 from .weather_scheduler import scheduler_info
 
+logger = logging.getLogger("ems.weather")
+
 
 def _accessible_houses(user):
     qs = House.objects.all()
     if not user.is_admin:
         qs = qs.filter(owner=user)
     return qs
+
+
+def _touch_activity(house_ids):
+    """Marque ces micro-réseaux comme « consultés maintenant » : seule cible
+    de la collecte météo de fond (plus de balayage des maisons figées)."""
+    ids = [i for i in house_ids if i]
+    if ids:
+        House.objects.filter(pk__in=ids).update(last_activity_at=timezone.now())
+
+
+def _collect_weather_async(house_ids):
+    """Collecte météo en tâche de fond : l'appel HTTP rend la main tout de
+    suite (~ms) au lieu d'attendre les ~5 appels Open-Meteo par maison."""
+    from django.db import close_old_connections
+
+    close_old_connections()
+    try:
+        for house in House.objects.filter(pk__in=house_ids):
+            try:
+                collect_weather_for_house(house)
+            except Exception:
+                logger.exception("Weather collect failed for house %s", house.pk)
+    finally:
+        close_old_connections()
 
 
 def _houses_for_request(request, data):
@@ -52,27 +82,19 @@ class WeatherCollectView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        results, failures = [], []
-        for house in houses:
-            outcome = collect_weather_for_house(house)
-            if outcome is None:
-                failures.append({"house": house.pk, "name": house.name})
-                continue
-            results.append({
-                "house": house.pk,
-                "name": house.name,
-                "timestamp": outcome["timestamp"],
-                "collected_at": outcome["collected_at"],
-                "stored": outcome["stored"],
-                "values": outcome["values"],
-            })
-
-        if not results:
-            return Response(
-                {"detail": "La collecte météo a échoué (service Open-Meteo injoignable)."},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-        return Response({"results": results, "failures": failures})
+        house_ids = [h.pk for h in houses]
+        _touch_activity(house_ids)
+        # Non-bloquant : la collecte (~5 appels Open-Meteo/maison) tourne en
+        # tâche de fond, la réponse revient immédiatement. L'interface relit
+        # ensuite /weather/status/ pour afficher les valeurs fraîches.
+        threading.Thread(
+            target=_collect_weather_async, args=(house_ids,),
+            name="weather-collect", daemon=True,
+        ).start()
+        return Response(
+            {"detail": "Collecte météo lancée.", "houses": house_ids},
+            status=status.HTTP_202_ACCEPTED,
+        )
 
 
 class WeatherStatusView(APIView):
@@ -88,6 +110,7 @@ class WeatherStatusView(APIView):
 
     def get(self, request):
         houses = _houses_for_request(request, request.query_params)
+        _touch_activity([h.pk for h in houses])
         statuses = [weather_status_for_house(h) for h in houses]
         payload = statuses[0] if len(statuses) == 1 else {"houses": statuses}
         return Response({**payload, "auto_collect": scheduler_info()})
@@ -132,6 +155,7 @@ class MeasurementViewSet(
         house_id = request.query_params.get("house")
         if house_id:
             qs = qs.filter(house_id=house_id)
+            _touch_activity([house_id])  # micro-réseau consulté -> cible météo
         latest = {}
         for m in qs.order_by("-timestamp")[:500]:
             latest.setdefault(m.measurement_type, m)
