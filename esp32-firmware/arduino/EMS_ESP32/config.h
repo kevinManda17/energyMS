@@ -29,15 +29,23 @@
  * Passer à 1 quand le backend expert est joignable. */
 #define USE_WIFI 1
 
-constexpr const char* WIFI_SSID     = "iphone de IRON MANDA";
-constexpr const char* WIFI_PASSWORD = "iron@17kev_@09electronics12a12K17";
+// constexpr const char* WIFI_SSID     = "iphone de IRON MANDA";
+// constexpr const char* WIFI_PASSWORD = "iron@17kev_@09electronics12a12K17";
+
+constexpr const char* WIFI_SSID     = "itel A50C";
+constexpr const char* WIFI_PASSWORD = "";
 
 
 
 /* Le backend reçoit les mesures en JSON (POST) et répond en texte simple :
  *   L1=1;L2=0;L3=1                                                       */
+// constexpr const char* BACKEND_DECISION_URL =
+//     "http://172.20.10.14:8000/api/ems/decision/";
+
 constexpr const char* BACKEND_DECISION_URL =
-    "http://172.20.10.14:8000/api/ems/decision/";
+    "http://192.168.203.117:8000/api/ems/decision/";
+
+    //  192.168.203.117
 
 constexpr uint16_t HTTP_TIMEOUT_MS = 3000;
 

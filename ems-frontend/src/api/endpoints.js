@@ -94,11 +94,13 @@ export const alertsApi = {
   unread: () => api.get("/alerts/unread/").then((r) => r.data),
   acknowledge: (id) => api.post(`/alerts/${id}/acknowledge/`).then((r) => r.data),
 };
+    
+
 
 export const reportsApi = {
   daily: (params) => api.get("/reports/daily/", { params }).then((r) => r.data),
   exportCsvUrl: () =>
-    `${import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api"}/reports/export/csv/`,
+    `${import.meta.env.VITE_API_BASE_URL || "http://192.168.203.117:8000/api"}/reports/export/csv/`,
 };
 
 export const datasetsApi = {
