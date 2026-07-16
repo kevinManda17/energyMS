@@ -6,22 +6,17 @@ automatique (règles locales de secours, ou système expert backend via HTTP).
 
 ```
 esp32-firmware/
-├── platformio.ini      # configuration PlatformIO (carte esp32dev)
-├── include/
-│   └── config.h        # config PlatformIO : pins, calibration, seuils, Wi-Fi
-├── src/
-│   └── main.cpp        # logique du firmware (PlatformIO)
 └── arduino/
-    └── EMS_ESP32/      # même firmware, prêt pour l'IDE Arduino
+    └── EMS_ESP32/      # firmware, pour l'IDE Arduino
         ├── EMS_ESP32.ino
-        └── config.h
+        └── config.h    # pins, calibration, seuils, Wi-Fi
 ```
 
-> **PlatformIO ou Arduino IDE ?** Les deux versions contiennent le même code.
-> PlatformIO compile `src/main.cpp` + `include/config.h`. L'IDE Arduino, lui, ne
-> lit **que** les fichiers du dossier de croquis : utilisez alors `arduino/EMS_ESP32/`,
-> qui contient déjà `config.h` **à côté** du `.ino` (aucun copier-coller). Si vous
-> modifiez la configuration, pensez à répercuter le changement dans les deux `config.h`.
+> Le projet a compté un second exemplaire du firmware pour PlatformIO
+> (`platformio.ini`, `src/main.cpp`, `include/config.h`). Il a été supprimé :
+> les deux copies devaient être tenues à jour en parallèle, et celle de
+> PlatformIO avait fini par diverger (Wi-Fi désactivé, SSID resté factice).
+> Une seule source fait foi désormais : `arduino/EMS_ESP32/`.
 
 ## Câblage (NE PAS MODIFIER SANS REVALIDER)
 
@@ -29,12 +24,20 @@ esp32-firmware/
 
 | GPIO ESP32 | Entrée module | Canal | Ligne |
 |-----------|---------------|-------|-------|
-| G25 | IN1 | CH1 (COM1/NO1) | Ligne 1 |
+| G25 | IN2 | CH2 (COM2/NO2) | Ligne 1 |
 | G26 | IN3 | CH3 (COM3/NO3) | Ligne 2 |
 | G27 | IN6 | CH6 (COM6/NO6) | Ligne 3 |
 
-Le module est supposé **actif à LOW** (`RELAY_ACTIVE_LOW = true` dans
-`config.h`). Si un relais colle à l'envers, passez cette constante à `false`.
+Seul le **GPIO** figure dans `config.h` (`RELAY_L1_PIN`…) : changer de canal sur
+le module (IN2 plutôt que IN1, etc.) ne demande aucune modification du code tant
+que le fil reste sur le même GPIO côté ESP32 — mettre à jour ce tableau suffit.
+
+Ce module s'est révélé **actif à HIGH** : `RELAY_ACTIVE_LOW = false` dans
+`config.h`. Cette constante est le **seul** endroit qui traduit « ligne active »
+en niveau électrique. Si les relais fonctionnent à l'envers, c'est ici qu'on
+corrige — jamais dans le frontend, le mobile ou le backend, où `true` = ligne
+sous tension : la protection surcharge écrit `false` pour **couper**, et
+s'inverserait elle aussi.
 
 ### Capteurs analogiques
 
@@ -56,28 +59,7 @@ Le module est supposé **actif à LOW** (`RELAY_ACTIVE_LOW = true` dans
 - Tous les canaux utilisés sont sur l'**ADC1** : ils fonctionnent même
   Wi‑Fi actif (l'ADC2 est inutilisable avec le Wi‑Fi — c'est voulu).
 
-## Téléverser avec PlatformIO (recommandé)
-
-1. Installer [VS Code](https://code.visualstudio.com/) puis l'extension
-   **PlatformIO IDE** (ou en CLI : `pip install platformio`).
-2. Ouvrir le dossier `esp32-firmware/` (PlatformIO détecte `platformio.ini`).
-3. Brancher l'ESP32 en USB.
-
-```bash
-cd esp32-firmware
-pio run                # compile
-pio run -t upload      # compile + téléverse
-pio device monitor     # moniteur série à 115200 bauds
-```
-
-Si le port COM n'est pas détecté automatiquement, décommentez
-`upload_port`/`monitor_port` dans `platformio.ini` (voir le port dans le
-Gestionnaire de périphériques Windows).
-
-> Astuce : si le téléversement échoue avec « Failed to connect », maintenez
-> le bouton **BOOT** de la carte pendant les premières secondes de l'upload.
-
-## Alternative : Arduino IDE
+## Téléverser (Arduino IDE)
 
 1. Installer le support ESP32 (Gestionnaire de cartes → « esp32 » par Espressif).
 2. Ouvrir **`arduino/EMS_ESP32/EMS_ESP32.ino`** (le fichier `config.h` s'ouvre
@@ -86,10 +68,32 @@ Gestionnaire de périphériques Windows).
 3. Carte : **ESP32 Dev Module** ; vitesse moniteur : **115200**.
 4. Téléverser.
 
-> Ne pas ouvrir `src/main.cpp` directement dans l'IDE Arduino : il ne trouverait
-> pas `config.h` (rangé dans `include/` pour PlatformIO), d'où les erreurs
-> « `RELAY_ACTIVE_LOW` was not declared in this scope ». Utilisez le dossier
-> `arduino/EMS_ESP32/`.
+### Si le téléversement échoue
+
+L'erreur d'Arduino IDE — « No serial data received » ou « the selected serial
+port does not exist or your board is not connected » — est **trompeuse** : elle
+apparaît aussi quand la carte est bien branchée. Le vrai message est visible en
+interrogeant la carte avec un esptool récent :
+
+```
+Wrong boot mode detected (0x13)! The chip needs to be in download mode.
+```
+
+La carte répond, mais démarre sur son firmware au lieu d'attendre un flash : son
+circuit d'auto-reset (DTR/RTS) ne tire pas `GPIO0` à LOW. Il faut le forcer :
+
+- Lancer le téléversement, puis **maintenir BOOT** (parfois `IO0`/`FLASH`) dès
+  l'apparition de `Connecting........`, jusqu'à `Writing at 0x...`.
+- Séquence infaillible si la carte a un bouton **EN**/**RST** : maintenir
+  **BOOT** → appuyer/relâcher **EN** → relâcher **BOOT**.
+
+Autres pistes : couper l'alimentation du module relais le temps du flash (son
+appel de courant peut perturber l'opération s'il est alimenté par l'ESP32) ; et
+en cas d'échec systématique, un condensateur **10 µF entre EN et GND** corrige
+définitivement l'auto-reset (défaut classique des clones).
+
+Vérifier que la carte est vue : `Silicon Labs CP210x USB to UART Bridge (COMx)`
+dans le Gestionnaire de périphériques. Sinon, installer le pilote CP210x.
 
 ## Commandes série (moniteur à 115200 bauds)
 

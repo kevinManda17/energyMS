@@ -1,26 +1,26 @@
 /*
- * EMS IoT — Firmware ESP32 « 3 lignes » (prototype mémoire)
- *
- * Rôle :
- *  - lire 3 capteurs de tension ZMPT101B + 3 capteurs de courant ZMCT103C ;
- *  - calculer tension / courant / puissance RMS par ligne ;
- *  - commander 3 relais (lignes 1 à 3) en mode manuel (Serial) ou
- *    automatique (règles locales, ou système expert backend via HTTP) ;
- *  - publier les mesures en JSON sur le port série (115200 bauds).
- *
- * Sécurité :
- *  - tous les relais OFF au démarrage (niveau inactif fixé AVANT pinMode
- *    pour éviter le claquement des relais actifs-LOW pendant le boot) ;
- *  - garde-fou local appliqué à TOUTE décision automatique, y compris
- *    celle du backend : une ligne en surcharge n'est jamais activée ;
- *  - backend muet : dernier état conservé, puis délestage de la ligne
- *    non prioritaire (L2) après BACKEND_MAX_FAILURES échecs consécutifs.
- *
- * Toute la configuration (pins, calibration, seuils, Wi-Fi) : config.h
- * (onglet à côté de ce fichier — Arduino IDE le compile automatiquement,
- * aucun copier-coller n'est nécessaire tant que les deux fichiers restent
- * dans le même dossier de croquis).
- */
+  EMS IoT — Firmware ESP32 « 3 lignes » (prototype mémoire)
+
+  Rôle :
+   - lire 3 capteurs de tension ZMPT101B + 3 capteurs de courant ZMCT103C ;
+   - calculer tension / courant / puissance RMS par ligne ;
+   - commander 3 relais (lignes 1 à 3) en mode manuel (Serial) ou
+     automatique (règles locales, ou système expert backend via HTTP) ;
+   - publier les mesures en JSON sur le port série (115200 bauds).
+
+  Sécurité :
+   - tous les relais OFF au démarrage (niveau inactif fixé AVANT pinMode
+     pour éviter le claquement des relais actifs-LOW pendant le boot) ;
+   - garde-fou local appliqué à TOUTE décision automatique, y compris
+     celle du backend : une ligne en surcharge n'est jamais activée ;
+   - backend muet : dernier état conservé, puis délestage de la ligne
+     non prioritaire (L2) après BACKEND_MAX_FAILURES échecs consécutifs.
+
+  Toute la configuration (pins, calibration, seuils, Wi-Fi) : config.h
+  (onglet à côté de ce fichier — Arduino IDE le compile automatiquement,
+  aucun copier-coller n'est nécessaire tant que les deux fichiers restent
+  dans le même dossier de croquis).
+*/
 
 #include <Arduino.h>
 #include "config.h"
@@ -47,10 +47,10 @@ struct Decision {
 };
 
 /* Sans Wi-Fi : démarrage en mode manuel (pilotage série uniquement).
- * Avec Wi-Fi : démarrage en mode auto pour que l'appareil soit
- * commandable à distance depuis les interfaces dès le boot (les relais
- * restent malgré tout OFF tant que le premier sondage backend n'a pas
- * répondu — cf. initRelayPin + applyRelays(false...) dans setup()). */
+   Avec Wi-Fi : démarrage en mode auto pour que l'appareil soit
+   commandable à distance depuis les interfaces dès le boot (les relais
+   restent malgré tout OFF tant que le premier sondage backend n'a pas
+   répondu — cf. initRelayPin + applyRelays(false...) dans setup()). */
 bool manualMode   = (USE_WIFI == 0);
 bool relayL1State = false;
 bool relayL2State = false;
@@ -91,7 +91,7 @@ void setLineRelay(int line, bool state) {
 }
 
 /* Fixe le niveau INACTIF sur la pin avant de la passer en sortie :
- * évite l'impulsion parasite au boot sur les modules actifs-LOW. */
+   évite l'impulsion parasite au boot sur les modules actifs-LOW. */
 void initRelayPin(uint8_t pin) {
   digitalWrite(pin, RELAY_ACTIVE_LOW ? HIGH : LOW);
   pinMode(pin, OUTPUT);
@@ -101,7 +101,7 @@ void initRelayPin(uint8_t pin) {
 /* ==================== LECTURE RMS ==================== */
 
 /* RMS de la composante AC (l'offset DC des capteurs est retiré via la
- * variance : RMS_AC = sqrt(E[x²] - E[x]²)). Renvoie des volts côté ADC. */
+   variance : RMS_AC = sqrt(E[x²] - E[x]²)). Renvoie des volts côté ADC. */
 float readSensorRmsVoltage(uint8_t pin) {
   double sum = 0.0;
   double sumSq = 0.0;
@@ -133,7 +133,7 @@ LineData readLine(uint8_t pinV, uint8_t pinI, float calV, float calI) {
 /* ==================== SECURITE & REGLES LOCALES ==================== */
 
 /* Garde-fou appliqué à toute décision automatique (locale OU backend) :
- * jamais d'activation d'une ligne si la logique de surcharge l'interdit. */
+   jamais d'activation d'une ligne si la logique de surcharge l'interdit. */
 Decision clampDecision(Decision d, const LineData& l1, const LineData& l2,
                        const LineData& l3) {
   const float totalPower = l1.power + l2.power + l3.power;
@@ -153,7 +153,7 @@ Decision clampDecision(Decision d, const LineData& l1, const LineData& l2,
 }
 
 /* Règles locales provisoires (secours / test sans backend).
- * Priorités : L3 prioritaire, L1 moyenne, L2 non prioritaire. */
+   Priorités : L3 prioritaire, L1 moyenne, L2 non prioritaire. */
 Decision localExpertDecision(const LineData& l1, const LineData& l2,
                              const LineData& l3) {
   Decision d;
@@ -199,7 +199,7 @@ String buildMeasurementsPayload(const LineData& l1, const LineData& l2,
 }
 
 /* Interroge le backend. En cas d'échec : conserve le dernier état connu,
- * puis coupe la ligne non prioritaire (L2) après plusieurs échecs. */
+   puis coupe la ligne non prioritaire (L2) après plusieurs échecs. */
 Decision backendDecision(const LineData& l1, const LineData& l2,
                          const LineData& l3) {
   Decision d;
@@ -237,10 +237,10 @@ Decision backendDecision(const LineData& l1, const LineData& l2,
       d.l2 = false;  // délestage de précaution : ligne non prioritaire
     }
     /* Diagnostic explicite :
-     *   wifi=0            -> pas connecte au Wi-Fi (2,4 GHz / identifiants)
-     *   wifi=1, http<=0   -> serveur injoignable (pare-feu / mauvaise IP / VPN)
-     *   wifi=1, http=404  -> mauvaise route backend
-     *   wifi=1, http=200  -> reponse recue mais format inattendu             */
+         wifi=0            -> pas connecte au Wi-Fi (2,4 GHz / identifiants)
+         wifi=1, http<=0   -> serveur injoignable (pare-feu / mauvaise IP / VPN)
+         wifi=1, http=404  -> mauvaise route backend
+         wifi=1, http=200  -> reponse recue mais format inattendu             */
     Serial.print("{\"warning\":\"backend_unreachable\",\"wifi\":");
     Serial.print(wifiUp ? 1 : 0);
     Serial.print(",\"ip\":\"");
@@ -318,7 +318,7 @@ void printMeasurements(const LineData& l1, const LineData& l2,
 
 /* ==================== COMMANDES SERIAL ==================== */
 /* on 1 | off 1 | on 2 | off 2 | on 3 | off 3
- * all on | all off | auto | manual | status | help                       */
+   all on | all off | auto | manual | status | help                       */
 
 void printHelp() {
   Serial.println("Commandes : on 1, off 1, on 2, off 2, on 3, off 3,");
@@ -360,7 +360,7 @@ void executeCommand(String cmd) {
 }
 
 /* Lecture non bloquante : les caractères sont accumulés au fil de l'eau,
- * la commande est exécutée à la fin de ligne (\n ou \r). */
+   la commande est exécutée à la fin de ligne (\n ou \r). */
 void handleSerialCommand() {
   static String buffer;
   while (Serial.available()) {
@@ -414,7 +414,7 @@ void setup() {
   Serial.println("EMS ESP32 pret.");
   Serial.print("Mode initial : ");
   Serial.println(manualMode ? "manuel (pilotage serie)"
-                            : "auto (pilote par le backend)");
+                 : "auto (pilote par le backend)");
   Serial.println("Relais OFF au demarrage. Test relais : on 1, off 1, ...");
   printHelp();
 }
@@ -443,7 +443,7 @@ void loop() {
       Decision d = localExpertDecision(lastLine1, lastLine2, lastLine3);
 #endif
       /* Garde-fou final : même une décision backend ne peut pas activer
-       * une ligne que la logique de surcharge interdit. */
+         une ligne que la logique de surcharge interdit. */
       d = clampDecision(d, lastLine1, lastLine2, lastLine3);
       applyRelays(d.l1, d.l2, d.l3);
     }
