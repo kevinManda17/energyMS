@@ -29,9 +29,10 @@
  * Passer à 1 quand le backend expert est joignable. */
 #define USE_WIFI 1
 
-// constexpr const char* WIFI_SSID     = "iphone de IRON MANDA";
-// constexpr const char* WIFI_PASSWORD = "iron@17kev_@09electronics12a12K17";
-
+/* Ce fichier est versionne et le depot est sur GitHub : ne jamais y ecrire un
+ * mot de passe reel. Un mot de passe pousse ici est publie — le retirer ensuite
+ * ne l'efface pas de l'historique, il faut le CHANGER sur la box/le telephone.
+ * Reseau ouvert (hotspot sans mot de passe) : laisser la chaine vide. */
 constexpr const char* WIFI_SSID     = "itel A50C";
 constexpr const char* WIFI_PASSWORD = "";
 
@@ -55,13 +56,17 @@ constexpr uint16_t HTTP_TIMEOUT_MS = 3000;
 constexpr uint8_t BACKEND_MAX_FAILURES = 3;
 
 /* ==================== RELAIS ==================== */
-/* La plupart des modules 8 canaux sont actifs à LOW.
- * Si les relais fonctionnent à l'envers, passer à false. */
-constexpr bool RELAY_ACTIVE_LOW = true;
+/* Seul endroit qui traduit "ligne active" en niveau electrique : partout
+ * ailleurs (UI, backend, protocole L1=1, clampDecision) true = ligne sous
+ * tension. Ne jamais compenser une inversion cote interface : la protection
+ * surcharge ecrit d.lX = false pour COUPER, et s'inverserait aussi. */
+constexpr bool RELAY_ACTIVE_LOW = false;
 
-constexpr uint8_t RELAY_L1_PIN = 25;  // G25 -> IN1
-constexpr uint8_t RELAY_L2_PIN = 26;  // G26 -> IN3
-constexpr uint8_t RELAY_L3_PIN = 27;  // G27 -> IN6
+/* Valeur = GPIO de l'ESP32 ; le canal du module (IN./COM./NO.) ne depend que
+ * du cablage et n'a pas a etre declare ici. */
+constexpr uint8_t RELAY_L1_PIN = 25;  // G25 -> IN2 (CH2 : COM2/NO2)
+constexpr uint8_t RELAY_L2_PIN = 26;  // G26 -> IN3 (CH3 : COM3/NO3)
+constexpr uint8_t RELAY_L3_PIN = 27;  // G27 -> IN6 (CH6 : COM6/NO6)
 
 /* ==================== CAPTEURS ==================== */
 constexpr uint8_t PIN_V1 = 34;  // ZMPT101B-1 (G34, entrée seule, ADC1)
