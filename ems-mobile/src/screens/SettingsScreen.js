@@ -203,7 +203,7 @@ export default function SettingsScreen() {
         <Text style={[styles.hint, { color: t.sub }]}>Edge: {API_PRESETS.edge}</Text>
         {mode === "local" && (
           <>
-            <Input label="URL personnalisee" value={custom} onChangeText={setCustom} placeholder="http://172.20.10.2:8000/api" t={t} />
+            <Input label="URL personnalisee" value={custom} onChangeText={setCustom} placeholder="http://192.168.203.117:8000/api" t={t} />
             <Button label="Enregistrer l'URL" onPress={saveCustom} />
           </>
         )}

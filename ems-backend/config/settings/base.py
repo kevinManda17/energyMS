@@ -145,7 +145,9 @@ EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", "True")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "noreply@ems.local")
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+# URL cliquable envoyee dans les emails : 0.0.0.0 n'est pas navigable.
+# FRONTEND_URL = os.getenv("FRONTEND_URL", "http://172.20.10.14:5173")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://192.168.203.117:5173")
 PASSWORD_RESET_TOKEN_MINUTES = int(os.getenv("PASSWORD_RESET_TOKEN_MINUTES", "30"))
 EMAIL_VERIFICATION_TOKEN_MINUTES = int(os.getenv("EMAIL_VERIFICATION_TOKEN_MINUTES", "60"))
 
