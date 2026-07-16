@@ -2,12 +2,13 @@ import { storage } from "../storage";
 
 const CLOUD =
   // process.env.EXPO_PUBLIC_API_BASE_URL || "http://172.20.10.14:8000/api";
-
-  process.env.EXPO_PUBLIC_API_BASE_URL || "http://192.168.203.117:8000/api";
+  // process.env.EXPO_PUBLIC_API_BASE_URL || "http://192.168.203.117:8000/api";
+  process.env.EXPO_PUBLIC_API_BASE_URL || "http://192.168.188.117:8000/api";
 
 const EDGE =
   // process.env.EXPO_PUBLIC_EDGE_API_URL || "http://172.20.10.14:8000/api";
-  process.env.EXPO_PUBLIC_EDGE_API_URL || "http://192.168.203.117:8000/api";
+  // process.env.EXPO_PUBLIC_EDGE_API_URL || "http://192.168.203.117:8000/api";
+  process.env.EXPO_PUBLIC_EDGE_API_URL || "http://192.168.188.117:8000/api";
   
 
 /**

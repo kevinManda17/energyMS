@@ -99,8 +99,9 @@ export const alertsApi = {
 
 export const reportsApi = {
   daily: (params) => api.get("/reports/daily/", { params }).then((r) => r.data),
+  // Repli historique : "http://172.20.10.14:8000/api" puis "http://192.168.203.117:8000/api"
   exportCsvUrl: () =>
-    `${import.meta.env.VITE_API_BASE_URL || "http://192.168.203.117:8000/api"}/reports/export/csv/`,
+    `${import.meta.env.VITE_API_BASE_URL || "http://192.168.188.117:8000/api"}/reports/export/csv/`,
 };
 
 export const datasetsApi = {

@@ -29,10 +29,9 @@
  * Passer à 1 quand le backend expert est joignable. */
 #define USE_WIFI 1
 
-/* Ce fichier est versionne et le depot est sur GitHub : ne jamais y ecrire un
- * mot de passe reel. Un mot de passe pousse ici est publie — le retirer ensuite
- * ne l'efface pas de l'historique, il faut le CHANGER sur la box/le telephone.
- * Reseau ouvert (hotspot sans mot de passe) : laisser la chaine vide. */
+// constexpr const char* WIFI_SSID     = "iphone de IRON MANDA";
+// constexpr const char* WIFI_PASSWORD = "iron@17kev_@09electronics12a12K17";
+
 constexpr const char* WIFI_SSID     = "itel A50C";
 constexpr const char* WIFI_PASSWORD = "";
 
@@ -43,8 +42,11 @@ constexpr const char* WIFI_PASSWORD = "";
 // constexpr const char* BACKEND_DECISION_URL =
 //     "http://172.20.10.14:8000/api/ems/decision/";
 
+//constexpr const char* BACKEND_DECISION_URL =
+//    "http://192.168.203.117:8000/api/ems/decision/";
+
 constexpr const char* BACKEND_DECISION_URL =
-    "http://192.168.203.117:8000/api/ems/decision/";
+    "http://192.168.188.117:8000/api/ems/decision/";
 
     //  192.168.203.117
 
@@ -62,11 +64,9 @@ constexpr uint8_t BACKEND_MAX_FAILURES = 3;
  * surcharge ecrit d.lX = false pour COUPER, et s'inverserait aussi. */
 constexpr bool RELAY_ACTIVE_LOW = false;
 
-/* Valeur = GPIO de l'ESP32 ; le canal du module (IN./COM./NO.) ne depend que
- * du cablage et n'a pas a etre declare ici. */
-constexpr uint8_t RELAY_L1_PIN = 25;  // G25 -> IN2 (CH2 : COM2/NO2)
-constexpr uint8_t RELAY_L2_PIN = 26;  // G26 -> IN3 (CH3 : COM3/NO3)
-constexpr uint8_t RELAY_L3_PIN = 27;  // G27 -> IN6 (CH6 : COM6/NO6)
+constexpr uint8_t RELAY_L1_PIN = 25;  // G25 -> IN1
+constexpr uint8_t RELAY_L2_PIN = 26;  // G26 -> IN3
+constexpr uint8_t RELAY_L3_PIN = 27;  // G27 -> IN6
 
 /* ==================== CAPTEURS ==================== */
 constexpr uint8_t PIN_V1 = 34;  // ZMPT101B-1 (G34, entrée seule, ADC1)

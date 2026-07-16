@@ -19,14 +19,18 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 # 1. Reclasser le reseau du partage de connexion en Prive.
 #    Windows le marque Public par defaut, ce qui empeche toute regle Prive
 #    de s'appliquer. C'est le hotspot du telephone : reseau de confiance.
-$ip = Get-NetIPAddress -IPAddress 192.168.203.117 -ErrorAction SilentlyContinue
-if (-not $ip) {
-    Write-Warning "192.168.203.117 introuvable : l'IP a change (autre reseau ?)."
-    Write-Warning "Relancer 'ipconfig' et adapter l'IP dans les fichiers .env."
+# L'IP du partage de connexion change a chaque reseau : on ne la code pas en
+# dur, on reclasse tout profil Public qui n'est pas le tunnel VPN.
+$profiles = Get-NetConnectionProfile | Where-Object {
+    $_.NetworkCategory -eq "Public" -and $_.InterfaceAlias -notmatch "WireGuard|Proton|TAP|VPN"
+}
+if (-not $profiles) {
+    Write-Output "Aucun reseau Public a reclasser (deja Prive, ou seul le VPN est Public)."
 } else {
-    $profile = Get-NetConnectionProfile -InterfaceIndex $ip.InterfaceIndex
-    Set-NetConnectionProfile -InterfaceIndex $ip.InterfaceIndex -NetworkCategory Private
-    Write-Output "Reseau '$($profile.Name)' reclasse : Public -> Private"
+    foreach ($p in $profiles) {
+        Set-NetConnectionProfile -InterfaceIndex $p.InterfaceIndex -NetworkCategory Private
+        Write-Output "Reseau '$($p.Name)' reclasse : Public -> Private"
+    }
 }
 
 # 2. Ouvrir les deux ports, profil Prive uniquement.
@@ -47,5 +51,6 @@ foreach ($r in $rules) {
 }
 
 Write-Output ""
-Write-Output "Termine. Depuis le telephone, ouvrir : http://192.168.203.117:5173"
+Write-Output "Termine. Depuis le telephone, ouvrir http://<IP-de-cette-machine>:5173"
+Write-Output "(l'IP est donnee par 'ipconfig' sur l'interface Wi-Fi)."
 Write-Output "Si ca ne passe toujours pas, couper ProtonVPN (il peut router/bloquer le LAN)."

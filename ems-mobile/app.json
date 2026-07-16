@@ -17,7 +17,7 @@
     "web": { "bundler": "metro" },
     "plugins": ["expo-notifications"],
     "extra": {
-      "apiBaseUrl": "http://192.168.203.117:8000/api"
+      "apiBaseUrl": "http://192.168.188.117:8000/api"
     }
   }
 }
