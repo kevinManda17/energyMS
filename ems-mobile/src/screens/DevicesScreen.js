@@ -27,8 +27,8 @@ import { fmt } from "../utils/format";
 
 const RELAY_LINES = [
   { key: "line1", label: "Ligne 1", desc: "Lampe 10 W + prise 1" },
-  { key: "line2", label: "Ligne 2", desc: "Lampe 10 W + prise 2" },
-  { key: "line3", label: "Ligne 3", desc: "Lampe 20 W" },
+  { key: "line2", label: "Ligne 2", desc: "Lampe 20 W" },
+  { key: "line3", label: "Ligne 3", desc: "Lampe 10 W + prise 2" },
 ];
 
 const SENSOR_ICONS = {
@@ -307,7 +307,7 @@ function RelayControl({ houseId, t }) {
   const online = state?.last_contact_at
     ? Date.now() - new Date(state.last_contact_at).getTime() < 15000
     : false;
-  const anyOn = state ? RELAY_LINES.some((l) => state[l.key]) : false;
+  const allOn = state ? RELAY_LINES.every((l) => state[l.key]) : false;
 
   return (
     <View style={[styles.relayCard, { backgroundColor: t.card, borderColor: t.border }]}>
@@ -349,14 +349,32 @@ function RelayControl({ houseId, t }) {
         );
       })}
 
+      {/* Bouton unique : eteint tout si tout est allume, sinon allume tout. */}
       <TouchableOpacity
-        style={[styles.cutAllBtn, { opacity: busy || !anyOn ? 0.4 : 1 }]}
-        onPress={() => apply({ line1: false, line2: false, line3: false }, "Toutes les lignes coupées.")}
-        disabled={busy || !anyOn}
+        style={[
+          styles.toggleAllBtn,
+          {
+            borderColor: allOn ? palette.danger : palette.green,
+            opacity: busy || state == null ? 0.4 : 1,
+          },
+        ]}
+        onPress={() =>
+          apply(
+            { line1: !allOn, line2: !allOn, line3: !allOn },
+            allOn ? "Toutes les lignes coupées." : "Toutes les lignes allumées."
+          )
+        }
+        disabled={busy || state == null}
         activeOpacity={0.85}
       >
-        <PowerOff color={palette.danger} size={15} strokeWidth={2.4} />
-        <Text style={{ color: palette.danger, fontWeight: "800", fontSize: 13 }}>Tout couper</Text>
+        {allOn ? (
+          <PowerOff color={palette.danger} size={15} strokeWidth={2.4} />
+        ) : (
+          <Power color={palette.green} size={15} strokeWidth={2.4} />
+        )}
+        <Text style={{ color: allOn ? palette.danger : palette.green, fontWeight: "800", fontSize: 13 }}>
+          {allOn ? "Tout éteindre" : "Tout allumer"}
+        </Text>
       </TouchableOpacity>
 
       <Text style={[styles.relayHint, { color: t.sub }]}>
@@ -426,9 +444,9 @@ const styles = StyleSheet.create({
   relayIcon: { width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   relayLabel: { fontSize: 14, fontWeight: "700" },
   relaySub: { fontSize: 12, lineHeight: 16 },
-  cutAllBtn: {
+  toggleAllBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-    borderWidth: 1.5, borderColor: palette.danger, borderRadius: 12,
+    borderWidth: 1.5, borderRadius: 12,
     paddingVertical: 11, marginTop: 12,
   },
   relayHint: { fontSize: 11, lineHeight: 15, marginTop: 8 },

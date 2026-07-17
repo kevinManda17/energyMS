@@ -21,8 +21,8 @@ import { fmt } from "../utils/format";
 /* Les trois lignes commutables du prototype (relais pilotés par l'ESP32). */
 const RELAY_LINES = [
   { key: "line1", label: "Ligne 1", desc: "Lampe 10 W + prise 1" },
-  { key: "line2", label: "Ligne 2", desc: "Lampe 10 W + prise 2" },
-  { key: "line3", label: "Ligne 3", desc: "Lampe 20 W" },
+  { key: "line2", label: "Ligne 2", desc: "Lampe 20 W" },
+  { key: "line3", label: "Ligne 3", desc: "Lampe 10 W + prise 2" },
 ];
 
 /* ── Icônes et couleurs par type ── */
@@ -177,7 +177,7 @@ function RelayControl({ houseId }) {
   const online = state?.last_contact_at
     ? Date.now() - new Date(state.last_contact_at).getTime() < 15000
     : false;
-  const anyOn = state ? RELAY_LINES.some((l) => state[l.key]) : false;
+  const allOn = state ? RELAY_LINES.every((l) => state[l.key]) : false;
 
   return (
     <div className="card mb-6 p-5">
@@ -196,12 +196,27 @@ function RelayControl({ houseId }) {
           <span className={`mr-1 inline-block h-2 w-2 rounded-full ${online ? "bg-energy" : "bg-slate-400"}`} />
           {contactLabel(state?.last_contact_at)}
         </span>
+        {/* Bouton unique : eteint tout si tout est allume, sinon allume tout. */}
         <button
-          onClick={() => mutation.mutate({ line1: false, line2: false, line3: false })}
-          disabled={isLoading || mutation.isPending || !anyOn}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-xl border border-danger/30 px-3 py-1.5 text-sm font-semibold text-danger transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-red-500/10"
+          onClick={() =>
+            mutation.mutate({ line1: !allOn, line2: !allOn, line3: !allOn })
+          }
+          disabled={isLoading || mutation.isPending || !state}
+          className={`ml-auto inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+            allOn
+              ? "border-danger/30 text-danger hover:bg-red-50 dark:hover:bg-red-500/10"
+              : "border-energy/30 text-energy hover:bg-green-50 dark:hover:bg-green-500/10"
+          }`}
         >
-          <PowerOff size={15} strokeWidth={2.2} /> Tout couper
+          {allOn ? (
+            <>
+              <PowerOff size={15} strokeWidth={2.2} /> Tout éteindre
+            </>
+          ) : (
+            <>
+              <Power size={15} strokeWidth={2.2} /> Tout allumer
+            </>
+          )}
         </button>
       </div>
 
