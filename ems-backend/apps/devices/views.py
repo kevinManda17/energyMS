@@ -1,3 +1,5 @@
+import logging
+
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import generics, viewsets
@@ -11,6 +13,8 @@ from apps.measurements.models import Measurement
 
 from .models import Equipment, RelayState, Sensor
 from .serializers import EquipmentSerializer, RelayStateSerializer, SensorSerializer
+
+logger = logging.getLogger("ems.devices")
 
 # Le nœud sonde toutes les 3 s ; on ne persiste les mesures que toutes les 30 s
 # pour ne pas saturer la base tout en gardant un suivi temps quasi réel.
@@ -186,6 +190,7 @@ class EmsDecisionView(APIView):
         now = timezone.now()
         state.last_contact_at = now
         fields = ["last_contact_at", "updated_at"]
+        due = False
         if payload:
             state.last_report = payload
             fields.append("last_report")
@@ -200,9 +205,50 @@ class EmsDecisionView(APIView):
                 fields.append("last_measurement_at")
         state.save(update_fields=fields)
 
+        # Boucle fermée : en mode automatique, le système expert évalue la
+        # maison et applique sa décision aux lignes, à la cadence de stockage
+        # des mesures (30 s) — pas à chaque sondage de 3 s. Toute erreur est
+        # avalée : le nœud doit toujours recevoir une réponse valide.
+        if due and state.control_mode == RelayState.ControlMode.AUTO:
+            self._apply_auto_decision(state)
+
         body = (
             f"L1={int(state.line1)};"
             f"L2={int(state.line2)};"
             f"L3={int(state.line3)}"
         )
         return HttpResponse(body, content_type="text/plain")
+
+    @staticmethod
+    def _apply_auto_decision(state):
+        """Évalue le système expert et applique sa décision aux relais.
+
+        Persiste une Decision uniquement quand le code de décision change, pour
+        garder une trace sans saturer la base (le nœud sonde en continu).
+        """
+        from apps.forecasting.models import Forecast
+
+        from apps.fuzzy_engine.actuator import apply_decision_to_relays
+        from apps.fuzzy_engine.engine import evaluate_house
+        from apps.fuzzy_engine.models import Decision
+
+        try:
+            result = evaluate_house(state.house)
+            apply_decision_to_relays(state.house, result, state=state)
+            last = (
+                Decision.objects.filter(house=state.house)
+                .order_by("-created_at")
+                .first()
+            )
+            if last is None or last.decision_code != result.decision_code:
+                forecast = (
+                    Forecast.objects.filter(house=state.house)
+                    .order_by("-created_at")
+                    .first()
+                )
+                Decision.objects.create(
+                    house=state.house, forecast=forecast, **result.decision_payload()
+                )
+        except Exception:
+            logger.warning("Auto decision failed for house %s", state.house_id,
+                           exc_info=True)

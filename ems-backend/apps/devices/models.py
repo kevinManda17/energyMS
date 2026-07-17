@@ -98,12 +98,23 @@ class RelayState(models.Model):
     `False` = ligne coupée (relais ouvert, charge déconnectée).
     """
 
+    class ControlMode(models.TextChoices):
+        # L'humain seul commande les lignes (défaut, comportement historique).
+        MANUAL = "MANUAL", "Manuel"
+        # Le système expert flou applique ses décisions automatiques aux lignes
+        # à chaque sondage du nœud (jamais en mode BLOCKED/RECOMMENDATION, jamais
+        # sur une décision issue de données de mauvaise qualité).
+        AUTO = "AUTO", "Automatique (expert)"
+
     house = models.OneToOneField(
         House, on_delete=models.CASCADE, related_name="relay_state"
     )
     line1 = models.BooleanField(default=True)
     line2 = models.BooleanField(default=True)
     line3 = models.BooleanField(default=True)
+    control_mode = models.CharField(
+        max_length=10, choices=ControlMode.choices, default=ControlMode.MANUAL
+    )
     # Jeton partagé avec le nœud IoT (transmis dans l'URL de sondage HTTP).
     device_token = models.CharField(
         max_length=64, unique=True, default=_generate_device_token

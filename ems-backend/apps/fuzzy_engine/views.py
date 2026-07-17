@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from apps.houses.models import House
 from apps.forecasting.models import Forecast
 
+from .actuator import apply_decision_to_relays
 from .engine import evaluate_house
 from .models import Decision
 from .serializers import DecisionSerializer, TriggerSerializer
@@ -60,6 +61,7 @@ class DecisionViewSet(
         ):
             raise PermissionDenied("House not found or not accessible.")
 
+        should_apply = data.pop("apply", False)
         result = evaluate_house(house, overrides=data)
         forecast = (
             Forecast.objects.filter(house=house)
@@ -75,10 +77,15 @@ class DecisionViewSet(
         if result.action in CRITICAL_ACTIONS:
             self._raise_alert(house, decision)
 
-        return Response(
-            self.get_serializer(decision).data,
-            status=status.HTTP_201_CREATED,
-        )
+        applied_lines = None
+        if should_apply:
+            applied_lines = apply_decision_to_relays(house, result, request.user)
+
+        payload = self.get_serializer(decision).data
+        # Indique à l'interface de test ce qui a réellement été appliqué aux
+        # relais (ou None si la décision n'était pas actionnable).
+        payload["applied_lines"] = applied_lines
+        return Response(payload, status=status.HTTP_201_CREATED)
 
     @staticmethod
     def _raise_alert(house, decision):

@@ -1,7 +1,9 @@
 flowchart TD
-    G[Géolocalisation ✓ FAIT<br/>§5.2] --> C1[Calibrer les capteurs<br/>CAL_Vx / CAL_Ix]
-    C1 --> C2[Interface de test<br/>injection de faits §5.3]
-    C2 --> C4[Mappage charge ↔ ligne]
+    G[Géolocalisation ✓ FAIT<br/>§5.2] --> T[Interface de test ✓ FAIT<br/>§5.3]
+    T --> B[Boucle AUTO ✓ FAIT<br/>§4 / §5.1]
+    B --> C1[Affiner calibration<br/>tension ligne par ligne + courant]
+    C1 --> C4[Mappage explicite charge ↔ ligne]
     C4 --> C5[Mode ASSISTED<br/>expert propose, humain valide]
-    C5 --> C6[Mode AUTO<br/>boucle fermée §5.1]
     style G fill:#d4f7d4,stroke:#16A34A
+    style T fill:#d4f7d4,stroke:#16A34A
+    style B fill:#d4f7d4,stroke:#16A34A

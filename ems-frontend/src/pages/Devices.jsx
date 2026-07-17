@@ -178,6 +178,7 @@ function RelayControl({ houseId }) {
     ? Date.now() - new Date(state.last_contact_at).getTime() < 15000
     : false;
   const allOn = state ? RELAY_LINES.every((l) => state[l.key]) : false;
+  const isAuto = state?.control_mode === "AUTO";
 
   return (
     <div className="card mb-6 p-5">
@@ -196,13 +197,33 @@ function RelayControl({ houseId }) {
           <span className={`mr-1 inline-block h-2 w-2 rounded-full ${online ? "bg-energy" : "bg-slate-400"}`} />
           {contactLabel(state?.last_contact_at)}
         </span>
-        {/* Bouton unique : eteint tout si tout est allume, sinon allume tout. */}
+
+        {/* Mode de commande : manuel (humain) ou automatique (système expert). */}
+        <div className="ml-auto inline-flex overflow-hidden rounded-xl border border-slate-200 dark:border-white/10">
+          {["MANUAL", "AUTO"].map((m) => (
+            <button
+              key={m}
+              onClick={() => mutation.mutate({ control_mode: m })}
+              disabled={isLoading || mutation.isPending || !state}
+              className={`px-3 py-1.5 text-xs font-semibold transition disabled:opacity-40 ${
+                (state?.control_mode || "MANUAL") === m
+                  ? "bg-electric text-white"
+                  : "text-slate-500 hover:bg-slate-50 dark:hover:bg-white/5"
+              }`}
+            >
+              {m === "MANUAL" ? "Manuel" : "Auto (expert)"}
+            </button>
+          ))}
+        </div>
+
+        {/* Bouton unique : eteint tout si tout est allume, sinon allume tout.
+            Désactivé en mode auto : c'est l'expert qui pilote les lignes. */}
         <button
           onClick={() =>
             mutation.mutate({ line1: !allOn, line2: !allOn, line3: !allOn })
           }
-          disabled={isLoading || mutation.isPending || !state}
-          className={`ml-auto inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+          disabled={isLoading || mutation.isPending || !state || isAuto}
+          className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
             allOn
               ? "border-danger/30 text-danger hover:bg-red-50 dark:hover:bg-red-500/10"
               : "border-energy/30 text-energy hover:bg-green-50 dark:hover:bg-green-500/10"
@@ -219,6 +240,13 @@ function RelayControl({ houseId }) {
           )}
         </button>
       </div>
+
+      {isAuto && (
+        <div className="mb-4 rounded-xl border border-electric/20 bg-electric/5 px-3 py-2 text-xs text-electric">
+          Mode automatique : le système expert applique ses décisions aux lignes
+          à chaque relevé du nœud. Les commandes manuelles sont désactivées.
+        </div>
+      )}
 
       {isLoading ? (
         <Loading label="Lecture de l'état des lignes…" />
@@ -251,7 +279,7 @@ function RelayControl({ houseId }) {
                 </div>
                 <Toggle
                   on={on}
-                  disabled={mutation.isPending}
+                  disabled={mutation.isPending || isAuto}
                   onChange={(next) => mutation.mutate({ [line.key]: next })}
                 />
               </div>

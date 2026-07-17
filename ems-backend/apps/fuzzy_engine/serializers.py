@@ -38,12 +38,25 @@ class DecisionSerializer(serializers.ModelSerializer):
 
 
 class TriggerSerializer(serializers.Serializer):
-    """Payload for POST /api/decisions/trigger/."""
+    """Payload for POST /api/decisions/trigger/.
+
+    Sert à la fois au déclenchement normal et à l'interface de test (injection
+    manuelle de faits). Tout champ omis est déduit des dernières mesures réelles
+    de la maison.
+    """
 
     house = serializers.IntegerField()
     production_pv = serializers.FloatField(required=False)
     consommation = serializers.FloatField(required=False)
     batterie_soc = serializers.FloatField(required=False)
+    battery_temperature = serializers.FloatField(required=False)
+    data_quality = serializers.ChoiceField(
+        choices=["GOOD", "PARTIAL", "BAD"], required=False
+    )
     non_critiques_actives = serializers.BooleanField(
         required=False, default=False
     )
+    # Si vrai, la décision est aussi appliquée aux relais (démonstration de la
+    # boucle fermée depuis l'interface de test), sous les mêmes garde-fous que
+    # le mode automatique.
+    apply = serializers.BooleanField(required=False, default=False)

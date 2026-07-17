@@ -308,6 +308,7 @@ function RelayControl({ houseId, t }) {
     ? Date.now() - new Date(state.last_contact_at).getTime() < 15000
     : false;
   const allOn = state ? RELAY_LINES.every((l) => state[l.key]) : false;
+  const isAuto = state?.control_mode === "AUTO";
 
   return (
     <View style={[styles.relayCard, { backgroundColor: t.card, borderColor: t.border }]}>
@@ -321,6 +322,37 @@ function RelayControl({ houseId, t }) {
           </Text>
         </View>
       </View>
+
+      {/* Mode de commande : manuel (humain) ou automatique (système expert). */}
+      <View style={[styles.modeRow, { borderColor: t.border }]}>
+        {["MANUAL", "AUTO"].map((m) => {
+          const active = (state?.control_mode || "MANUAL") === m;
+          return (
+            <TouchableOpacity
+              key={m}
+              style={[styles.modeBtn, active && { backgroundColor: palette.blue }]}
+              onPress={() =>
+                apply({ control_mode: m }, m === "AUTO"
+                  ? "Mode automatique (expert) activé."
+                  : "Mode manuel activé.")
+              }
+              disabled={busy || state == null}
+              activeOpacity={0.8}
+            >
+              <Text style={{ color: active ? "#fff" : t.sub, fontSize: 12, fontWeight: "700" }}>
+                {m === "MANUAL" ? "Manuel" : "Auto (expert)"}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {isAuto && (
+        <Text style={[styles.autoHint, { color: palette.blue }]}>
+          Le système expert pilote les lignes à chaque relevé du nœud. Commandes
+          manuelles désactivées.
+        </Text>
+      )}
 
       {RELAY_LINES.map((line) => {
         const on = !!state?.[line.key];
@@ -338,7 +370,7 @@ function RelayControl({ houseId, t }) {
             </View>
             <Switch
               value={on}
-              disabled={busy || state == null}
+              disabled={busy || state == null || isAuto}
               onValueChange={(next) =>
                 apply({ [line.key]: next }, `${line.label} ${next ? "connectée" : "déconnectée"}.`)
               }
@@ -355,7 +387,7 @@ function RelayControl({ houseId, t }) {
           styles.toggleAllBtn,
           {
             borderColor: allOn ? palette.danger : palette.green,
-            opacity: busy || state == null ? 0.4 : 1,
+            opacity: busy || state == null || isAuto ? 0.4 : 1,
           },
         ]}
         onPress={() =>
@@ -364,7 +396,7 @@ function RelayControl({ houseId, t }) {
             allOn ? "Toutes les lignes coupées." : "Toutes les lignes allumées."
           )
         }
-        disabled={busy || state == null}
+        disabled={busy || state == null || isAuto}
         activeOpacity={0.85}
       >
         {allOn ? (
@@ -444,6 +476,14 @@ const styles = StyleSheet.create({
   relayIcon: { width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   relayLabel: { fontSize: 14, fontWeight: "700" },
   relaySub: { fontSize: 12, lineHeight: 16 },
+  modeRow: {
+    flexDirection: "row", borderWidth: 1, borderRadius: 12, overflow: "hidden",
+    marginTop: 12,
+  },
+  modeBtn: {
+    flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 9,
+  },
+  autoHint: { fontSize: 11, lineHeight: 15, marginTop: 8 },
   toggleAllBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
     borderWidth: 1.5, borderRadius: 12,

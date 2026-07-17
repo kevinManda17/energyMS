@@ -66,6 +66,7 @@ class RelayStateSerializer(serializers.ModelSerializer):
             "line1",
             "line2",
             "line3",
+            "control_mode",
             "device_token",
             "last_contact_at",
             "last_report",

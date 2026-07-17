@@ -60,9 +60,9 @@ flowchart LR
 
 </details>
 
-**Point de vigilance structurant**, développé en [§4](#4-constat-central--la-boucle-est-ouverte) :
-le système expert **ne commande pas les relais**. Il produit des décisions
-consultatives ; ce sont les interfaces qui pilotent réellement les lignes.
+**Point structurant**, développé en [§4](#4-la-boucle-décision--relais--fermée) :
+le système expert peut désormais **commander les relais** en mode `AUTO`
+(boucle fermée), tout en restant consultatif en mode `MANUAL` (défaut).
 
 ---
 
@@ -350,34 +350,42 @@ sequenceDiagram
 
 ---
 
-## 4. Constat central : la boucle est ouverte
+## 4. La boucle décision → relais — [FERMÉE]
 
-**Le système expert flou ne pilote rien.** Vérifié : `apps/fuzzy_engine/` ne
-contient aucune référence à `RelayState`. `evaluate_house()` n'est appelé que
-depuis `fuzzy_engine/views.py` (trigger manuel) et `run_forecast.py` — les deux
-créent un `Decision` (+ `Alert`), sans jamais toucher les relais.
+> **Historique** : jusqu'au 17/07/2026, la boucle était *ouverte* — le système
+> expert produisait des `Decision` (+ `Alert`) sans jamais toucher les relais.
+> `SHED_NON_PRIORITY_LOAD` s'affichait mais ne délestait rien. Ce lien manquant
+> était le point n°1 à traiter ; il est désormais implémenté.
 
-La vue ESP32 le dit explicitement (`devices/views.py:150`) :
+**Le lien existe maintenant**, via un **mode de contrôle** par maison
+(`RelayState.control_mode`) :
 
-> « Le serveur ne calcule rien ici : il restitue l'état commandé par les
-> interfaces. »
+| Mode | Comportement |
+|------|--------------|
+| `MANUAL` (défaut) | l'humain seul commande les lignes — comportement historique, inchangé |
+| `AUTO` | le système expert applique ses décisions automatiques aux lignes |
 
-![Boucle ouverte : expert et relais séparés](diagrams/07-boucle-ouverte.svg)
+En mode `AUTO`, à chaque relevé du nœud (cadence 30 s), le backend évalue le
+moteur flou, traduit la décision en états de lignes
+(`fuzzy_engine/actuator.py:desired_lines_for_decision`) et met à jour le
+`RelayState` que l'ESP32 vient lire. La même logique est déclenchable à la
+demande depuis l'interface de test (§5.3, bouton « Appliquer aux relais »).
+
+![Boucle fermée : décision → relais en mode AUTO](diagrams/07-boucle-fermee.svg)
 
 <details>
 <summary>Source Mermaid (diagramme éditable)</summary>
 
 ```mermaid
 flowchart LR
-    subgraph "Ce qui existe : deux mondes séparés"
+    subgraph "Mode AUTO : la boucle est fermée"
         direction TB
         M[Mesures] --> FUZ[Système expert<br/>24 règles]
         FUZ --> DEC[(Decision)]
         DEC --> AL[Alertes / UI]
-        U[Utilisateur] --> UI[Toggle interface]
-        UI --> RS[(RelayState)]
-        RS --> ESP[ESP32 → relais]
-        DEC -.->|LIEN ABSENT| RS
+        DEC -->|"actuator : si AUTOMATIC"| RS[(RelayState)]
+        U[Utilisateur<br/>mode MANUAL] -.->|sinon| RS
+        RS --> ESP[ESP32 → relais → charges]
     end
     style DEC fill:#eef
     style RS fill:#efe
@@ -385,34 +393,32 @@ flowchart LR
 
 </details>
 
-Autrement dit : `SHED_NON_PRIORITY_LOAD` (« délester une charge non
-prioritaire ») s'affiche et alerte, mais **aucune charge n'est délestée**. Le
-mode `AUTOMATIC` du `decision_mapper` n'automatise, aujourd'hui, rien.
+**Mapping décision → lignes** (`actuator.py`), aligné sur les priorités du
+firmware (L3 prioritaire, L1 moyenne, L2 non prioritaire délestée en premier) :
 
-Ce n'est **pas un bug** : c'est un choix prudent et cohérent (on ne coupe pas du
-courant sur des capteurs non calibrés). Mais c'est **le** point à nommer dans le
-mémoire — et la première perspective à traiter.
+| Décision | L1 | L2 | L3 | Note |
+|----------|----|----|----|------|
+| `SHED_NON_PRIORITY_LOAD` | ON | **OFF** | ON | déleste la non prioritaire |
+| `PROTECT_BATTERY` | **OFF** | **OFF** | ON | ne garde que la prioritaire |
+| `NORMAL` / `CHARGE` / `USE_BATTERY` | ON | ON | ON | rien à délester |
+| mode `RECOMMENDATION` ou `BLOCKED` | — | — | — | **aucune action** (garde l'état) |
+
+**Garde-fous** (testés dans `tests/test_expert_loop.py`) : seules les décisions
+en mode `AUTOMATIC` actionnent ; une recommandation ou un blocage (données
+`BAD`) ne touche jamais les lignes ; le `clampDecision` du firmware reste actif
+par-dessus. La calibration des capteurs (§5.4) reste le prérequis pour que les
+faits — donc les décisions automatiques — soient fiables.
 
 ---
 
 ## 5. Perspectives d'amélioration
 
-### 5.1 Fermer la boucle décision → relais [priorité 1]
+### 5.1 Boucle décision → relais — [IMPLÉMENTÉE] (voir §4)
 
-Relier `Decision.execution_mode = AUTOMATIC` à `RelayState`, avec un **mode
-d'autorité explicite** par maison :
-
-| Mode | Comportement |
-|------|--------------|
-| `MANUAL` | actuel — l'humain seul commande (défaut) |
-| `ASSISTED` | l'expert propose, l'utilisateur valide en un clic |
-| `AUTO` | l'expert applique, si `execution_mode = AUTOMATIC` et données `GOOD` |
-
-Conditions non négociables : jamais en `BLOCKED`/`BAD`, jamais sur charge
-`CRITICAL`, toujours journalisé (`Decision` → ordre appliqué), et un interrupteur
-d'arrêt d'urgence côté interface. Le mappage charge ↔ ligne physique manque
-également : `Equipment.priority` existe, mais rien ne dit *quelle ligne* porte
-*quel équipement*.
+Fait : mode `MANUAL`/`AUTO` par maison, mapping documenté et testé. Reste en
+perspective : un mode `ASSISTED` (l'expert propose, l'utilisateur valide en un
+clic) et un mappage explicite charge ↔ ligne (aujourd'hui la priorité des
+lignes est conventionnelle : L3 > L1 > L2, alignée sur le firmware).
 
 ### 5.2 Géolocalisation — [IMPLÉMENTÉE]
 
@@ -465,26 +471,26 @@ flowchart LR
   bouton — le besoin « la maison que je veux simuler à distance » reste couvert
   en tapant ses coordonnées. Piste future : recherche par ville → coordonnées.
 
-### 5.3 Interface de test : injection manuelle de faits [demandé, à venir]
+### 5.3 Interface de test : injection manuelle de faits — [IMPLÉMENTÉE]
 
-Objectif : injecter des faits à la main, du panneau jusqu'à la décision, sans
-attendre de vraies mesures — indispensable pour **démontrer le système expert en
-soutenance**, hors ensoleillement réel.
+Page **« Test expert »** (`ems-frontend/src/pages/ExpertTest.jsx`, menu latéral) :
+injecter des faits à la main et observer toute la chaîne, sans attendre de
+vraies mesures — pensée pour **démontrer le système expert en soutenance**, hors
+ensoleillement réel.
 
-L'ossature existe déjà : `POST /api/decisions/trigger/` accepte des `overrides`
-(`production_pv`, `consommation`, `batterie_soc`, `non_critiques_actives` — voir
-`facts_from_house`). Ce qui manque est une **page dédiée** :
+Elle offre :
 
-- curseurs pour les 9 champs de `EnergyFacts` ;
-- affichage en direct des **degrés d'appartenance** (déjà renvoyés dans
-  `fuzzy_values`) ;
-- liste des **règles activées** avec leur degré (déjà dans `fired_rules`) ;
-- décision finale + mode + niveau d'alerte ;
-- bouton « rejouer » sur une `Decision` archivée (`input_facts` est stocké).
+- curseurs pour production PV, consommation, SOC et température batterie ;
+- sélecteur de **qualité des données** (`GOOD`/`PARTIAL`/`BAD`) — pour montrer le
+  blocage automatique — et bascule « charges non prioritaires » ;
+- la **décision** (code, mode, niveau d'alerte, scores risque/délestage) ;
+- les **règles activées** avec leur degré d'activation (barres) ;
+- une case **« Appliquer aux relais »** qui ferme la boucle à la demande et
+  affiche l'état ON/OFF réellement appliqué à chaque ligne.
 
-Aucune donnée à inventer : le backend renvoie **déjà** tout le nécessaire. C'est
-une page de visualisation, pas un nouveau moteur. Extension naturelle : injecter
-aussi des faits *en amont* (tension/courant par ligne) pour tester la chaîne
+Côté backend, `TriggerSerializer` accepte désormais les overrides
+`battery_temperature`, `data_quality` et le flag `apply`. Piste future : injecter
+aussi les faits *en amont* (tension/courant par ligne) pour tester la chaîne
 complète panneau → capteur → décision.
 
 ### 5.4 Autres pistes identifiées dans le code
@@ -495,7 +501,8 @@ complète panneau → capteur → décision.
 | Repli des prévisions | `_prediction_energy` retombe sur `puissance × 24 h` si aucune prévision — hypothèse grossière (production constante nuit comprise) qui fausse `energy_balance_ratio`. |
 | Seuils dupliqués | `MAX_TOTAL_POWER_W` / `MAX_LINE_POWER_W` vivent dans `config.h` ; le backend les ignore. Deux sources de vérité pour une même limite physique. |
 | Ordonnancement | Aucune évaluation périodique automatique : `evaluate_house` n'est déclenché que manuellement ou via `run_forecast`. |
-| Calibration | `CAL_V1…CAL_I3 = 1.0` : tant que les capteurs ne sont pas calibrés, les faits sont en volts de sortie ADC, pas en grandeurs physiques. Le garde-fou de surcharge n'est donc pas encore effectif. |
+| Calibration tension | `CAL_V1…V3` passés de `1.0` à **709,7** (220 V / 0,31 V lus) : le firmware affiche désormais des volts réels, plus ~0,31. Valeur commune approximative — à affiner **ligne par ligne** au multimètre (chaque ZMPT101B a son potentiomètre). |
+| Calibration courant | `CAL_I1…I3` encore à `1.0` (aucune mesure de référence fournie) : à calibrer avec une charge connue, `CAL_Ix = courant_réel / iSensorRms`. Tant que ce n'est pas fait, les puissances restent indicatives. |
 
 ---
 
@@ -508,16 +515,20 @@ complète panneau → capteur → décision.
 
 ```mermaid
 flowchart TD
-    G[Géolocalisation ✓ FAIT<br/>§5.2] --> C1[Calibrer les capteurs<br/>CAL_Vx / CAL_Ix]
-    C1 --> C2[Interface de test<br/>injection de faits §5.3]
-    C2 --> C4[Mappage charge ↔ ligne]
+    G[Géolocalisation ✓ FAIT<br/>§5.2] --> T[Interface de test ✓ FAIT<br/>§5.3]
+    T --> B[Boucle AUTO ✓ FAIT<br/>§4 / §5.1]
+    B --> C1[Affiner calibration<br/>tension ligne par ligne + courant]
+    C1 --> C4[Mappage explicite charge ↔ ligne]
     C4 --> C5[Mode ASSISTED<br/>expert propose, humain valide]
-    C5 --> C6[Mode AUTO<br/>boucle fermée §5.1]
     style G fill:#d4f7d4,stroke:#16A34A
+    style T fill:#d4f7d4,stroke:#16A34A
+    style B fill:#d4f7d4,stroke:#16A34A
 ```
 
 </details>
 
-L'ordre n'est pas arbitraire : fermer la boucle (§5.1) **avant** d'avoir calibré
-les capteurs reviendrait à laisser un automate couper du courant sur des mesures
-fausses. La calibration est le prérequis de tout le reste.
+**Fait** (17/07/2026) : géolocalisation, interface de test, et boucle AUTO
+décision → relais. **Point de vigilance** : la boucle AUTO applique des décisions
+calculées à partir des mesures capteurs ; tant que la calibration n'est pas
+affinée ligne par ligne (§5.4), garder le mode `MANUAL` par défaut et n'activer
+`AUTO` que pour la démonstration avec l'interface de test.

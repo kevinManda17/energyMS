@@ -89,15 +89,30 @@ constexpr int RMS_SAMPLES      = 600;
 constexpr int SAMPLE_DELAY_US  = 500;
 
 /* ==================== CALIBRATION ==================== */
-/* 1.0 au départ : on lit alors le RMS brut (en volts) côté sortie capteur.
- * Après mesure de référence au multimètre :
- *   CAL_Vx = tension_reelle_AC  / tension_rms_sortie_ZMPT101B
- *   CAL_Ix = courant_reel_AC    / tension_rms_sortie_ZMCT103C            */
-constexpr float CAL_V1 = 1.0f;
+/* Le firmware calcule le RMS *de la sortie du capteur* (en volts ADC), pas la
+ * grandeur physique. Avec CAL = 1.0, le ZMPT101B affiche donc ~0,31 V au lieu
+ * de 220 V : c'est normal, il faut appliquer le facteur d'échelle
+ *   CAL_Vx = tension_reelle_AC / tension_rms_sortie_ZMPT101B
+ *   CAL_Ix = courant_reel_AC   / tension_rms_sortie_ZMCT103C
+ *
+ * TENSION — point de départ : 220 V mesurés / 0,31 V lus ≈ 709,7.
+ * ⚠ Valeur APPROXIMATIVE et commune aux 3 lignes : chaque ZMPT101B a son
+ *   propre potentiomètre, donc sa propre sortie. Pour un affichage juste,
+ *   affiner LIGNE PAR LIGNE :
+ *     1. brancher une seule ligne sur le secteur (prudence !) ;
+ *     2. lire la vraie tension au multimètre (ex. 219 V) ;
+ *     3. lire `vSensorRms` de cette ligne dans le JSON série (CAL encore à 1.0) ;
+ *     4. CAL_Vx = tension_multimètre / vSensorRms, re-téléverser.
+ *   Ne pas régler le potentiomètre du ZMPT101B après calibration (ça l'invalide).
+ */
+constexpr float CAL_V1 = 709.7f;   // à affiner : 220 / vSensorRms_ligne1
+constexpr float CAL_V2 = 709.7f;   // à affiner : 220 / vSensorRms_ligne2
+constexpr float CAL_V3 = 709.7f;   // à affiner : 220 / vSensorRms_ligne3
+
+/* COURANT — non calibré (aucune mesure de référence fournie) : laisser à 1.0
+ * jusqu'à mesurer, avec une charge connue, CAL_Ix = courant_réel / iSensorRms. */
 constexpr float CAL_I1 = 1.0f;
-constexpr float CAL_V2 = 1.0f;
 constexpr float CAL_I2 = 1.0f;
-constexpr float CAL_V3 = 1.0f;
 constexpr float CAL_I3 = 1.0f;
 
 /* ==================== SEUILS DE SECURITE ==================== */

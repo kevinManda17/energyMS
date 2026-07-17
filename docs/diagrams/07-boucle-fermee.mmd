@@ -1,13 +1,12 @@
 flowchart LR
-    subgraph "Ce qui existe : deux mondes séparés"
+    subgraph "Mode AUTO : la boucle est fermée"
         direction TB
         M[Mesures] --> FUZ[Système expert<br/>24 règles]
         FUZ --> DEC[(Decision)]
         DEC --> AL[Alertes / UI]
-        U[Utilisateur] --> UI[Toggle interface]
-        UI --> RS[(RelayState)]
-        RS --> ESP[ESP32 → relais]
-        DEC -.->|LIEN ABSENT| RS
+        DEC -->|"actuator : si AUTOMATIC"| RS[(RelayState)]
+        U[Utilisateur<br/>mode MANUAL] -.->|sinon| RS
+        RS --> ESP[ESP32 → relais → charges]
     end
     style DEC fill:#eef
     style RS fill:#efe

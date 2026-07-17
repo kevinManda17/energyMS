@@ -14,6 +14,7 @@ import Devices from "./pages/Devices";
 import Measurements from "./pages/Measurements";
 import Forecasting from "./pages/Forecasting";
 import Decisions from "./pages/Decisions";
+import ExpertTest from "./pages/ExpertTest";
 import Alerts from "./pages/Alerts";
 import Reports from "./pages/Reports";
 import SettingsPage from "./pages/Settings";
@@ -41,6 +42,7 @@ export default function App() {
           <Route path="/measurements" element={<Measurements />} />
           <Route path="/forecasting" element={<Forecasting />} />
           <Route path="/decisions" element={<Decisions />} />
+          <Route path="/expert-test" element={<ExpertTest />} />
           <Route path="/alerts" element={<Alerts />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/settings" element={<SettingsPage />} />

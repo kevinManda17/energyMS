@@ -208,11 +208,24 @@ def facts_from_house(house, overrides: dict | None = None) -> EnergyFacts:
     production = raw["production"] if raw["production"] is not None else 0.0
     consumption = raw["consumption"] if raw["consumption"] is not None else 0.0
     battery_soc = raw["battery_soc"] if raw["battery_soc"] is not None else 50.0
-    battery_temp = raw["temperature"] if raw["temperature"] is not None else 25.0
+    battery_temp = (
+        overrides["battery_temperature"]
+        if overrides.get("battery_temperature") is not None
+        else (raw["temperature"] if raw["temperature"] is not None else 25.0)
+    )
     priority = (
         "NON_PRIORITY"
         if overrides.get("non_critiques_actives")
         else _load_priority(house)
+    )
+    # La qualité des données peut être forcée depuis l'interface de test
+    # (pour démontrer le blocage automatique sur données BAD/PARTIAL).
+    data_quality = overrides.get("data_quality") or _data_quality(
+        {
+            "production": raw["production"],
+            "consumption": raw["consumption"],
+            "battery_soc": raw["battery_soc"],
+        }
     )
 
     return EnergyFacts(
@@ -223,13 +236,7 @@ def facts_from_house(house, overrides: dict | None = None) -> EnergyFacts:
         battery_soc_percent=battery_soc,
         battery_temperature_c=battery_temp,
         load_priority=priority,
-        data_quality=_data_quality(
-            {
-                "production": raw["production"],
-                "consumption": raw["consumption"],
-                "battery_soc": raw["battery_soc"],
-            }
-        ),
+        data_quality=data_quality,
         pv_nominal_power_kw=_pv_nominal_power_kw(house),
     )
 
