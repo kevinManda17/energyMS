@@ -4,8 +4,9 @@ import {
   Modal, KeyboardAvoidingView, Platform, Pressable,
 } from "react-native";
 import {
-  Battery, CheckCircle2, HousePlug, MapPin, Pencil, Plus, Wifi, X, Zap,
+  Battery, CheckCircle2, Crosshair, HousePlug, MapPin, Pencil, Plus, Wifi, X, Zap,
 } from "lucide-react-native";
+import * as Location from "expo-location";
 import { Badge } from "../components/Badge";
 import { FormInput } from "../components/FormInput";
 import { Screen, PageTitle } from "../components/Screen";
@@ -29,7 +30,32 @@ export default function HousesScreen() {
   const [error, setError]       = useState("");
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving]     = useState(false);
+  const [locating, setLocating] = useState(false);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  // Renseigne lat/lon depuis le GPS de l'appareil. C'est ici, sur mobile, que
+  // la géolocalisation a le plus de sens : l'appareil est physiquement sur le
+  // site. Pour une maison distante, on saisit les coordonnées à la main.
+  async function useMyPosition() {
+    setError("");
+    setLocating(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        setError("Autorisation de localisation refusée.");
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+      setLatitude(pos.coords.latitude.toFixed(6));
+      setLongitude(pos.coords.longitude.toFixed(6));
+    } catch {
+      setError("Position indisponible. Activez le GPS ou saisissez à la main.");
+    } finally {
+      setLocating(false);
+    }
+  }
 
   function openCreate() {
     setEditing(null);
@@ -249,6 +275,17 @@ export default function HousesScreen() {
                   containerStyle={styles.fieldHalf}
                 />
               </View>
+              <TouchableOpacity
+                style={[styles.geoBtn, { borderColor: palette.blue, opacity: locating ? 0.6 : 1 }]}
+                onPress={useMyPosition}
+                disabled={locating}
+                activeOpacity={0.8}
+              >
+                <Crosshair color={palette.blue} size={15} strokeWidth={2.4} />
+                <Text style={{ color: palette.blue, fontWeight: "700", fontSize: 13 }}>
+                  {locating ? "Localisation…" : "Utiliser ma position actuelle"}
+                </Text>
+              </TouchableOpacity>
               <View style={styles.fieldRow}>
                 <FormInput
                   icon={Zap}
@@ -334,6 +371,10 @@ const styles = StyleSheet.create({
   },
   fieldRow: { flexDirection: "row", gap: 10 },
   fieldHalf: { flex: 1 },
+  geoBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    borderWidth: 1.5, borderRadius: 12, paddingVertical: 10, marginTop: 4,
+  },
   capacityHint: { marginTop: 8, fontSize: 11, lineHeight: 15 },
   locationRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   locationText: { fontSize: 12 },

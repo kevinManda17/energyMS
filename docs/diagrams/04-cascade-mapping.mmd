@@ -1,0 +1,18 @@
+flowchart TD
+    S[scores agrégés] --> Q{data_quality = BAD<br/>ou blocked ≥ 60 ?}
+    Q -->|oui| BLOCK[BLOCK_AUTOMATIC_ACTION<br/>mode BLOCKED]
+    Q -->|non| P{PARTIAL ?}
+    P -->|oui, risque ≥ 70| BLOCK
+    P -->|oui, sinon| DQ[DATA_QUALITY_ALERT<br/>RECOMMENDATION]
+    P -->|non| PR{protect ≥ 60 ?}
+    PR -->|oui| PB[PROTECT_BATTERY<br/>AUTOMATIC]
+    PR -->|non| SH{shedding ≥ 60 ?}
+    SH -->|oui + NON_PRIORITY| SD[SHED_NON_PRIORITY_LOAD<br/>AUTOMATIC]
+    SH -->|oui + prioritaire| RR[RECOMMEND_REDUCE<br/>RECOMMENDATION]
+    SH -->|non| CH{charge ≥ 55 ?}
+    CH -->|oui| CB[CHARGE_BATTERY]
+    CH -->|non| DI{discharge ≥ 55<br/>et SOC ≥ 30 ?}
+    DI -->|oui| UB[USE_BATTERY]
+    DI -->|non| RI{risque ≥ 50 ?}
+    RI -->|oui| EC[ECO_MODE]
+    RI -->|non| NO[NORMAL_OPERATION]

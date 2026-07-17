@@ -3,8 +3,10 @@
 Document de synthèse : ce que le système **fait réellement** aujourd'hui (vérifié
 dans le code, fichier par fichier), puis ce qu'il **reste à construire**.
 
-Chaque affirmation renvoie au fichier qui la porte. Les diagrammes sont en
-Mermaid : GitHub les rend nativement.
+Chaque affirmation renvoie au fichier qui la porte. Les diagrammes sont des
+images SVG (visibles dans tout lecteur Markdown, y compris l'éditeur) ; leur
+source Mermaid éditable est repliée sous chaque image (« Source Mermaid »).
+Les SVG et sources vivent dans [diagrams/](diagrams/).
 
 Documents détaillés complémentaires :
 [architecture-systeme-expert.md](architecture-systeme-expert.md) ·
@@ -18,6 +20,11 @@ Documents détaillés complémentaires :
 Le système se compose de quatre briques : un **nœud ESP32** (mesure + commande),
 un **backend Django** (stockage, prévision ML, système expert flou), et deux
 **interfaces** (web React + mobile Expo).
+
+![Vue d'ensemble du système EMS](diagrams/01-vue-ensemble.svg)
+
+<details>
+<summary>Source Mermaid (diagramme éditable)</summary>
 
 ```mermaid
 flowchart LR
@@ -51,6 +58,8 @@ flowchart LR
     MOB --> API
 ```
 
+</details>
+
 **Point de vigilance structurant**, développé en [§4](#4-constat-central--la-boucle-est-ouverte) :
 le système expert **ne commande pas les relais**. Il produit des décisions
 consultatives ; ce sont les interfaces qui pilotent réellement les lignes.
@@ -67,6 +76,11 @@ Cœur décisionnel du mémoire. Implémentation : `ems-backend/apps/fuzzy_engine
 le package `core/` (892 lignes). Ce n'est pas un doublon — la façade adapte les
 faits d'une maison vers le moteur pur.
 
+![Organisation du code du moteur flou](diagrams/02-organisation-code-flou.svg)
+
+<details>
+<summary>Source Mermaid (diagramme éditable)</summary>
+
 ```mermaid
 flowchart TD
     A[engine.py<br/>façade : facts_from_house / evaluate_house] --> B[core/engine.py<br/>FuzzyExpertEngine]
@@ -78,7 +92,14 @@ flowchart TD
     B --> H[core/decision_mapper.py<br/>map_decision]
 ```
 
+</details>
+
 ### 1.2 Pipeline en 4 étapes
+
+![Pipeline flou en 4 étapes](diagrams/03-pipeline-4-etapes.svg)
+
+<details>
+<summary>Source Mermaid (diagramme éditable)</summary>
 
 ```mermaid
 flowchart LR
@@ -89,6 +110,8 @@ flowchart LR
     AG --> MP[4. Mapping<br/>cascade de seuils]
     MP --> D[EnergyDecisionResult<br/>code + mode + alerte]
 ```
+
+</details>
 
 ### 1.3 Entrées — `EnergyFacts` (`core/models.py`)
 
@@ -168,6 +191,11 @@ scores 0–100, pas une valeur défuzzifiée au sens strict.
 
 Cascade `if/elif` **ordonnée** — la priorité est donnée par l'ordre :
 
+![Cascade de mapping de décision](diagrams/04-cascade-mapping.svg)
+
+<details>
+<summary>Source Mermaid (diagramme éditable)</summary>
+
 ```mermaid
 flowchart TD
     S[scores agrégés] --> Q{data_quality = BAD<br/>ou blocked ≥ 60 ?}
@@ -188,6 +216,8 @@ flowchart TD
     RI -->|oui| EC[ECO_MODE]
     RI -->|non| NO[NORMAL_OPERATION]
 ```
+
+</details>
 
 **Garde-fous** (les plus importants du système) :
 
@@ -211,6 +241,11 @@ Implémentation : `ems-backend/apps/forecasting/services.py` (1079 lignes).
 
 ### 2.1 Deux backends d'inférence
 
+![Prévision ML : deux backends](diagrams/05-prevision-ml.svg)
+
+<details>
+<summary>Source Mermaid (diagramme éditable)</summary>
+
 ```mermaid
 flowchart TD
     T{cible} -->|consumption| K[Keras GRU<br/>+ preprocessing.joblib]
@@ -221,6 +256,8 @@ flowchart TD
     KR --> F[(Forecast)]
     RF --> F
 ```
+
+</details>
 
 **Règle d'or assumée dans le code** : il n'existe **aucun repli mathématique**.
 Sans modèle actif, le service lève `NoActiveModelError` plutôt que d'inventer des
@@ -269,6 +306,11 @@ C'est le point d'accroche de la géolocalisation ([§5.2](#52-géolocalisation--
 
 ## 3. Chaîne complète, de bout en bout
 
+![Chaîne complète (diagramme de séquence)](diagrams/06-chaine-sequence.svg)
+
+<details>
+<summary>Source Mermaid (diagramme éditable)</summary>
+
 ```mermaid
 sequenceDiagram
     participant U as Utilisateur
@@ -292,6 +334,8 @@ sequenceDiagram
     B->>B: POST /api/decisions/trigger/ → Decision + Alert
     B--xR: aucun lien vers les relais
 ```
+
+</details>
 
 ### Sécurité en profondeur (déjà en place)
 
@@ -318,6 +362,11 @@ La vue ESP32 le dit explicitement (`devices/views.py:150`) :
 > « Le serveur ne calcule rien ici : il restitue l'état commandé par les
 > interfaces. »
 
+![Boucle ouverte : expert et relais séparés](diagrams/07-boucle-ouverte.svg)
+
+<details>
+<summary>Source Mermaid (diagramme éditable)</summary>
+
 ```mermaid
 flowchart LR
     subgraph "Ce qui existe : deux mondes séparés"
@@ -333,6 +382,8 @@ flowchart LR
     style DEC fill:#eef
     style RS fill:#efe
 ```
+
+</details>
 
 Autrement dit : `SHED_NON_PRIORITY_LOAD` (« délester une charge non
 prioritaire ») s'affiche et alerte, mais **aucune charge n'est délestée**. Le
@@ -363,20 +414,30 @@ d'arrêt d'urgence côté interface. Le mappage charge ↔ ligne physique manque
 également : `Equipment.priority` existe, mais rien ne dit *quelle ligne* porte
 *quel équipement*.
 
-### 5.2 Géolocalisation : position réelle au lieu de saisie manuelle
-
-**Existant** : `House.latitude` / `House.longitude` (`houses/models.py:20-21`),
-saisis **à la main** dans `Houses.jsx` / `HousesScreen.js`. Repli sur
-`WEATHER_LATITUDE` / `WEATHER_LONGITUDE` (Kinshasa). Aucune géolocalisation :
-`getCurrentPosition` / `expo-location` n'apparaissent nulle part.
+### 5.2 Géolocalisation — [IMPLÉMENTÉE]
 
 **Enjeu réel** : le Random Forest de production consomme l'irradiance Open-Meteo
-*aux coordonnées de la maison*. Une coordonnée fausse ou laissée au défaut
-Kinshasa ⇒ mauvaise irradiance ⇒ **prévision PV fausse** ⇒ faits erronés ⇒
-décision floue erronée. La géolocalisation n'est donc pas un confort : c'est la
-justesse de toute la chaîne.
+*aux coordonnées de la maison* (`services.py:_house_coordinates`). Une coordonnée
+fausse ou laissée au défaut Kinshasa ⇒ mauvaise irradiance ⇒ **prévision PV
+fausse** ⇒ faits erronés ⇒ décision floue erronée. La géolocalisation n'est donc
+pas un confort : c'est la justesse de toute la chaîne.
 
-Proposition :
+**Ce qui a été ajouté** (bouton « Utiliser ma position » dans le formulaire
+micro-réseau, web et mobile) :
+
+| Couche | Fichier | Apport |
+|--------|---------|--------|
+| Backend | `houses/serializers.py` | validation des bornes lat ∈ [−90, 90], lon ∈ [−180, 180] — refus propre d'une coordonnée aberrante |
+| Web | `Houses.jsx` | `navigator.geolocation.getCurrentPosition` → remplit lat/lon |
+| Mobile | `HousesScreen.js` | `expo-location` + permission → remplit lat/lon |
+| Mobile | `app.json` | plugin `expo-location` + messages de permission iOS/Android |
+
+Flux implémenté :
+
+![Flux de géolocalisation](diagrams/08-geolocalisation.svg)
+
+<details>
+<summary>Source Mermaid (diagramme éditable)</summary>
 
 ```mermaid
 flowchart LR
@@ -390,17 +451,19 @@ flowchart LR
     G --> H[Open-Meteo → RF production]
 ```
 
-- **Web** : `navigator.geolocation` — attention, exige HTTPS **ou** `localhost`.
-  Sur `http://192.168.188.117:5173`, Chrome **bloquera** l'API : c'est un
-  contexte non sécurisé. Contrainte à anticiper (tunnel HTTPS, ou saisie
-  manuelle conservée en repli).
-- **Mobile** : `expo-location`, avec permission explicite — c'est là que la
-  géolocalisation a le plus de sens (l'appareil est *sur place*).
-- **Maison distante simulée** : garder la saisie manuelle **et** proposer une
-  recherche par ville → coordonnées. Le besoin « la maison que je veux simuler à
-  distance » est déjà couvert par le champ manuel ; ce qu'il manque, c'est le
-  confort de la position courante et une validation des bornes
-  (−90 ≤ lat ≤ 90, −180 ≤ lon ≤ 180), aujourd'hui absente.
+</details>
+
+- **Web** : `navigator.geolocation` — **limite importante** : l'API exige un
+  contexte sécurisé (HTTPS **ou** `localhost`). Sur `http://192.168.188.117:5173`
+  (IP LAN en clair), le navigateur **bloquera** la localisation. Le code le gère
+  proprement : message explicite + la saisie manuelle reste toujours disponible.
+  Pour lever la limite : servir le frontend en HTTPS, ou tester depuis
+  `http://localhost:5173` sur la machine elle-même.
+- **Mobile** : `expo-location`, avec permission explicite — c'est là que ça a le
+  plus de sens (l'appareil est *sur place*), et sans la contrainte HTTPS du web.
+- **Maison distante simulée** : la saisie manuelle est **conservée** à côté du
+  bouton — le besoin « la maison que je veux simuler à distance » reste couvert
+  en tapant ses coordonnées. Piste future : recherche par ville → coordonnées.
 
 ### 5.3 Interface de test : injection manuelle de faits [demandé, à venir]
 
@@ -438,14 +501,22 @@ complète panneau → capteur → décision.
 
 ## 6. Feuille de route proposée
 
+![Feuille de route proposée](diagrams/09-feuille-de-route.svg)
+
+<details>
+<summary>Source Mermaid (diagramme éditable)</summary>
+
 ```mermaid
 flowchart TD
-    C1[Calibrer les capteurs<br/>CAL_Vx / CAL_Ix] --> C2[Interface de test<br/>injection de faits §5.3]
-    C2 --> C3[Géolocalisation<br/>§5.2]
-    C3 --> C4[Mappage charge ↔ ligne]
+    G[Géolocalisation ✓ FAIT<br/>§5.2] --> C1[Calibrer les capteurs<br/>CAL_Vx / CAL_Ix]
+    C1 --> C2[Interface de test<br/>injection de faits §5.3]
+    C2 --> C4[Mappage charge ↔ ligne]
     C4 --> C5[Mode ASSISTED<br/>expert propose, humain valide]
     C5 --> C6[Mode AUTO<br/>boucle fermée §5.1]
+    style G fill:#d4f7d4,stroke:#16A34A
 ```
+
+</details>
 
 L'ordre n'est pas arbitraire : fermer la boucle (§5.1) **avant** d'avoir calibré
 les capteurs reviendrait à laisser un automate couper du courant sur des mesures

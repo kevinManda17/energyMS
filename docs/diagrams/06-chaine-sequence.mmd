@@ -1,0 +1,21 @@
+sequenceDiagram
+    participant U as Utilisateur
+    participant I as Interface (web/mobile)
+    participant B as Backend
+    participant E as ESP32
+    participant R as Relais
+
+    Note over E,B: Boucle temps réel (3 s)
+    E->>B: POST /api/ems/decision/ (mesures des 3 lignes)
+    B->>B: enregistre last_contact_at<br/>persiste mesures (throttle 30 s)
+    B-->>E: "L1=1 L2=0 L3=1" (état commandé)
+    E->>R: applique (clampDecision local)
+
+    Note over U,B: Commande manuelle
+    U->>I: bascule une ligne
+    I->>B: PATCH /api/houses/:id/relays/
+    B->>B: RelayState.line1 = true
+
+    Note over B: Système expert (séparé !)
+    B->>B: POST /api/decisions/trigger/ → Decision + Alert
+    B--xR: aucun lien vers les relais

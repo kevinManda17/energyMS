@@ -1,0 +1,7 @@
+flowchart LR
+    F[EnergyFacts<br/>9 entrées] --> N[Normalisation<br/>clamp + validation]
+    N --> FZ[1. Fuzzification<br/>6 variables floues]
+    FZ --> IN[2. Inférence<br/>24 règles → degrés]
+    IN --> AG[3. Agrégation<br/>max activation×effet]
+    AG --> MP[4. Mapping<br/>cascade de seuils]
+    MP --> D[EnergyDecisionResult<br/>code + mode + alerte]

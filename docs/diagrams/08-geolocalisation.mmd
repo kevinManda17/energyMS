@@ -1,0 +1,9 @@
+flowchart LR
+    A[Bouton « Utiliser ma position »] --> B{Plateforme}
+    B -->|Web| C[navigator.geolocation<br/>getCurrentPosition]
+    B -->|Mobile| D[expo-location<br/>requestForegroundPermissions]
+    C --> E[PATCH /api/houses/id/<br/>latitude, longitude]
+    D --> E
+    E --> F[(House)]
+    F --> G[_house_coordinates]
+    G --> H[Open-Meteo → RF production]

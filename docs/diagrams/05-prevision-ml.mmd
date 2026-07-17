@@ -1,0 +1,8 @@
+flowchart TD
+    T{cible} -->|consumption| K[Keras GRU<br/>+ preprocessing.joblib]
+    T -->|production| R[Random Forest<br/>sklearn .joblib]
+    K --> KR[Rollout autorégressif<br/>fenêtre glissante]
+    R --> RF[Prédiction plate<br/>par horizon]
+    METEO[Open-Meteo<br/>irradiance horaire] --> RF
+    KR --> F[(Forecast)]
+    RF --> F

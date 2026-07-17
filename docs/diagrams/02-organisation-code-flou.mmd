@@ -1,0 +1,8 @@
+flowchart TD
+    A[engine.py<br/>façade : facts_from_house / evaluate_house] --> B[core/engine.py<br/>FuzzyExpertEngine]
+    B --> C[core/facts.py<br/>fuzzify_facts]
+    C --> D[core/membership.py<br/>fonctions d'appartenance]
+    B --> E[core/inference.py<br/>run_inference]
+    E --> F[core/rules.py<br/>24 règles]
+    E --> G[core/defuzzification.py<br/>agrégation max]
+    B --> H[core/decision_mapper.py<br/>map_decision]

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   BatteryCharging,
+  Crosshair,
   MapPin,
   Network,
   Pencil,
@@ -30,6 +31,44 @@ export default function Houses() {
   const [editing, setEditing] = useState(null); // maison en cours d'édition
   const [form, setForm] = useState(EMPTY_FORM);
   const [page, setPage] = useState(1);
+  const [geo, setGeo] = useState({ busy: false, error: "" });
+
+  // Renseigne latitude/longitude depuis la position réelle de l'appareil.
+  // navigator.geolocation n'existe qu'en contexte sécurisé (HTTPS ou
+  // localhost) : sur http://<IP-LAN>:5173 le navigateur bloque l'API, d'où le
+  // message explicite plutôt qu'un échec muet — la saisie manuelle reste là.
+  function useMyPosition() {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setGeo({
+        busy: false,
+        error:
+          "Géolocalisation indisponible ici. Le navigateur l'exige en HTTPS " +
+          "ou sur localhost ; saisissez les coordonnées à la main.",
+      });
+      return;
+    }
+    setGeo({ busy: true, error: "" });
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setForm((f) => ({
+          ...f,
+          latitude: pos.coords.latitude.toFixed(6),
+          longitude: pos.coords.longitude.toFixed(6),
+        }));
+        setGeo({ busy: false, error: "" });
+      },
+      (err) => {
+        const msg =
+          err.code === err.PERMISSION_DENIED
+            ? "Autorisation de localisation refusée."
+            : err.code === err.POSITION_UNAVAILABLE
+              ? "Position indisponible (signal GPS/réseau)."
+              : "Impossible d'obtenir la position (HTTPS requis hors localhost).";
+        setGeo({ busy: false, error: msg });
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  }
 
   const { data, isLoading } = useQuery({ queryKey: ["houses"], queryFn: housesApi.list });
 
@@ -37,6 +76,7 @@ export default function Houses() {
     setShowForm(false);
     setEditing(null);
     setForm(EMPTY_FORM);
+    setGeo({ busy: false, error: "" });
   }
 
   const save = useMutation({
@@ -141,6 +181,25 @@ export default function Houses() {
               value={form.longitude}
               onChange={(v) => setForm({ ...form, longitude: v })}
             />
+            <div className="sm:col-span-2">
+              <button
+                type="button"
+                onClick={useMyPosition}
+                disabled={geo.busy}
+                className="inline-flex items-center gap-2 rounded-xl border border-electric/40 px-3 py-2 text-sm font-semibold text-electric transition hover:bg-electric/5 disabled:opacity-50"
+              >
+                <Crosshair size={15} strokeWidth={2.2} />
+                {geo.busy ? "Localisation…" : "Utiliser ma position actuelle"}
+              </button>
+              {geo.error && (
+                <p className="mt-1.5 text-xs text-danger">{geo.error}</p>
+              )}
+              <p className="mt-1 text-xs text-slate-400">
+                Renseigne automatiquement lat/lon pour une météo — donc une
+                prévision solaire — au bon endroit. Pour une maison distante,
+                saisissez plutôt ses coordonnées à la main.
+              </p>
+            </div>
             <FormField
               label="Capacité PV estimée (kWc)"
               type="number"

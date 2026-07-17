@@ -1,0 +1,29 @@
+flowchart LR
+    subgraph Terrain
+        ESP[ESP32<br/>3 lignes AC]
+        CAP[Capteurs<br/>ZMPT101B / ZMCT103C]
+        REL[Relais<br/>L1 / L2 / L3]
+        CAP --> ESP
+        ESP --> REL
+    end
+
+    subgraph "Backend Django"
+        API[API REST<br/>DRF + JWT]
+        DB[(PostgreSQL<br/>/ SQLite)]
+        ML[Prévision ML<br/>GRU + Random Forest]
+        FUZ[Système expert flou<br/>24 règles]
+        API --> DB
+        ML --> DB
+        FUZ --> DB
+    end
+
+    subgraph Interfaces
+        WEB[Frontend React]
+        MOB[Mobile Expo]
+    end
+
+    METEO[Open-Meteo<br/>irradiance] --> ML
+    ESP -->|POST mesures / 3 s| API
+    API -->|"L1=1;L2=0;L3=1"| ESP
+    WEB --> API
+    MOB --> API

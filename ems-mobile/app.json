@@ -10,12 +10,26 @@
       "backgroundColor": "#0B1220"
     },
     "assetBundlePatterns": ["**/*"],
-    "ios": { "supportsTablet": true },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "La position sert à renseigner les coordonnées du micro-réseau pour une prévision météo/solaire au bon endroit."
+      }
+    },
     "android": {
-      "adaptiveIcon": { "backgroundColor": "#0B1220" }
+      "adaptiveIcon": { "backgroundColor": "#0B1220" },
+      "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"]
     },
     "web": { "bundler": "metro" },
-    "plugins": ["expo-notifications"],
+    "plugins": [
+      "expo-notifications",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "La position sert à renseigner les coordonnées du micro-réseau pour une prévision météo/solaire au bon endroit."
+        }
+      ]
+    ],
     "extra": {
       "apiBaseUrl": "http://192.168.188.117:8000/api"
     }

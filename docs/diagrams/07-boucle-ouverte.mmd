@@ -1,0 +1,13 @@
+flowchart LR
+    subgraph "Ce qui existe : deux mondes séparés"
+        direction TB
+        M[Mesures] --> FUZ[Système expert<br/>24 règles]
+        FUZ --> DEC[(Decision)]
+        DEC --> AL[Alertes / UI]
+        U[Utilisateur] --> UI[Toggle interface]
+        UI --> RS[(RelayState)]
+        RS --> ESP[ESP32 → relais]
+        DEC -.->|LIEN ABSENT| RS
+    end
+    style DEC fill:#eef
+    style RS fill:#efe
