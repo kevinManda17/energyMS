@@ -115,6 +115,13 @@ class RelayState(models.Model):
     control_mode = models.CharField(
         max_length=10, choices=ControlMode.choices, default=ControlMode.MANUAL
     )
+    # Mode AUTO : fenêtre de confirmation. Une décision de coupure/rétablissement
+    # n'est appliquée aux relais que si elle reste stable pendant EMS_AUTO_
+    # CONFIRM_SECONDS — on n'agit pas sur un déficit instantané (transitoire),
+    # seulement sur une condition soutenue. `auto_pending_lines` mémorise l'état
+    # candidat, `auto_pending_since` l'instant où il est devenu candidat.
+    auto_pending_lines = models.JSONField(null=True, blank=True)
+    auto_pending_since = models.DateTimeField(null=True, blank=True)
     # Jeton partagé avec le nœud IoT (transmis dans l'URL de sondage HTTP).
     device_token = models.CharField(
         max_length=64, unique=True, default=_generate_device_token

@@ -221,34 +221,73 @@ class EmsDecisionView(APIView):
 
     @staticmethod
     def _apply_auto_decision(state):
-        """Évalue le système expert et applique sa décision aux relais.
+        """Évalue le système expert et applique sa décision aux relais, mais
+        seulement si elle est *soutenue* : le même état de lignes candidat doit
+        persister pendant EMS_AUTO_CONFIRM_SECONDS avant d'être appliqué. On ne
+        coupe donc pas une charge sur un déficit instantané.
 
         Persiste une Decision uniquement quand le code de décision change, pour
-        garder une trace sans saturer la base (le nœud sonde en continu).
+        garder une trace sans saturer la base.
         """
+        from django.conf import settings
+
         from apps.forecasting.models import Forecast
 
-        from apps.fuzzy_engine.actuator import apply_decision_to_relays
+        from apps.fuzzy_engine.actuator import (
+            apply_decision_to_relays,
+            desired_lines_for_decision,
+            lines_changed,
+        )
         from apps.fuzzy_engine.engine import evaluate_house
         from apps.fuzzy_engine.models import Decision
 
         try:
             result = evaluate_house(state.house)
-            apply_decision_to_relays(state.house, result, state=state)
-            last = (
-                Decision.objects.filter(house=state.house)
-                .order_by("-created_at")
-                .first()
-            )
-            if last is None or last.decision_code != result.decision_code:
-                forecast = (
-                    Forecast.objects.filter(house=state.house)
-                    .order_by("-created_at")
-                    .first()
+            desired = desired_lines_for_decision(result)
+            now = timezone.now()
+            confirm_s = getattr(settings, "EMS_AUTO_CONFIRM_SECONDS", 180)
+
+            # Décision non actionnable, ou lignes déjà dans l'état voulu :
+            # rien à faire, on annule tout candidat en attente.
+            if desired is None or not lines_changed(state, desired):
+                if state.auto_pending_since is not None:
+                    state.auto_pending_lines = None
+                    state.auto_pending_since = None
+                    state.save(update_fields=["auto_pending_lines",
+                                              "auto_pending_since", "updated_at"])
+                return
+
+            # Un changement est demandé. Est-ce le même candidat qu'avant ?
+            if state.auto_pending_lines == desired and state.auto_pending_since:
+                elapsed = (now - state.auto_pending_since).total_seconds()
+                if elapsed < confirm_s:
+                    return  # condition pas encore assez soutenue : on patiente
+                # Confirmé : on applique et on efface le candidat.
+                apply_decision_to_relays(state.house, result, state=state)
+                state.auto_pending_lines = None
+                state.auto_pending_since = None
+                state.save(update_fields=["auto_pending_lines",
+                                          "auto_pending_since", "updated_at"])
+                last = (
+                    Decision.objects.filter(house=state.house)
+                    .order_by("-created_at").first()
                 )
-                Decision.objects.create(
-                    house=state.house, forecast=forecast, **result.decision_payload()
-                )
+                if last is None or last.decision_code != result.decision_code:
+                    forecast = (
+                        Forecast.objects.filter(house=state.house)
+                        .order_by("-created_at").first()
+                    )
+                    Decision.objects.create(
+                        house=state.house, forecast=forecast,
+                        **result.decision_payload()
+                    )
+                return
+
+            # Nouveau candidat : on démarre le chrono de confirmation.
+            state.auto_pending_lines = desired
+            state.auto_pending_since = now
+            state.save(update_fields=["auto_pending_lines",
+                                      "auto_pending_since", "updated_at"])
         except Exception:
             logger.warning("Auto decision failed for house %s", state.house_id,
                            exc_info=True)

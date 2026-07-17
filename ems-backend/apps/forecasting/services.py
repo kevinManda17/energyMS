@@ -39,10 +39,20 @@ from __future__ import annotations
 
 import logging
 import os
+import warnings
 from datetime import datetime, timedelta
 
 import joblib
 import numpy as np
+
+# Les modèles sklearn ont été entraînés sur des DataFrame nommés ; à l'inférence
+# on passe des tableaux numpy, d'où un UserWarning répété à chaque horizon. Le
+# résultat est identique (mêmes colonnes, même ordre) — on tait ce bruit précis.
+warnings.filterwarnings(
+    "ignore",
+    message="X does not have valid feature names",
+    category=UserWarning,
+)
 from django.utils import timezone
 
 from apps.energy_assets.models import EnergyAsset

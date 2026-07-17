@@ -349,8 +349,9 @@ function RelayControl({ houseId, t }) {
 
       {isAuto && (
         <Text style={[styles.autoHint, { color: palette.blue }]}>
-          Le système expert pilote les lignes à chaque relevé du nœud. Commandes
-          manuelles désactivées.
+          Le système expert n'agit que sur une condition soutenue (confirmée sur
+          quelques minutes), pas sur un déficit passager. Commandes manuelles
+          désactivées.
         </Text>
       )}
 

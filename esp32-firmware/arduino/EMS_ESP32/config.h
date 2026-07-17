@@ -89,25 +89,26 @@ constexpr int RMS_SAMPLES      = 600;
 constexpr int SAMPLE_DELAY_US  = 500;
 
 /* ==================== CALIBRATION ==================== */
-/* Le firmware calcule le RMS *de la sortie du capteur* (en volts ADC), pas la
- * grandeur physique. Avec CAL = 1.0, le ZMPT101B affiche donc ~0,31 V au lieu
- * de 220 V : c'est normal, il faut appliquer le facteur d'échelle
- *   CAL_Vx = tension_reelle_AC / tension_rms_sortie_ZMPT101B
- *   CAL_Ix = courant_reel_AC   / tension_rms_sortie_ZMCT103C
+/* Le firmware calcule le RMS *de la sortie du capteur* (volts ADC), pas la
+ * grandeur physique ; CAL_Vx est le facteur d'échelle appliqué par ligne.
+ * Chaque ZMPT101B a son propre potentiomètre : les 3 lignes n'ont donc PAS le
+ * même facteur (avec 709,7 commun, on a relevé 269 V et 252 V au lieu de 220).
  *
- * TENSION — point de départ : 220 V mesurés / 0,31 V lus ≈ 709,7.
- * ⚠ Valeur APPROXIMATIVE et commune aux 3 lignes : chaque ZMPT101B a son
- *   propre potentiomètre, donc sa propre sortie. Pour un affichage juste,
- *   affiner LIGNE PAR LIGNE :
- *     1. brancher une seule ligne sur le secteur (prudence !) ;
- *     2. lire la vraie tension au multimètre (ex. 219 V) ;
- *     3. lire `vSensorRms` de cette ligne dans le JSON série (CAL encore à 1.0) ;
- *     4. CAL_Vx = tension_multimètre / vSensorRms, re-téléverser.
- *   Ne pas régler le potentiomètre du ZMPT101B après calibration (ça l'invalide).
+ * MÉTHODE ITÉRATIVE (la plus simple — pas besoin de lire le RMS brut) :
+ *   nouveau_CAL_Vx = CAL_Vx_actuel × (tension_vraie / tension_affichée)
+ * Exemple réel, depuis CAL = 709,7 :
+ *   ligne affichant 269 V -> 709,7 × 220/269 ≈ 580
+ *   ligne affichant 252 V -> 709,7 × 220/252 ≈ 620
+ * Répéter une fois si besoin (ça converge vite). « tension_vraie » = la valeur
+ * au multimètre sur CETTE ligne (≈220 V ici ; utiliser 230 si c'est le secteur
+ * réel mesuré). Ne PAS retoucher le potentiomètre après coup (invalide le CAL).
+ *
+ * ⚠ Les valeurs ci-dessous supposent : L1 lisait 269, L2 lisait 252, L3 non
+ *   mesurée (moyenne). À vérifier/permuter selon la ligne réellement relevée.
  */
-constexpr float CAL_V1 = 709.7f;   // à affiner : 220 / vSensorRms_ligne1
-constexpr float CAL_V2 = 709.7f;   // à affiner : 220 / vSensorRms_ligne2
-constexpr float CAL_V3 = 709.7f;   // à affiner : 220 / vSensorRms_ligne3
+constexpr float CAL_V1 = 580.0f;   // affinée depuis 269 V affichés
+constexpr float CAL_V2 = 620.0f;   // affinée depuis 252 V affichés
+constexpr float CAL_V3 = 600.0f;   // non mesurée : moyenne, à affiner
 
 /* COURANT — non calibré (aucune mesure de référence fournie) : laisser à 1.0
  * jusqu'à mesurer, avec une charge connue, CAL_Ix = courant_réel / iSensorRms. */

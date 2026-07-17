@@ -243,8 +243,9 @@ function RelayControl({ houseId }) {
 
       {isAuto && (
         <div className="mb-4 rounded-xl border border-electric/20 bg-electric/5 px-3 py-2 text-xs text-electric">
-          Mode automatique : le système expert applique ses décisions aux lignes
-          à chaque relevé du nœud. Les commandes manuelles sont désactivées.
+          Mode automatique : le système expert n'agit que sur une condition
+          <strong> soutenue</strong> (confirmée sur quelques minutes), pas sur un
+          déficit passager. Les commandes manuelles sont désactivées.
         </div>
       )}
 

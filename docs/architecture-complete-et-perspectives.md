@@ -365,11 +365,15 @@ sequenceDiagram
 | `MANUAL` (défaut) | l'humain seul commande les lignes — comportement historique, inchangé |
 | `AUTO` | le système expert applique ses décisions automatiques aux lignes |
 
-En mode `AUTO`, à chaque relevé du nœud (cadence 30 s), le backend évalue le
-moteur flou, traduit la décision en états de lignes
-(`fuzzy_engine/actuator.py:desired_lines_for_decision`) et met à jour le
-`RelayState` que l'ESP32 vient lire. La même logique est déclenchable à la
-demande depuis l'interface de test (§5.3, bouton « Appliquer aux relais »).
+En mode `AUTO`, le backend évalue le moteur flou à chaque relevé du nœud, traduit
+la décision en états de lignes (`fuzzy_engine/actuator.py:desired_lines_for_decision`)
+et met à jour le `RelayState` que l'ESP32 vient lire — **mais seulement si la
+décision est soutenue**. Une coupure (ou un rétablissement) n'est appliquée que
+si le même état candidat persiste pendant `EMS_AUTO_CONFIRM_SECONDS` (défaut
+180 s) : on ne déleste pas une charge sur un déficit instantané. Le candidat en
+attente est mémorisé dans `RelayState.auto_pending_lines` / `auto_pending_since`.
+La même logique est déclenchable *sans délai* depuis l'interface de test (§5.3,
+bouton « Appliquer aux relais »), pour la démonstration.
 
 ![Boucle fermée : décision → relais en mode AUTO](diagrams/07-boucle-fermee.svg)
 

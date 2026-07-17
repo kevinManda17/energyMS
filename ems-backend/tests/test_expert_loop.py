@@ -82,29 +82,69 @@ def test_recommendation_decision_is_not_actuated(auth_client):
     assert resp.data["applied_lines"] is None
 
 
-def test_auto_mode_poll_actuates_relays(auth_client):
+DEFICIT_REPORT = {
+    "line1": {"voltage": 220, "current": 5, "power": 1.1},
+    "line2": {"voltage": 220, "current": 5, "power": 1.0},
+    "line3": {"voltage": 220, "current": 4, "power": 0.9},
+}
+
+
+def _seed_deficit(house):
+    """Mesures de déficit pour que l'expert veuille délester."""
+    from apps.measurements.models import Measurement
+    from django.utils import timezone
+    now = timezone.now()
+    for mt, val, unit in [("consumption", 3.0, "kW"), ("battery_soc", 18.0, "%"),
+                          ("production", 0.0, "kW")]:
+        Measurement.objects.create(house=house, measurement_type=mt, value=val,
+                                   unit=unit, timestamp=now)
+
+
+def test_auto_poll_waits_for_confirmation_window(auth_client):
+    """Premier sondage en déficit : l'expert propose de délester mais NE coupe
+    PAS tout de suite — il arme seulement la fenêtre de confirmation."""
     client, house = auth_client
     state = RelayState.objects.create(
         house=house, control_mode=RelayState.ControlMode.AUTO
     )
-    # Le nœud POST un relevé de déficit (grosse consommation) via son jeton.
+    _seed_deficit(house)
     esp = APIClient()
-    resp = esp.post(
-        f"/api/ems/decision/?token={state.device_token}",
-        {
-            "line1": {"voltage": 220, "current": 5, "power": 1.1},
-            "line2": {"voltage": 220, "current": 5, "power": 1.0},
-            "line3": {"voltage": 220, "current": 4, "power": 0.9},
-        },
-        format="json",
-    )
+    resp = esp.post(f"/api/ems/decision/?token={state.device_token}",
+                    DEFICIT_REPORT, format="json")
     assert resp.status_code == 200
-    # La réponse texte reflète l'état actionné par l'expert (format L1=x;L2=x;L3=x).
-    assert resp.content.decode().startswith("L1=")
     state.refresh_from_db()
-    # En mode AUTO sur données de déficit, l'expert a pu délester : on vérifie
-    # au minimum que le mode est bien pris en compte (état cohérent booléen).
-    assert state.control_mode == "AUTO"
+    # Rien coupé, mais un candidat est en attente (L2 à couper).
+    assert state.line1 is True and state.line2 is True and state.line3 is True
+    assert state.auto_pending_lines == {"line1": True, "line2": False, "line3": True}
+    assert state.auto_pending_since is not None
+
+
+def test_auto_poll_applies_after_sustained_deficit(auth_client):
+    """Quand le déficit persiste au-delà de la fenêtre, la coupure est appliquée."""
+    from datetime import timedelta
+    from django.utils import timezone
+
+    client, house = auth_client
+    state = RelayState.objects.create(
+        house=house, control_mode=RelayState.ControlMode.AUTO
+    )
+    _seed_deficit(house)
+    esp = APIClient()
+    # 1er sondage : arme le candidat.
+    esp.post(f"/api/ems/decision/?token={state.device_token}", DEFICIT_REPORT,
+             format="json")
+    # On antidate le candidat au-delà de la fenêtre de confirmation.
+    state.refresh_from_db()
+    state.auto_pending_since = timezone.now() - timedelta(seconds=10_000)
+    state.last_measurement_at = None  # forcer le 're-due' du prochain sondage
+    state.save(update_fields=["auto_pending_since", "last_measurement_at"])
+    # 2e sondage : la condition est soutenue -> on applique.
+    esp.post(f"/api/ems/decision/?token={state.device_token}", DEFICIT_REPORT,
+             format="json")
+    state.refresh_from_db()
+    assert state.line2 is False  # ligne non prioritaire délestée
+    assert state.line1 is True and state.line3 is True
+    assert state.auto_pending_since is None  # candidat consommé
 
 
 def test_manual_mode_poll_does_not_evaluate(auth_client):

@@ -24,7 +24,12 @@ def env_list(key, default=""):
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "insecure-dev-key-change-me")
+# La clé sert aussi à signer les JWT (HMAC-SHA256) : elle doit faire >= 32
+# octets, sinon PyJWT émet InsecureKeyLengthWarning. Le défaut de dev ci-dessous
+# fait 48 caractères ; en production, définir DJANGO_SECRET_KEY.
+SECRET_KEY = os.getenv(
+    "DJANGO_SECRET_KEY", "insecure-dev-key-change-me-in-production-0123456789"
+)
 DEBUG = env_bool("DJANGO_DEBUG", "True")
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
 
@@ -201,6 +206,14 @@ CORS_ALLOWED_ORIGINS = env_list(
     "CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000"
 )
 CORS_ALLOW_CREDENTIALS = True
+
+# ---------------------------------------------------------------------------
+# Système expert — actionnement automatique des relais
+# ---------------------------------------------------------------------------
+# En mode AUTO, une décision (coupure ou rétablissement) doit rester stable
+# pendant cette durée avant d'être appliquée aux relais. Évite de couper une
+# charge sur un déficit passager. 0 = application immédiate (démo/test).
+EMS_AUTO_CONFIRM_SECONDS = int(os.getenv("EMS_AUTO_CONFIRM_SECONDS", "180"))
 
 # ---------------------------------------------------------------------------
 # MQTT
