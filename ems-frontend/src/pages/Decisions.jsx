@@ -113,7 +113,7 @@ export default function Decisions() {
   return (
     <>
       <PageHeader
-        title="Décisions IA"
+        title="Décisions du système expert"
         subtitle="Évaluations du système expert flou et règles activées."
         actions={
           <button

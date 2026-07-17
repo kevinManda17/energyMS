@@ -24,7 +24,7 @@ const ITEMS = [
     icon: Shield,
     color: palette.slate,
     title: "Données collectées",
-    desc: "Mesures IoT, décisions IA, alertes, profil utilisateur.",
+    desc: "Mesures IoT, décisions du système expert, alertes, profil utilisateur.",
     action: null,
     actionLabel: null,
   },

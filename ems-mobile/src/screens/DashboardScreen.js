@@ -166,7 +166,7 @@ export default function DashboardScreen({ navigation }) {
           <View style={[styles.cardIconWrap, { backgroundColor: palette.blueLight }]}>
             <Brain color={palette.blue} size={16} strokeWidth={2.4} />
           </View>
-          <Text style={[styles.cardTitle, { color: t.text }]}>Dernière décision IA</Text>
+          <Text style={[styles.cardTitle, { color: t.text }]}>Dernière décision experte</Text>
         </View>
         {decision ? (
           <TouchableOpacity
@@ -222,7 +222,7 @@ export default function DashboardScreen({ navigation }) {
         <QuickButton label="Micro-réseaux" icon={Network} onPress={() => navigation.navigate("Reseaux")} />
         <QuickButton label="Mesures IoT" icon={BarChart2} onPress={() => navigation.navigate("Mesures")} />
         <QuickButton label="Prévisions" icon={Zap} onPress={() => navigation.navigate("Forecasting")} />
-        <QuickButton label="Décisions IA" icon={Brain} onPress={() => navigation.navigate("Decisions")} />
+        <QuickButton label="Système expert" icon={Brain} onPress={() => navigation.navigate("Decisions")} />
       </View>
     </ScreenScroll>
   );

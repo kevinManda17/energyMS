@@ -56,7 +56,7 @@ export default function DecisionsScreen({ navigation }) {
       <View style={styles.header}>
         <View>
           <PageTitle
-            title="Décisions IA"
+            title="Système expert"
             subtitle={activeHouse?.name || "Aucun micro-réseau"}
           />
         </View>

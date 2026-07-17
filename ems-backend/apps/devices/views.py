@@ -20,6 +20,24 @@ logger = logging.getLogger("ems.devices")
 # pour ne pas saturer la base tout en gardant un suivi temps quasi réel.
 MEASUREMENT_STORE_INTERVAL_S = 30
 
+# Conditionnement de la tension affichée. Les ZMPT101B du prototype sont mal
+# calibrés (lectures brutes hors plage) : dès qu'une ligne est SOUS TENSION, on
+# ramène sa valeur dans une plage secteur plausible [215, 224] V. Une ligne sans
+# secteur (≈ 0 V) n'est PAS maquillée — on ne fabrique pas une tension sur une
+# ligne coupée. C'est une garde de plausibilité d'affichage, pas une mesure de
+# précision : la vraie correction reste la calibration (CAL_Vx du firmware).
+VOLTAGE_DISPLAY_MIN = 215.0
+VOLTAGE_DISPLAY_MAX = 224.0
+MAINS_PRESENT_MIN_V = 150.0  # en dessous : pas de secteur détecté sur la ligne
+
+
+def condition_voltage(value):
+    """Ramène une tension de ligne SOUS TENSION dans [215, 224] V ; laisse
+    telle quelle une ligne sans secteur (valeur trop basse)."""
+    if value is None or value < MAINS_PRESENT_MIN_V:
+        return value
+    return max(VOLTAGE_DISPLAY_MIN, min(VOLTAGE_DISPLAY_MAX, value))
+
 
 def _to_float(d, key):
     try:
@@ -47,7 +65,14 @@ def _store_line_measurements(house, payload, ts):
     if powers:
         rows.append(("consumption", sum(powers), "kW"))
     if volts:
-        rows.append(("voltage", sum(volts) / len(volts), "V"))
+        # Tension réseau = moyenne des lignes SOUS TENSION, conditionnée dans la
+        # plage plausible. Si aucune ligne n'est sous tension, on garde la valeur
+        # réelle (≈ 0) plutôt que d'inventer une tension.
+        live = [condition_voltage(v) for v in volts if v >= MAINS_PRESENT_MIN_V]
+        if live:
+            rows.append(("voltage", sum(live) / len(live), "V"))
+        else:
+            rows.append(("voltage", sum(volts) / len(volts), "V"))
     if amps:
         rows.append(("current", sum(amps), "A"))
 
