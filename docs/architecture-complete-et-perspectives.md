@@ -1,4 +1,4 @@
-# EMS — Architecture complète, diagrammes et perspectives
+# EMS — Architecture complète, diagrammes et perspectives   des per
 
 Document de synthèse : ce que le système **fait réellement** aujourd'hui (vérifié
 dans le code, fichier par fichier), puis ce qu'il **reste à construire**.
