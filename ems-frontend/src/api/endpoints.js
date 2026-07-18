@@ -51,6 +51,9 @@ export const relaysApi = {
   get: (houseId) => api.get(`/houses/${houseId}/relays/`).then((r) => r.data),
   set: (houseId, patch) =>
     api.patch(`/houses/${houseId}/relays/`, patch).then((r) => r.data),
+  // Mode assisté : accepter ou écarter la proposition du système expert.
+  resolveProposal: (houseId, action) =>
+    api.post(`/houses/${houseId}/relays/`, { action }).then((r) => r.data),
 };
 
 export const measurementsApi = {

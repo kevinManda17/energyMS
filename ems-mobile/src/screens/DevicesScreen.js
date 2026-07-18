@@ -31,6 +31,13 @@ const RELAY_LINES = [
   { key: "line3", label: "Ligne 3", desc: "Lampe 10 W + prise 2" },
 ];
 
+/* Qui commande les lignes : l'humain, l'humain sur proposition, ou l'expert. */
+const MODES = [
+  { key: "MANUAL",   label: "Manuel",   note: "Mode manuel activé." },
+  { key: "ASSISTED", label: "Assisté",  note: "Mode assisté : l'expert propose, vous validez." },
+  { key: "AUTO",     label: "Auto",     note: "Mode automatique (expert) activé." },
+];
+
 const SENSOR_ICONS = {
   voltage:      { icon: Zap,          color: palette.slate },
   current:      { icon: Activity,     color: palette.slate },
@@ -145,6 +152,8 @@ export default function DevicesScreen() {
             <Text style={[styles.deviceName, { color: t.text }]}>{item.name}</Text>
             <Text style={[styles.deviceSub, { color: t.sub }]}>
               {item.equipment_type || "Appareil"} · {fmt(item.rated_power_kw)} kW
+              {" · "}
+              {item.relay_line ? `Ligne ${item.relay_line}` : "ligne non rattachée"}
             </Text>
           </DeviceCard>
         );
@@ -304,11 +313,30 @@ function RelayControl({ houseId, t }) {
     }
   }
 
+  // Mode assisté : accepter ou écarter la proposition du système expert.
+  async function resolveProposal(action) {
+    if (!houseId || busy) return;
+    setBusy(true);
+    try {
+      const next = await relaysApi.resolveProposal(houseId, action);
+      setState(next);
+      flash(action === "accept"
+        ? "Proposition appliquée aux lignes."
+        : "Proposition écartée.");
+    } catch {
+      flash("Échec du traitement de la proposition.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const online = state?.last_contact_at
     ? Date.now() - new Date(state.last_contact_at).getTime() < 15000
     : false;
   const allOn = state ? RELAY_LINES.every((l) => state[l.key]) : false;
   const isAuto = state?.control_mode === "AUTO";
+  const isAssisted = state?.control_mode === "ASSISTED";
+  const pending = isAssisted ? state?.auto_pending_lines : null;
 
   return (
     <View style={[styles.relayCard, { backgroundColor: t.card, borderColor: t.border }]}>
@@ -323,24 +351,20 @@ function RelayControl({ houseId, t }) {
         </View>
       </View>
 
-      {/* Mode de commande : manuel (humain) ou automatique (système expert). */}
+      {/* Mode : manuel, assisté (l'expert propose) ou auto (l'expert applique). */}
       <View style={[styles.modeRow, { borderColor: t.border }]}>
-        {["MANUAL", "AUTO"].map((m) => {
-          const active = (state?.control_mode || "MANUAL") === m;
+        {MODES.map((m) => {
+          const active = (state?.control_mode || "MANUAL") === m.key;
           return (
             <TouchableOpacity
-              key={m}
+              key={m.key}
               style={[styles.modeBtn, active && { backgroundColor: palette.blue }]}
-              onPress={() =>
-                apply({ control_mode: m }, m === "AUTO"
-                  ? "Mode automatique (expert) activé."
-                  : "Mode manuel activé.")
-              }
+              onPress={() => apply({ control_mode: m.key }, m.note)}
               disabled={busy || state == null}
               activeOpacity={0.8}
             >
               <Text style={{ color: active ? "#fff" : t.sub, fontSize: 12, fontWeight: "700" }}>
-                {m === "MANUAL" ? "Manuel" : "Auto (expert)"}
+                {m.label}
               </Text>
             </TouchableOpacity>
           );
@@ -353,6 +377,44 @@ function RelayControl({ houseId, t }) {
           quelques minutes), pas sur un déficit passager. Commandes manuelles
           désactivées.
         </Text>
+      )}
+
+      {isAssisted && !pending && (
+        <Text style={[styles.autoHint, { color: t.sub }]}>
+          Le système expert surveille le micro-réseau et vous proposera un
+          délestage si nécessaire. Rien n'est coupé sans votre accord.
+        </Text>
+      )}
+
+      {pending && (
+        <View style={[styles.proposalBox, { borderColor: palette.solar }]}>
+          <Text style={{ color: palette.solar, fontWeight: "800", fontSize: 13 }}>
+            Le système expert propose un changement
+          </Text>
+          <Text style={{ color: t.sub, fontSize: 12, marginTop: 3, marginBottom: 8 }}>
+            {RELAY_LINES.filter((l) => !!state[l.key] !== !!pending[l.key])
+              .map((l) => `${l.label} → ${pending[l.key] ? "rétablir" : "couper"}`)
+              .join(" · ")}
+          </Text>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <TouchableOpacity
+              style={[styles.proposalBtn, { backgroundColor: palette.green }]}
+              onPress={() => resolveProposal("accept")}
+              disabled={busy}
+              activeOpacity={0.85}
+            >
+              <Text style={{ color: "#fff", fontWeight: "800", fontSize: 12 }}>Appliquer</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.proposalBtn, { borderWidth: 1, borderColor: t.border }]}
+              onPress={() => resolveProposal("dismiss")}
+              disabled={busy}
+              activeOpacity={0.85}
+            >
+              <Text style={{ color: t.sub, fontWeight: "800", fontSize: 12 }}>Ignorer</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       )}
 
       {RELAY_LINES.map((line) => {
@@ -485,6 +547,13 @@ const styles = StyleSheet.create({
     flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 9,
   },
   autoHint: { fontSize: 11, lineHeight: 15, marginTop: 8 },
+  proposalBox: {
+    borderWidth: 1.5, borderRadius: 12, padding: 12, marginTop: 10,
+  },
+  proposalBtn: {
+    flex: 1, alignItems: "center", justifyContent: "center",
+    paddingVertical: 9, borderRadius: 10,
+  },
   toggleAllBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
     borderWidth: 1.5, borderRadius: 12,

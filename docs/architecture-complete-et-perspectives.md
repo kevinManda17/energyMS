@@ -363,7 +363,8 @@ sequenceDiagram
 | Mode | Comportement |
 |------|--------------|
 | `MANUAL` (défaut) | l'humain seul commande les lignes — comportement historique, inchangé |
-| `AUTO` | le système expert applique ses décisions automatiques aux lignes |
+| `ASSISTED` | le système expert **propose** ; rien n'est coupé sans validation humaine |
+| `AUTO` | le système expert applique lui-même ses décisions automatiques |
 
 En mode `AUTO`, le backend évalue le moteur flou à chaque relevé du nœud, traduit
 la décision en états de lignes (`fuzzy_engine/actuator.py:desired_lines_for_decision`)
@@ -397,8 +398,18 @@ flowchart LR
 
 </details>
 
-**Mapping décision → lignes** (`actuator.py`), aligné sur les priorités du
-firmware (L3 prioritaire, L1 moyenne, L2 non prioritaire délestée en premier) :
+En mode `ASSISTED`, la décision est mémorisée comme **proposition**
+(`auto_pending_lines`) et affichée dans l'interface avec deux boutons
+« Appliquer » / « Ignorer » (`POST /api/houses/<id>/relays/` avec
+`{"action": "accept"|"dismiss"}`). C'est le compromis recommandé tant que la
+calibration des capteurs n'est pas affinée : l'expert raisonne, l'humain tranche.
+
+**Mapping décision → lignes** (`actuator.py`). La priorité de chaque ligne est
+**déduite des équipements qui y sont rattachés** (`Equipment.relay_line` +
+`Equipment.priority`) : on déleste la ligne portant les charges les moins
+prioritaires, et **jamais** une ligne portant une charge `CRITICAL`. Sans
+équipement rattaché, on retombe sur la convention du firmware (L3 prioritaire,
+L1 moyenne, L2 délestée en premier) :
 
 | Décision | L1 | L2 | L3 | Note |
 |----------|----|----|----|------|
@@ -521,18 +532,25 @@ complète panneau → capteur → décision.
 flowchart TD
     G[Géolocalisation ✓ FAIT<br/>§5.2] --> T[Interface de test ✓ FAIT<br/>§5.3]
     T --> B[Boucle AUTO ✓ FAIT<br/>§4 / §5.1]
-    B --> C1[Affiner calibration<br/>tension ligne par ligne + courant]
-    C1 --> C4[Mappage explicite charge ↔ ligne]
-    C4 --> C5[Mode ASSISTED<br/>expert propose, humain valide]
+    B --> M[Mappage charge ↔ ligne ✓ FAIT<br/>Equipment.relay_line]
+    M --> A[Mode ASSISTED ✓ FAIT<br/>expert propose, humain valide]
+    A --> C1[RESTE À FAIRE<br/>affiner calibration au multimètre<br/>tension ligne par ligne + courant]
     style G fill:#d4f7d4,stroke:#16A34A
     style T fill:#d4f7d4,stroke:#16A34A
     style B fill:#d4f7d4,stroke:#16A34A
+    style M fill:#d4f7d4,stroke:#16A34A
+    style A fill:#d4f7d4,stroke:#16A34A
+    style C1 fill:#fff3cd,stroke:#F59E0B
 ```
 
 </details>
 
-**Fait** (17/07/2026) : géolocalisation, interface de test, et boucle AUTO
-décision → relais. **Point de vigilance** : la boucle AUTO applique des décisions
-calculées à partir des mesures capteurs ; tant que la calibration n'est pas
-affinée ligne par ligne (§5.4), garder le mode `MANUAL` par défaut et n'activer
-`AUTO` que pour la démonstration avec l'interface de test.
+**Fait** : géolocalisation, interface de test, boucle AUTO décision → relais,
+mappage charge ↔ ligne, mode ASSISTED.
+
+**Reste à faire — et cela demande le matériel, pas du code** : affiner la
+calibration au multimètre, ligne par ligne (tension) puis avec une charge connue
+(courant). Voir la formule itérative dans `config.h`. Tant que ce n'est pas fait,
+le mode **`ASSISTED` est le bon compromis** : le système expert raisonne et
+propose, mais aucune coupure n'a lieu sans validation humaine — on ne laisse pas
+un automate agir sur des mesures encore imprécises.

@@ -1,9 +1,12 @@
 flowchart TD
     G[Géolocalisation ✓ FAIT<br/>§5.2] --> T[Interface de test ✓ FAIT<br/>§5.3]
     T --> B[Boucle AUTO ✓ FAIT<br/>§4 / §5.1]
-    B --> C1[Affiner calibration<br/>tension ligne par ligne + courant]
-    C1 --> C4[Mappage explicite charge ↔ ligne]
-    C4 --> C5[Mode ASSISTED<br/>expert propose, humain valide]
+    B --> M[Mappage charge ↔ ligne ✓ FAIT<br/>Equipment.relay_line]
+    M --> A[Mode ASSISTED ✓ FAIT<br/>expert propose, humain valide]
+    A --> C1[RESTE À FAIRE<br/>affiner calibration au multimètre<br/>tension ligne par ligne + courant]
     style G fill:#d4f7d4,stroke:#16A34A
     style T fill:#d4f7d4,stroke:#16A34A
     style B fill:#d4f7d4,stroke:#16A34A
+    style M fill:#d4f7d4,stroke:#16A34A
+    style A fill:#d4f7d4,stroke:#16A34A
+    style C1 fill:#fff3cd,stroke:#F59E0B

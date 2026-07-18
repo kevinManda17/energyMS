@@ -167,6 +167,36 @@ class HouseRelayView(APIView):
         serializer.save(updated_by=request.user, last_commanded_at=timezone.now())
         return Response(RelayStateSerializer(state).data)
 
+    def post(self, request, house_id):
+        """Accepte ou rejette la proposition du système expert (mode ASSISTED).
+
+        Body : {"action": "accept"} ou {"action": "dismiss"}.
+        """
+        state = self._get_relay_state()
+        action = str(request.data.get("action", "")).lower()
+        if action not in ("accept", "dismiss"):
+            return Response(
+                {"detail": "action doit valoir 'accept' ou 'dismiss'."},
+                status=400,
+            )
+        pending = state.auto_pending_lines
+        if not pending:
+            return Response({"detail": "Aucune proposition en attente."}, status=404)
+
+        if action == "accept":
+            for line, value in pending.items():
+                if line in ("line1", "line2", "line3"):
+                    setattr(state, line, bool(value))
+            state.last_commanded_at = timezone.now()
+            state.updated_by = request.user
+        state.auto_pending_lines = None
+        state.auto_pending_since = None
+        state.save(update_fields=[
+            "line1", "line2", "line3", "last_commanded_at", "updated_by",
+            "auto_pending_lines", "auto_pending_since", "updated_at",
+        ])
+        return Response(RelayStateSerializer(state).data)
+
 
 class EmsDecisionView(APIView):
     """POST /api/ems/decision/?token=<device_token>
@@ -230,12 +260,15 @@ class EmsDecisionView(APIView):
                 fields.append("last_measurement_at")
         state.save(update_fields=fields)
 
-        # Boucle fermée : en mode automatique, le système expert évalue la
-        # maison et applique sa décision aux lignes, à la cadence de stockage
-        # des mesures (30 s) — pas à chaque sondage de 3 s. Toute erreur est
-        # avalée : le nœud doit toujours recevoir une réponse valide.
-        if due and state.control_mode == RelayState.ControlMode.AUTO:
-            self._apply_auto_decision(state)
+        # Boucle fermée : le système expert évalue la maison à la cadence de
+        # stockage des mesures (30 s), pas à chaque sondage de 3 s. En AUTO il
+        # applique sa décision, en ASSISTED il la propose seulement. Toute
+        # erreur est avalée : le nœud doit toujours recevoir une réponse valide.
+        if due and state.control_mode in (
+            RelayState.ControlMode.AUTO,
+            RelayState.ControlMode.ASSISTED,
+        ):
+            self._run_expert_control(state)
 
         body = (
             f"L1={int(state.line1)};"
@@ -245,14 +278,25 @@ class EmsDecisionView(APIView):
         return HttpResponse(body, content_type="text/plain")
 
     @staticmethod
-    def _apply_auto_decision(state):
-        """Évalue le système expert et applique sa décision aux relais, mais
-        seulement si elle est *soutenue* : le même état de lignes candidat doit
-        persister pendant EMS_AUTO_CONFIRM_SECONDS avant d'être appliqué. On ne
-        coupe donc pas une charge sur un déficit instantané.
+    def _clear_pending(state):
+        if state.auto_pending_since is not None or state.auto_pending_lines:
+            state.auto_pending_lines = None
+            state.auto_pending_since = None
+            state.save(update_fields=["auto_pending_lines",
+                                      "auto_pending_since", "updated_at"])
 
-        Persiste une Decision uniquement quand le code de décision change, pour
-        garder une trace sans saturer la base.
+    @staticmethod
+    def _run_expert_control(state):
+        """Évalue le système expert puis, selon le mode de la maison :
+
+        - ASSISTED : mémorise la décision comme *proposition* en attente de
+          validation humaine — rien n'est coupé sans accord ;
+        - AUTO : applique la décision, mais seulement si elle est *soutenue*
+          (même état candidat pendant EMS_AUTO_CONFIRM_SECONDS), pour ne pas
+          réagir à un déficit instantané.
+
+        Persiste une Decision quand le code de décision change, pour garder une
+        trace sans saturer la base.
         """
         from django.conf import settings
 
@@ -266,46 +310,53 @@ class EmsDecisionView(APIView):
         from apps.fuzzy_engine.engine import evaluate_house
         from apps.fuzzy_engine.models import Decision
 
+        def _trace(result):
+            # `result` est le wrapper ExpertEvaluation : le code de décision est
+            # porté par result.result (EnergyDecisionResult).
+            core = getattr(result, "result", result)
+            last = (
+                Decision.objects.filter(house=state.house)
+                .order_by("-created_at").first()
+            )
+            if last is None or last.decision_code != core.decision_code:
+                forecast = (
+                    Forecast.objects.filter(house=state.house)
+                    .order_by("-created_at").first()
+                )
+                Decision.objects.create(
+                    house=state.house, forecast=forecast,
+                    **result.decision_payload()
+                )
+
         try:
             result = evaluate_house(state.house)
-            desired = desired_lines_for_decision(result)
+            _trace(result)
+            desired = desired_lines_for_decision(result, house=state.house)
             now = timezone.now()
-            confirm_s = getattr(settings, "EMS_AUTO_CONFIRM_SECONDS", 180)
 
             # Décision non actionnable, ou lignes déjà dans l'état voulu :
-            # rien à faire, on annule tout candidat en attente.
+            # rien à faire, on annule toute proposition/candidat en attente.
             if desired is None or not lines_changed(state, desired):
-                if state.auto_pending_since is not None:
-                    state.auto_pending_lines = None
-                    state.auto_pending_since = None
+                EmsDecisionView._clear_pending(state)
+                return
+
+            # Mode assisté : on propose, on n'applique jamais soi-même.
+            if state.control_mode == RelayState.ControlMode.ASSISTED:
+                if state.auto_pending_lines != desired:
+                    state.auto_pending_lines = desired
+                    state.auto_pending_since = now
                     state.save(update_fields=["auto_pending_lines",
                                               "auto_pending_since", "updated_at"])
                 return
 
-            # Un changement est demandé. Est-ce le même candidat qu'avant ?
+            # Mode auto : fenêtre de confirmation avant d'appliquer.
+            confirm_s = getattr(settings, "EMS_AUTO_CONFIRM_SECONDS", 180)
             if state.auto_pending_lines == desired and state.auto_pending_since:
                 elapsed = (now - state.auto_pending_since).total_seconds()
                 if elapsed < confirm_s:
                     return  # condition pas encore assez soutenue : on patiente
-                # Confirmé : on applique et on efface le candidat.
                 apply_decision_to_relays(state.house, result, state=state)
-                state.auto_pending_lines = None
-                state.auto_pending_since = None
-                state.save(update_fields=["auto_pending_lines",
-                                          "auto_pending_since", "updated_at"])
-                last = (
-                    Decision.objects.filter(house=state.house)
-                    .order_by("-created_at").first()
-                )
-                if last is None or last.decision_code != result.decision_code:
-                    forecast = (
-                        Forecast.objects.filter(house=state.house)
-                        .order_by("-created_at").first()
-                    )
-                    Decision.objects.create(
-                        house=state.house, forecast=forecast,
-                        **result.decision_payload()
-                    )
+                EmsDecisionView._clear_pending(state)
                 return
 
             # Nouveau candidat : on démarre le chrono de confirmation.
@@ -314,5 +365,5 @@ class EmsDecisionView(APIView):
             state.save(update_fields=["auto_pending_lines",
                                       "auto_pending_since", "updated_at"])
         except Exception:
-            logger.warning("Auto decision failed for house %s", state.house_id,
+            logger.warning("Expert control failed for house %s", state.house_id,
                            exc_info=True)

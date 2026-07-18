@@ -51,6 +51,7 @@ class EquipmentSerializer(serializers.ModelSerializer):
             "equipment_type",
             "rated_power_kw",
             "priority",
+            "relay_line",
             "status",
             "created_at",
         )
@@ -67,14 +68,20 @@ class RelayStateSerializer(serializers.ModelSerializer):
             "line2",
             "line3",
             "control_mode",
+            # Proposition du système expert en attente (mode ASSISTED) ou
+            # candidat en cours de confirmation (mode AUTO).
+            "auto_pending_lines",
+            "auto_pending_since",
             "device_token",
             "last_contact_at",
             "last_report",
             "updated_at",
         )
-        # Seuls les états de ligne sont modifiables par l'interface ;
-        # le jeton et l'horodatage de contact sont gérés côté serveur.
+        # Seuls les états de ligne et le mode sont modifiables par l'interface ;
+        # le jeton, les propositions et l'horodatage sont gérés côté serveur.
         read_only_fields = (
+            "auto_pending_lines",
+            "auto_pending_since",
             "device_token",
             "last_contact_at",
             "last_report",

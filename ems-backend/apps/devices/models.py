@@ -64,6 +64,11 @@ class Equipment(models.Model):
         SHEDDED = "SHEDDED", "Shedded"
         FAULT = "FAULT", "Fault"
 
+    class RelayLine(models.IntegerChoices):
+        LINE1 = 1, "Ligne 1"
+        LINE2 = 2, "Ligne 2"
+        LINE3 = 3, "Ligne 3"
+
     house = models.ForeignKey(
         House, on_delete=models.CASCADE, related_name="equipment"
     )
@@ -72,6 +77,14 @@ class Equipment(models.Model):
     rated_power_kw = models.FloatField(default=0)
     priority = models.CharField(
         max_length=15, choices=Priority.choices, default=Priority.NORMAL
+    )
+    # Ligne physique (relais ESP32) qui alimente cet équipement. Sert au système
+    # expert pour savoir QUOI il coupe quand il déleste une ligne : la priorité
+    # de chaque ligne est déduite des équipements qui y sont rattachés. Laissé
+    # vide = non rattaché ; on retombe alors sur la convention du firmware
+    # (L3 prioritaire, L1 moyenne, L2 délestée en premier).
+    relay_line = models.IntegerField(
+        choices=RelayLine.choices, null=True, blank=True
     )
     status = models.CharField(
         max_length=10, choices=Status.choices, default=Status.ACTIVE
@@ -101,9 +114,13 @@ class RelayState(models.Model):
     class ControlMode(models.TextChoices):
         # L'humain seul commande les lignes (défaut, comportement historique).
         MANUAL = "MANUAL", "Manuel"
-        # Le système expert flou applique ses décisions automatiques aux lignes
-        # à chaque sondage du nœud (jamais en mode BLOCKED/RECOMMENDATION, jamais
-        # sur une décision issue de données de mauvaise qualité).
+        # Le système expert calcule sa décision et la PROPOSE : elle est mise en
+        # attente (auto_pending_lines) et n'est appliquée que si l'utilisateur
+        # l'accepte depuis l'interface. Rien n'est coupé sans validation humaine.
+        ASSISTED = "ASSISTED", "Assisté (l'expert propose)"
+        # Le système expert flou applique lui-même ses décisions automatiques aux
+        # lignes, une fois la condition confirmée sur la durée (jamais en mode
+        # BLOCKED/RECOMMENDATION, jamais sur des données de mauvaise qualité).
         AUTO = "AUTO", "Automatique (expert)"
 
     house = models.OneToOneField(

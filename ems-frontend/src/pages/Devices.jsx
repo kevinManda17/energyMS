@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   Battery,
+  Brain,
   Cpu,
   Lightbulb,
   Plug,
@@ -23,6 +24,13 @@ const RELAY_LINES = [
   { key: "line1", label: "Ligne 1", desc: "Lampe 10 W + prise 1" },
   { key: "line2", label: "Ligne 2", desc: "Lampe 20 W" },
   { key: "line3", label: "Ligne 3", desc: "Lampe 10 W + prise 2" },
+];
+
+/* Qui commande les lignes : l'humain, l'humain sur proposition, ou l'expert. */
+const MODES = [
+  { key: "MANUAL",   label: "Manuel",   hint: "Vous seul commandez les lignes." },
+  { key: "ASSISTED", label: "Assisté",  hint: "Le système expert propose, vous validez." },
+  { key: "AUTO",     label: "Auto",     hint: "Le système expert applique lui-même, sur condition soutenue." },
 ];
 
 /* ── Icônes et couleurs par type ── */
@@ -126,6 +134,7 @@ export default function Devices() {
                 name={e.name}
                 power={e.rated_power_kw}
                 priority={e.priority}
+                relayLine={e.relay_line}
                 status={e.status}
               />
             );
@@ -172,6 +181,21 @@ function RelayControl({ houseId }) {
     },
   });
 
+  // Mode assisté : accepter ou écarter la proposition du système expert.
+  const proposal = useMutation({
+    mutationFn: (action) => relaysApi.resolveProposal(houseId, action),
+    onSuccess: (data, action) => {
+      qc.setQueryData(["relays", houseId], data);
+      setToast({
+        type: "success",
+        msg: action === "accept"
+          ? "Proposition appliquée aux lignes."
+          : "Proposition écartée.",
+      });
+      setTimeout(() => setToast(null), 3000);
+    },
+  });
+
   if (!houseId) return null;
 
   const online = state?.last_contact_at
@@ -179,6 +203,8 @@ function RelayControl({ houseId }) {
     : false;
   const allOn = state ? RELAY_LINES.every((l) => state[l.key]) : false;
   const isAuto = state?.control_mode === "AUTO";
+  const isAssisted = state?.control_mode === "ASSISTED";
+  const pending = isAssisted ? state?.auto_pending_lines : null;
 
   return (
     <div className="card mb-6 p-5">
@@ -198,20 +224,21 @@ function RelayControl({ houseId }) {
           {contactLabel(state?.last_contact_at)}
         </span>
 
-        {/* Mode de commande : manuel (humain) ou automatique (système expert). */}
+        {/* Mode de commande : manuel, assisté (l'expert propose) ou auto. */}
         <div className="ml-auto inline-flex overflow-hidden rounded-xl border border-slate-200 dark:border-white/10">
-          {["MANUAL", "AUTO"].map((m) => (
+          {MODES.map((m) => (
             <button
-              key={m}
-              onClick={() => mutation.mutate({ control_mode: m })}
+              key={m.key}
+              onClick={() => mutation.mutate({ control_mode: m.key })}
               disabled={isLoading || mutation.isPending || !state}
+              title={m.hint}
               className={`px-3 py-1.5 text-xs font-semibold transition disabled:opacity-40 ${
-                (state?.control_mode || "MANUAL") === m
+                (state?.control_mode || "MANUAL") === m.key
                   ? "bg-electric text-white"
                   : "text-slate-500 hover:bg-slate-50 dark:hover:bg-white/5"
               }`}
             >
-              {m === "MANUAL" ? "Manuel" : "Auto (expert)"}
+              {m.label}
             </button>
           ))}
         </div>
@@ -246,6 +273,42 @@ function RelayControl({ houseId }) {
           Mode automatique : le système expert n'agit que sur une condition
           <strong> soutenue</strong> (confirmée sur quelques minutes), pas sur un
           déficit passager. Les commandes manuelles sont désactivées.
+        </div>
+      )}
+
+      {isAssisted && !pending && (
+        <div className="mb-4 rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-white/10">
+          Mode assisté : le système expert surveille le micro-réseau et vous
+          proposera un délestage si nécessaire. Rien n'est coupé sans votre accord.
+        </div>
+      )}
+
+      {pending && (
+        <div className="mb-4 rounded-xl border border-solar/40 bg-amber-50 p-3 dark:bg-amber-500/10">
+          <p className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-solar">
+            <Brain size={15} strokeWidth={2.2} /> Le système expert propose un changement
+          </p>
+          <p className="mb-2 text-xs text-slate-600 dark:text-slate-300">
+            {RELAY_LINES.filter((l) => !!state[l.key] !== !!pending[l.key])
+              .map((l) => `${l.label} → ${pending[l.key] ? "rétablir" : "couper"}`)
+              .join(" · ")}
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => proposal.mutate("accept")}
+              disabled={proposal.isPending}
+              className="rounded-lg bg-energy px-3 py-1.5 text-xs font-semibold text-white transition hover:opacity-90 disabled:opacity-40"
+            >
+              Appliquer
+            </button>
+            <button
+              onClick={() => proposal.mutate("dismiss")}
+              disabled={proposal.isPending}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-500 transition hover:bg-slate-50 disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/5"
+            >
+              Ignorer
+            </button>
+          </div>
         </div>
       )}
 
@@ -361,7 +424,7 @@ function SensorCard({ meta, name, type, unit, active }) {
   );
 }
 
-function EquipCard({ meta, name, power, priority, status }) {
+function EquipCard({ meta, name, power, priority, relayLine, status }) {
   const { icon: Icon, color, bg } = meta;
   const priorityColor = PRIORITY_COLOR[priority] || "text-slate-400";
   const active = status === "ON" || status === "ACTIVE" || status === "ONLINE";
@@ -374,6 +437,10 @@ function EquipCard({ meta, name, power, priority, status }) {
         <p className="truncate font-semibold text-navy dark:text-white">{name}</p>
         <p className="text-xs text-slate-400">{fmt(power, 2)} kW</p>
         <p className={`text-xs font-semibold ${priorityColor}`}>{PRIORITY_LABEL[priority] || priority}</p>
+        {/* Ligne physique : c'est elle que le système expert coupe. */}
+        <p className="mt-0.5 text-[11px] text-slate-400">
+          {relayLine ? `Ligne ${relayLine}` : "Ligne non rattachée"}
+        </p>
       </div>
       <StatusDot active={active} label={status} />
     </div>
