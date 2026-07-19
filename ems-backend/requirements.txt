@@ -26,3 +26,6 @@ gunicorn>=22.0
 pytest>=8.0
 pytest-django>=4.8
 factory_boy>=3.3
+
+# Agent conversationnel N.E.R.A. (chat + STT Whisper + TTS)
+openai>=2.0,<3.0

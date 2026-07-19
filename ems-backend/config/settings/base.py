@@ -78,6 +78,7 @@ THIRD_PARTY_APPS = [
 ]
 
 LOCAL_APPS = [
+    "apps.assistant",
     "apps.users",
     "apps.houses",
     "apps.energy_assets",
@@ -249,6 +250,19 @@ CSRF_TRUSTED_ORIGINS = env_list(
 # pendant cette durée avant d'être appliquée aux relais. Évite de couper une
 # charge sur un déficit passager. 0 = application immédiate (démo/test).
 EMS_AUTO_CONFIRM_SECONDS = int(os.getenv("EMS_AUTO_CONFIRM_SECONDS", "180"))
+
+# ---------------------------------------------------------------------------
+# N.E.R.A. — agent conversationnel (OpenAI)
+# ---------------------------------------------------------------------------
+# La clé reste côté SERVEUR : jamais dans le frontend ni dans l'app mobile, où
+# elle serait publique. Sans clé, les endpoints /api/nera/* répondent 503 avec
+# un message explicite — le reste de l'application fonctionne normalement.
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+# Modèles paramétrables : l'offre OpenAI évolue vite, on ne fige rien en dur.
+NERA_CHAT_MODEL = os.getenv("NERA_CHAT_MODEL", "gpt-4o-mini")
+NERA_STT_MODEL = os.getenv("NERA_STT_MODEL", "whisper-1")
+NERA_TTS_MODEL = os.getenv("NERA_TTS_MODEL", "tts-1")
+NERA_TTS_VOICE = os.getenv("NERA_TTS_VOICE", "nova")
 
 # ---------------------------------------------------------------------------
 # MQTT

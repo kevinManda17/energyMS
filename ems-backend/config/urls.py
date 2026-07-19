@@ -19,6 +19,7 @@ urlpatterns = [
     path("api/", include("apps.fuzzy_engine.urls")),
     path("api/", include("apps.alerts.urls")),
     path("api/", include("apps.reports.urls")),
+    path("api/", include("apps.assistant.urls")),
     # OpenAPI / Swagger
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(
