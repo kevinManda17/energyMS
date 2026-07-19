@@ -14,7 +14,17 @@ class Measurement(models.Model):
         VOLTAGE = "voltage", "Voltage"
         CURRENT = "current", "Current"
         POWER = "power", "Power"
-        TEMPERATURE = "temperature", "Temperature"
+        # ⚠ `temperature` = température AMBIANTE de l'air, alimentée par l'API
+        # météo (Open-Meteo, temperature_2m). Ce n'est PAS la température d'une
+        # batterie ni d'un panneau : ne jamais l'utiliser comme telle. Les
+        # températures d'équipement ont leurs propres types ci-dessous.
+        TEMPERATURE = "temperature", "Ambient temperature (weather API)"
+        # Températures d'équipement, mesurées par des sondes dédiées (DS18B20).
+        # Non installées à ce jour sur le prototype : extension prévue. Tant
+        # qu'aucune mesure n'existe, le système expert utilise sa valeur par
+        # défaut plutôt que la température ambiante.
+        BATTERY_TEMP = "battery_temp", "Battery temperature (probe)"
+        PANEL_TEMP = "panel_temp", "Solar panel temperature (probe)"
         LUMINOSITY = "luminosity", "Luminosity"
         IRRADIANCE = "irradiance", "Irradiance"
         IRRADIANCE_TILT15 = "irradiance_tilt15", "Irradiance inclinee 15°"

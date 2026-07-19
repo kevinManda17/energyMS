@@ -12,6 +12,11 @@ from apps.measurements.models import Measurement
 from .core import EnergyDecisionResult, EnergyFacts, FuzzyExpertEngine
 
 
+# Température batterie retenue quand aucune sonde ne la mesure. Neutre : elle
+# ne déclenche ni la règle "température élevée" ni "dangereuse".
+BATTERY_TEMP_DEFAULT_C = 25.0
+
+
 def _latest_value(house, measurement_type: str, default: float | None = None):
     row = (
         Measurement.objects.filter(house=house, measurement_type=measurement_type)
@@ -202,16 +207,27 @@ def facts_from_house(house, overrides: dict | None = None) -> EnergyFacts:
         "battery_soc": overrides.get("batterie_soc")
         if overrides.get("batterie_soc") is not None
         else _latest_value(house, "battery_soc"),
-        "temperature": _latest_value(house, "temperature"),
+        # Température de la BATTERIE uniquement (sonde dédiée). Surtout pas
+        # `temperature`, qui est la température ambiante de l'API météo : s'en
+        # servir ferait déclencher les règles thermiques batterie (R001/R002)
+        # sur la météo du jour, ce qui n'a aucun sens physique.
+        "battery_temperature": _latest_value(house, "battery_temp"),
     }
 
     production = raw["production"] if raw["production"] is not None else 0.0
     consumption = raw["consumption"] if raw["consumption"] is not None else 0.0
     battery_soc = raw["battery_soc"] if raw["battery_soc"] is not None else 50.0
+    # Aucune sonde batterie installée à ce jour : sans mesure, on retient une
+    # valeur neutre (25 °C) plutôt que de substituer la température ambiante.
+    # Les règles thermiques batterie restent alors inactives — c'est voulu.
     battery_temp = (
         overrides["battery_temperature"]
         if overrides.get("battery_temperature") is not None
-        else (raw["temperature"] if raw["temperature"] is not None else 25.0)
+        else (
+            raw["battery_temperature"]
+            if raw["battery_temperature"] is not None
+            else BATTERY_TEMP_DEFAULT_C
+        )
     )
     priority = (
         "NON_PRIORITY"

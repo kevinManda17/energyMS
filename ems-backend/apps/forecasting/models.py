@@ -80,7 +80,14 @@ class Forecast(models.Model):
     )
     target = models.CharField(max_length=20)
     horizon = models.DateTimeField()
+    # Écart, en minutes, entre l'instant de la prévision et cet horizon.
+    # ⚠ Le défaut historique (60) ne reflète PAS le pas natif des modèles, qui
+    # sont entraînés sur une cadence de 10 minutes pour prédire le pas suivant.
+    # predict_future() renseigne explicitement cette valeur ; le défaut ne sert
+    # qu'aux enregistrements créés hors de ce chemin.
     horizon_minutes = models.PositiveIntegerField(default=60)
+    # Puissance prévue, en kW (PAS une énergie). Convertir en kWh impose de
+    # multiplier par la durée : voir _prediction_energy() dans fuzzy_engine.
     forecast_value = models.FloatField()
     input_snapshot = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

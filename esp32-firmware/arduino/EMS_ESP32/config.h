@@ -39,18 +39,35 @@ constexpr const char* WIFI_PASSWORD = "";
 
 
 
-/* Le backend reçoit les mesures en JSON (POST) et répond en texte simple :
- *   L1=1;L2=0;L3=1                                                       */
-// constexpr const char* BACKEND_DECISION_URL =
-//     "http://172.20.10.14:8000/api/ems/decision/";
+/* Adresse du backend, en trois constantes séparées : seul BACKEND_HOST change
+ * quand le PC change de réseau. Jamais "localhost" ici — sur l'ESP32, localhost
+ * désigne l'ESP32 lui-même, pas le PC.
+ *
+ * Le backend reçoit les mesures en JSON (POST) et répond en texte simple :
+ *   L1=1;L2=0;L3=1
+ *
+ * Historique des adresses (réseaux précédents) : 172.20.10.14, 192.168.203.117,
+ * 192.168.188.117. Pour connaître l'adresse courante du PC :
+ *   python scripts/configure_lan.py
+ *
+ * ÉVOLUTION PRÉVUE (non implémentée) : rendre l'hôte modifiable sans recompiler,
+ * via une commande série (`host 192.168.x.y`) stockée en NVS Preferences, ou par
+ * découverte mDNS. Aujourd'hui, changer de réseau impose un téléversement.      */
+/* >>> SEULE LIGNE À MODIFIER quand le PC change de réseau <<< */
+#define BACKEND_HOST_STR "192.168.84.117"
+#define BACKEND_PORT_NUM 8000
+#define BACKEND_PATH_STR "/api/ems/decision/"
 
-//constexpr const char* BACKEND_DECISION_URL =
-//    "http://192.168.203.117:8000/api/ems/decision/";
+/* Tout le reste est dérivé : rien d'autre à toucher. */
+#define _EMS_STR2(x) #x
+#define _EMS_STR(x) _EMS_STR2(x)
+
+constexpr const char* BACKEND_HOST = BACKEND_HOST_STR;
+constexpr uint16_t    BACKEND_PORT = BACKEND_PORT_NUM;
+constexpr const char* BACKEND_PATH = BACKEND_PATH_STR;
 
 constexpr const char* BACKEND_DECISION_URL =
-    "http://192.168.188.117:8000/api/ems/decision/";
-
-    //  192.168.203.117
+    "http://" BACKEND_HOST_STR ":" _EMS_STR(BACKEND_PORT_NUM) BACKEND_PATH_STR;
 
 constexpr uint16_t HTTP_TIMEOUT_MS = 3000;
 
@@ -89,32 +106,43 @@ constexpr int RMS_SAMPLES      = 600;
 constexpr int SAMPLE_DELAY_US  = 500;
 
 /* ==================== CALIBRATION ==================== */
-/* Le firmware calcule le RMS *de la sortie du capteur* (volts ADC), pas la
- * grandeur physique ; CAL_Vx est le facteur d'échelle appliqué par ligne.
- * Chaque ZMPT101B a son propre potentiomètre : les 3 lignes n'ont donc PAS le
- * même facteur (avec 709,7 commun, on a relevé 269 V et 252 V au lieu de 220).
+/* PRINCIPE — le seul mécanisme de calibration du firmware est un coefficient
+ * multiplicatif par ligne. Aucune tension n'est plafonnée, arrondie ou forcée
+ * vers une valeur « plausible » : les fluctuations réelles doivent apparaître.
+ * Si L1 est à 217 V, L2 à 224 V et L3 à 210 V, le système doit afficher
+ * 217 / 224 / 210 — et non ramener les trois à une même valeur.
  *
- * MÉTHODE ITÉRATIVE (la plus simple — pas besoin de lire le RMS brut) :
- *   nouveau_CAL_Vx = CAL_Vx_actuel × (tension_vraie / tension_affichée)
- * Exemple réel, depuis CAL = 709,7 :
- *   ligne affichant 269 V -> 709,7 × 220/269 ≈ 580
- *   ligne affichant 252 V -> 709,7 × 220/252 ≈ 620
- * Répéter une fois si besoin (ça converge vite). « tension_vraie » = la valeur
- * au multimètre sur CETTE ligne (≈220 V ici ; utiliser 230 si c'est le secteur
- * réel mesuré). Ne PAS retoucher le potentiomètre après coup (invalide le CAL).
+ *     Vrms_calibrée = Vrms_brute × CAL_Vx
+ *     Irms_calibré  = Irms_brut  × CAL_Ix
  *
- * ⚠ Les valeurs ci-dessous supposent : L1 lisait 269, L2 lisait 252, L3 non
- *   mesurée (moyenne). À vérifier/permuter selon la ligne réellement relevée.
+ * Chaque ZMPT101B / ZMCT103C a son propre potentiomètre : les trois lignes ont
+ * donc des coefficients DIFFÉRENTS. Une valeur commune est forcément fausse sur
+ * au moins deux lignes.
+ *
+ * MÉTHODE (tension), à refaire pour CHAQUE ligne :
+ *   1. mesurer la tension réelle de la ligne au multimètre (ex. 217 V) ;
+ *   2. lire la tension affichée par l'ESP32 pour cette même ligne ;
+ *   3. nouveau_CAL_Vx = CAL_Vx_actuel × (tension_multimètre / tension_affichée) ;
+ *   4. téléverser, puis vérifier ; répéter une fois si l'écart persiste.
+ *   Ne PAS retoucher le potentiomètre après calibration (cela l'invalide).
+ *
+ * MÉTHODE (courant), avec une charge connue :
+ *   1. brancher une charge de puissance connue (ex. lampe 20 W à ~220 V) ;
+ *   2. courant attendu ≈ P / U (20 / 220 ≈ 0,09 A) ;
+ *   3. nouveau_CAL_Ix = CAL_Ix_actuel × (courant_attendu / courant_affiché).
+ *
+ * ÉTAT : coefficients NON calibrés (1.0 = on lit le RMS brut du capteur, en
+ * volts ADC). Les valeurs affichées ne seront donc pas des volts/ampères réels
+ * tant que la procédure ci-dessus n'a pas été faite ligne par ligne. C'est
+ * volontaire : mieux vaut une valeur brute assumée qu'un chiffre inventé.
  */
-constexpr float CAL_V1 = 580.0f;   // affinée depuis 269 V affichés
-constexpr float CAL_V2 = 620.0f;   // affinée depuis 252 V affichés
-constexpr float CAL_V3 = 600.0f;   // non mesurée : moyenne, à affiner
+constexpr float CAL_V1 = 1.0f;   // à calibrer : U_multimètre / U_affichée (ligne 1)
+constexpr float CAL_V2 = 1.0f;   // à calibrer : U_multimètre / U_affichée (ligne 2)
+constexpr float CAL_V3 = 1.0f;   // à calibrer : U_multimètre / U_affichée (ligne 3)
 
-/* COURANT — non calibré (aucune mesure de référence fournie) : laisser à 1.0
- * jusqu'à mesurer, avec une charge connue, CAL_Ix = courant_réel / iSensorRms. */
-constexpr float CAL_I1 = 1.0f;
-constexpr float CAL_I2 = 1.0f;
-constexpr float CAL_I3 = 1.0f;
+constexpr float CAL_I1 = 1.0f;   // à calibrer : I_attendu / I_affiché (ligne 1)
+constexpr float CAL_I2 = 1.0f;   // à calibrer : I_attendu / I_affiché (ligne 2)
+constexpr float CAL_I3 = 1.0f;   // à calibrer : I_attendu / I_affiché (ligne 3)
 
 /* ==================== SEUILS DE SECURITE ==================== */
 /* Onduleur 150 W -> marge de sécurité. Le vrai système expert est côté

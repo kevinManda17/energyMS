@@ -28,9 +28,9 @@ esp32-firmware/
 | G26 | IN3 | CH3 (COM3/NO3) | Ligne 2 |
 | G27 | IN6 | CH6 (COM6/NO6) | Ligne 3 |
 
-Seul le **GPIO** figure dans `config.h` (`RELAY_L1_PIN`…) : changer de canal sur
-le module (IN2 plutôt que IN1, etc.) ne demande aucune modification du code tant
-que le fil reste sur le même GPIO côté ESP32 — mettre à jour ce tableau suffit.
+Seul le **GPIO** figure dans `config.h` (`RELAY_L1_PIN`…) : déplacer un fil vers
+un autre canal du module ne demande aucune modification du code tant que le fil
+reste sur le même GPIO côté ESP32 — mettre à jour ce tableau suffit.
 
 Ce module s'est révélé **actif à HIGH** : `RELAY_ACTIVE_LOW = false` dans
 `config.h`. Cette constante est le **seul** endroit qui traduit « ligne active »
@@ -115,7 +115,8 @@ puissance, plus la puissance totale.
 ## Procédure de mise en service (dans cet ordre)
 
 1. **Relais sans AC** : téléverser, ouvrir le moniteur, tester
-   `on 1` → clic du relais CH1, `off 1`, puis lignes 2 et 3, `all on`, `all off`.
+   `on 1` → clic du relais de la ligne 1 (canal CH2 du module), `off 1`, puis
+   lignes 2 et 3, `all on`, `all off`.
 2. **Lectures analogiques** : toujours sans AC, vérifier que les
    `vSensorRms`/`iSensorRms` sont proches de 0 (bruit < 0,01 V typique).
 3. **Calibration** (avec AC, prudence !) : brancher une seule ligne,
@@ -143,10 +144,13 @@ Interface (toggle Ligne 1/2/3)  ->  backend (état mémorisé par maison)
 
 Mise en service (liaison **automatique**, sans jeton) :
 
-1. Démarrer le backend EMS sur le réseau local (ex. `http://172.20.10.14:8000`).
+1. Démarrer le backend EMS sur le réseau local :
+   `python manage.py runserver 0.0.0.0:8000` (écoute sur toutes les interfaces).
+   Pour connaître l'adresse LAN du PC : `python scripts/configure_lan.py`.
 2. Dans `config.h` : passer `USE_WIFI` à `1`, renseigner `WIFI_SSID` /
-   `WIFI_PASSWORD`, et l'IP du serveur dans `BACKEND_DECISION_URL`
-   (`http://172.20.10.14:8000/api/ems/decision/`, sans jeton).
+   `WIFI_PASSWORD`, et l'adresse du serveur dans **`BACKEND_HOST_STR`**
+   (une seule ligne à changer ; `BACKEND_DECISION_URL` en est dérivée).
+   Ne jamais mettre `localhost` : sur l'ESP32, cela désigne l'ESP32 lui-même.
 3. Re-téléverser. Avec `USE_WIFI 1`, l'ESP32 démarre en mode auto (relais OFF
    jusqu'au premier sondage).
 4. Dans l'app, ouvrir **Équipements → Contrôle des lignes** du micro-réseau à

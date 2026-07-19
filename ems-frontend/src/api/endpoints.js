@@ -1,4 +1,5 @@
 import { api, TOKEN_KEY, REFRESH_KEY } from "./client";
+import { API_BASE_URL } from "./baseUrl";
 
 // ---- Auth -----------------------------------------------------------------
 export const authApi = {
@@ -102,9 +103,10 @@ export const alertsApi = {
 
 export const reportsApi = {
   daily: (params) => api.get("/reports/daily/", { params }).then((r) => r.data),
-  // Repli historique : "http://172.20.10.14:8000/api" puis "http://192.168.203.117:8000/api"
-  exportCsvUrl: () =>
-    `${import.meta.env.VITE_API_BASE_URL || "http://192.168.188.117:8000/api"}/reports/export/csv/`,
+  // URL absolue (téléchargement direct par le navigateur, hors client axios) :
+  // on réutilise la même résolution que le reste de l'app, jamais localhost —
+  // le lien doit rester ouvrable depuis un autre appareil du réseau.
+  exportCsvUrl: () => `${API_BASE_URL}/reports/export/csv/`,
 };
 
 export const datasetsApi = {

@@ -31,7 +31,31 @@ SECRET_KEY = os.getenv(
     "DJANGO_SECRET_KEY", "insecure-dev-key-change-me-in-production-0123456789"
 )
 DEBUG = env_bool("DJANGO_DEBUG", "True")
-ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
+
+# ---------------------------------------------------------------------------
+# Réseau LAN — source unique de vérité
+# ---------------------------------------------------------------------------
+# L'adresse LAN du PC change à chaque réseau (partage de connexion, box…). Elle
+# est définie ICI, une seule fois, et toutes les URLs en sont dérivées.
+#   -> pour connaître l'adresse courante : python scripts/configure_lan.py
+# `localhost` / `127.0.0.1` restent acceptés, mais uniquement comme repli de
+# développement sur la machine elle-même : un téléphone ou l'ESP32 ne peuvent
+# pas les joindre (localhost y désigne l'appareil lui-même).
+LAN_HOST = os.getenv("LAN_HOST", "192.168.84.117")
+BACKEND_HOST = os.getenv("BACKEND_HOST", "0.0.0.0")  # écoute sur toutes les interfaces
+BACKEND_PORT = int(os.getenv("BACKEND_PORT", "8000"))
+FRONTEND_PORT = int(os.getenv("FRONTEND_PORT", "5173"))
+
+API_BASE_URL = os.getenv("API_BASE_URL", f"http://{LAN_HOST}:{BACKEND_PORT}/api")
+FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", f"http://{LAN_HOST}:{FRONTEND_PORT}")
+# URL publique utilisée dans les liens envoyés hors de l'app (e-mails, exports) :
+# elle doit être joignable depuis un autre appareil du réseau, donc jamais localhost.
+PUBLIC_APP_BASE_URL = os.getenv("PUBLIC_APP_BASE_URL", FRONTEND_BASE_URL)
+
+ALLOWED_HOSTS = env_list(
+    "DJANGO_ALLOWED_HOSTS",
+    f"{LAN_HOST},localhost,127.0.0.1",
+)
 
 # ---------------------------------------------------------------------------
 # Applications
@@ -150,10 +174,9 @@ EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", "True")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "noreply@ems.local")
-# URL cliquable envoyee dans les emails : 0.0.0.0 n'est pas navigable.
-# FRONTEND_URL = os.getenv("FRONTEND_URL", "http://172.20.10.14:5173")
-# FRONTEND_URL = os.getenv("FRONTEND_URL", "http://192.168.203.117:5173")
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://192.168.188.117:5173")
+# URL cliquable envoyée dans les e-mails. Dérivée de FRONTEND_BASE_URL : elle
+# doit être joignable depuis un autre appareil, donc ni localhost ni 0.0.0.0.
+FRONTEND_URL = os.getenv("FRONTEND_URL", FRONTEND_BASE_URL)
 PASSWORD_RESET_TOKEN_MINUTES = int(os.getenv("PASSWORD_RESET_TOKEN_MINUTES", "30"))
 EMAIL_VERIFICATION_TOKEN_MINUTES = int(os.getenv("EMAIL_VERIFICATION_TOKEN_MINUTES", "60"))
 
@@ -200,12 +223,24 @@ SPECTACULAR_SETTINGS = {
 }
 
 # ---------------------------------------------------------------------------
-# CORS
+# CORS / CSRF
 # ---------------------------------------------------------------------------
+# Origines du FRONTEND (scheme://hôte:port, jamais de chemin). On autorise
+# l'adresse LAN — indispensable pour qu'un téléphone ou un autre PC du réseau
+# puisse appeler l'API — plus localhost en repli de développement.
 CORS_ALLOWED_ORIGINS = env_list(
-    "CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000"
+    "CORS_ALLOWED_ORIGINS",
+    f"{FRONTEND_BASE_URL},http://localhost:{FRONTEND_PORT},http://localhost:3000",
 )
 CORS_ALLOW_CREDENTIALS = True
+
+# Django exige les origines de confiance pour les requêtes POST authentifiées
+# par cookie/session (admin, formulaires). Même liste que CORS.
+CSRF_TRUSTED_ORIGINS = env_list(
+    "CSRF_TRUSTED_ORIGINS",
+    f"{FRONTEND_BASE_URL},http://{LAN_HOST}:{BACKEND_PORT},"
+    f"http://localhost:{FRONTEND_PORT},http://localhost:{BACKEND_PORT}",
+)
 
 # ---------------------------------------------------------------------------
 # Système expert — actionnement automatique des relais

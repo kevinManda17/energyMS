@@ -1,9 +1,9 @@
 import axios from "axios";
+import { API_BASE_URL } from "./baseUrl";
 
-const BASE_URL =
-  // import.meta.env.VITE_API_BASE_URL || "http://172.20.10.14:8000/api";
-  // import.meta.env.VITE_API_BASE_URL || "http://192.168.203.117:8000/api";
-  import.meta.env.VITE_API_BASE_URL || "http://192.168.188.117:8000/api";
+// Résolue une seule fois, dans src/api/baseUrl.js (VITE_API_BASE_URL, puis
+// repli sur l'hôte courant). Ne jamais coder d'adresse en dur ici.
+const BASE_URL = API_BASE_URL;
 
 export const TOKEN_KEY = "ems_access";
 export const REFRESH_KEY = "ems_refresh";

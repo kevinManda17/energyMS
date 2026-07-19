@@ -120,8 +120,14 @@ def test_ems_decision_stores_real_measurements(auth_client):
     resp = APIClient().post(f"/api/ems/decision/?token={token}", payload, format="json")
     assert resp.status_code == 200
 
+    # Le nœud envoie des WATTS (110+66+44 = 220 W) ; la consommation est
+    # stockée en kW, donc 0,220 kW — et non 220 kW.
     cons = Measurement.objects.filter(house=house, measurement_type="consumption").first()
-    assert cons is not None and cons.value == pytest.approx(220.0)  # 110+66+44
+    assert cons is not None and cons.unit == "kW"
+    assert cons.value == pytest.approx(0.220)
+    power = Measurement.objects.filter(house=house, measurement_type="power").first()
+    assert power is not None and power.unit == "W"
+    assert power.value == pytest.approx(220.0)
     amp = Measurement.objects.filter(house=house, measurement_type="current").first()
     assert amp.value == pytest.approx(1.0)  # 0.5+0.3+0.2
     volt = Measurement.objects.filter(house=house, measurement_type="voltage").first()

@@ -1,14 +1,14 @@
 import { storage } from "../storage";
 
-const CLOUD =
-  // process.env.EXPO_PUBLIC_API_BASE_URL || "http://172.20.10.14:8000/api";
-  // process.env.EXPO_PUBLIC_API_BASE_URL || "http://192.168.203.117:8000/api";
-  process.env.EXPO_PUBLIC_API_BASE_URL || "http://192.168.188.117:8000/api";
+// Adresse LAN du PC hébergeant le backend. Sur mobile, JAMAIS "localhost" :
+// depuis le téléphone, localhost désigne le téléphone lui-même, pas le PC.
+// Aucune détection automatique fiable côté mobile — on passe donc par
+// EXPO_PUBLIC_API_BASE_URL (fichier .env), avec ce repli en dur.
+// Pour retrouver l'adresse courante : python scripts/configure_lan.py
+const LAN_API_FALLBACK = "http://192.168.84.117:8000/api";
 
-const EDGE =
-  // process.env.EXPO_PUBLIC_EDGE_API_URL || "http://172.20.10.14:8000/api";
-  // process.env.EXPO_PUBLIC_EDGE_API_URL || "http://192.168.203.117:8000/api";
-  process.env.EXPO_PUBLIC_EDGE_API_URL || "http://192.168.188.117:8000/api";
+const CLOUD = process.env.EXPO_PUBLIC_API_BASE_URL || LAN_API_FALLBACK;
+const EDGE = process.env.EXPO_PUBLIC_EDGE_API_URL || LAN_API_FALLBACK;
   
 
 /**

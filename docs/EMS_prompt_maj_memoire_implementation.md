@@ -60,7 +60,7 @@ Le projet est structuré en **quatre sous-systèmes logiciels indépendants** pl
 expert, les mesures et les deux interfaces raisonnent tous à l'échelle de **la maison /
 micro-réseau entier**. Aucun modèle de données, aucune règle floue, aucun écran ne
 représente aujourd'hui une notion de **ligne électrique individuelle (ligne 1/2/3) ou de
-canal de relais (IN1/IN3/IN6)**. Le firmware ESP32, lui, raisonne bien à l'échelle des 3
+canal de relais (IN2/IN3/IN6)**. Le firmware ESP32, lui, raisonne bien à l'échelle des 3
 lignes physiques, mais **son lien prévu avec le vrai backend Django est un contrat HTTP
 imaginé qui ne correspond à aucune route réellement existante côté serveur** (détails
 section 4). La boucle complète décrite dans la méthodologie
@@ -113,7 +113,7 @@ Contenu à rédiger (base factuelle vérifiée, à mettre en forme académique) 
 - **Instrumentation** : un capteur de courant ZMCT103C et un capteur de tension ZMPT101B par
   ligne, placés après la sortie normalement-ouverte (NO) du relais correspondant, le capteur
   de courant ne mesurant que le conducteur contrôlé de sa ligne.
-- **Nœud de commande** : ESP32 DevKit, relais sur GPIO25/26/27 (IN1/IN3/IN6), capteurs sur
+- **Nœud de commande** : ESP32 DevKit, relais sur GPIO25/26/27 (IN2/IN3/IN6), capteurs sur
   GPIO34/35/32/33 et sur les broches d'entrée seule GPIO36 (SP) / GPIO39 (SN) — toutes sur
   l'ADC1, ce qui reste compatible avec l'usage simultané du Wi-Fi (l'ADC2 ne l'est pas).
 - **Acquisition de mesure** : la tension/le courant RMS de chaque ligne sont estimés par
@@ -363,7 +363,7 @@ nouvelle sous-section dédiée)
 1. **Tableau des composants matériels** : panneau solaire, régulateur de charge, batteries
    12 V, onduleur 12 V DC → 220 V AC, module relais 8 canaux (3 utilisés), capteurs ZMPT101B
    ×3, capteurs ZMCT103C ×3, ESP32 DevKit, charges (lampes 10/10/20 W, 2 prises).
-2. **Tableau des broches ESP32** : GPIO25/26/27 (relais, IN1/IN3/IN6) ; GPIO34/35/32/33/36(SP)/39(SN)
+2. **Tableau des broches ESP32** : GPIO25/26/27 (relais, IN2/IN3/IN6) ; GPIO34/35/32/33/36(SP)/39(SN)
    (capteurs) ; mention explicite des broches interdites (CMD, SD0-3, CLK) et des broches
    entrée-seule (34, 35, 36, 39).
 3. **Tableau des lignes électriques** : ligne, canal relais, charges, capteur tension, capteur

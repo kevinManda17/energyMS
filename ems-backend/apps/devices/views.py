@@ -20,23 +20,18 @@ logger = logging.getLogger("ems.devices")
 # pour ne pas saturer la base tout en gardant un suivi temps quasi réel.
 MEASUREMENT_STORE_INTERVAL_S = 30
 
-# Conditionnement de la tension affichée. Les ZMPT101B du prototype sont mal
-# calibrés (lectures brutes hors plage) : dès qu'une ligne est SOUS TENSION, on
-# ramène sa valeur dans une plage secteur plausible [215, 224] V. Une ligne sans
-# secteur (≈ 0 V) n'est PAS maquillée — on ne fabrique pas une tension sur une
-# ligne coupée. C'est une garde de plausibilité d'affichage, pas une mesure de
-# précision : la vraie correction reste la calibration (CAL_Vx du firmware).
-VOLTAGE_DISPLAY_MIN = 215.0
-VOLTAGE_DISPLAY_MAX = 224.0
-MAINS_PRESENT_MIN_V = 150.0  # en dessous : pas de secteur détecté sur la ligne
+# Unités : le firmware calcule power = voltage × current, donc des WATTS
+# (cf. EMS_ESP32.ino : "puissance apparente estimée (W)"). Le backend, lui,
+# raisonne en kW pour la consommation (c'est l'unité attendue par le moteur
+# expert et les tableaux de bord). La conversion doit donc être explicite —
+# stocker 20 W comme "20 kW" fausserait tout d'un facteur 1000.
+WATTS_PER_KILOWATT = 1000.0
 
-
-def condition_voltage(value):
-    """Ramène une tension de ligne SOUS TENSION dans [215, 224] V ; laisse
-    telle quelle une ligne sans secteur (valeur trop basse)."""
-    if value is None or value < MAINS_PRESENT_MIN_V:
-        return value
-    return max(VOLTAGE_DISPLAY_MIN, min(VOLTAGE_DISPLAY_MAX, value))
+# Seuil au-dessous duquel on considère qu'aucun secteur n'est présent sur la
+# ligne (relais ouvert / pas de tension). Sert uniquement à exclure ces lignes
+# du calcul de la tension réseau — AUCUNE valeur n'est forcée : la tension
+# affichée est celle mesurée, calibrée par CAL_Vx dans le firmware.
+MAINS_PRESENT_MIN_V = 150.0
 
 
 def _to_float(d, key):
@@ -49,8 +44,17 @@ def _to_float(d, key):
 
 def _store_line_measurements(house, payload, ts):
     """Convertit le relevé 3-lignes de l'ESP32 en mesures agrégées du
-    micro-réseau : consommation (somme des puissances), tension (moyenne) et
-    courant (somme). C'est ce qui alimente le moteur expert en données réelles.
+    micro-réseau. C'est ce qui alimente le moteur expert en données réelles.
+
+    Unités produites :
+      - ``power``       : puissance instantanée totale, en W (valeur brute) ;
+      - ``consumption`` : la même puissance en kW (W / 1000) ;
+      - ``voltage``     : tension réseau en V, moyenne des lignes SOUS TENSION
+        (les lignes coupées, ≈ 0 V, ne tirent pas la moyenne vers le bas) ;
+      - ``current``     : courant total en A.
+
+    Aucune valeur n'est plafonnée ni forcée : les fluctuations réelles doivent
+    apparaître. La justesse de la tension dépend de la calibration CAL_Vx.
     """
     lines = [payload.get(k) for k in ("line1", "line2", "line3")]
     lines = [d for d in lines if isinstance(d, dict)]
@@ -63,16 +67,15 @@ def _store_line_measurements(house, payload, ts):
 
     rows = []
     if powers:
-        rows.append(("consumption", sum(powers), "kW"))
+        total_power_w = sum(powers)
+        rows.append(("power", total_power_w, "W"))
+        rows.append(("consumption", total_power_w / WATTS_PER_KILOWATT, "kW"))
     if volts:
-        # Tension réseau = moyenne des lignes SOUS TENSION, conditionnée dans la
-        # plage plausible. Si aucune ligne n'est sous tension, on garde la valeur
-        # réelle (≈ 0) plutôt que d'inventer une tension.
-        live = [condition_voltage(v) for v in volts if v >= MAINS_PRESENT_MIN_V]
-        if live:
-            rows.append(("voltage", sum(live) / len(live), "V"))
-        else:
-            rows.append(("voltage", sum(volts) / len(volts), "V"))
+        # Tension réseau = moyenne des seules lignes sous tension. Si aucune ne
+        # l'est, on garde la valeur réelle (≈ 0) plutôt que d'inventer.
+        live = [v for v in volts if v >= MAINS_PRESENT_MIN_V]
+        source = live if live else volts
+        rows.append(("voltage", sum(source) / len(source), "V"))
     if amps:
         rows.append(("current", sum(amps), "A"))
 

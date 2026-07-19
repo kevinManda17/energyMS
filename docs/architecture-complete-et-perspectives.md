@@ -475,7 +475,7 @@ flowchart LR
 </details>
 
 - **Web** : `navigator.geolocation` — **limite importante** : l'API exige un
-  contexte sécurisé (HTTPS **ou** `localhost`). Sur `http://192.168.188.117:5173`
+  contexte sécurisé (HTTPS **ou** `localhost`). Sur `http://192.168.84.117:5173`
   (IP LAN en clair), le navigateur **bloquera** la localisation. Le code le gère
   proprement : message explicite + la saisie manuelle reste toujours disponible.
   Pour lever la limite : servir le frontend en HTTPS, ou tester depuis
