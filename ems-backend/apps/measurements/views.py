@@ -6,9 +6,22 @@ from django.utils.dateparse import parse_datetime
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+
+class MeasurementPagination(PageNumberPagination):
+    """Pagination des mesures, taille de page pilotable par le client.
+
+    Les séries de mesures grossissent vite (un relevé toutes les 30 s) : on ne
+    charge jamais tout. Le mobile demande de petites pages pour un défilement
+    progressif, le web des pages plus grandes pour ses graphiques.
+    """
+
+    page_size_query_param = "page_size"
+    max_page_size = 500
 
 from apps.houses.models import House
 
@@ -131,13 +144,35 @@ class MeasurementViewSet(
     serializer_class = MeasurementSerializer
     filterset_fields = ["house", "sensor", "measurement_type"]
     ordering_fields = ["timestamp", "value"]
+    pagination_class = MeasurementPagination
 
     def get_queryset(self):
         user = self.request.user
         qs = Measurement.objects.select_related("house", "sensor")
         if user.is_authenticated and not user.is_admin:
             qs = qs.filter(house__owner=user)
-        return self._apply_period(qs)
+        return self._apply_period(self._apply_sensor_filters(qs))
+
+    def _apply_sensor_filters(self, qs):
+        """Filtres orientés terrain : par code capteur (V1, I1…) et par ligne.
+
+        Indispensable pendant les tests : on veut isoler « toutes les mesures de
+        V2 » ou « tout ce qui concerne la ligne 3 » sans connaître les ids en base.
+        """
+        params = self.request.query_params
+        sensor_code = params.get("sensor_code")
+        if sensor_code:
+            qs = qs.filter(sensor__code__iexact=sensor_code.strip())
+        sensor_type = params.get("sensor_type")
+        if sensor_type:
+            qs = qs.filter(sensor__sensor_type=sensor_type.strip())
+        line_number = params.get("line_number")
+        if line_number:
+            try:
+                qs = qs.filter(sensor__line_number=int(line_number))
+            except (TypeError, ValueError):
+                pass  # paramètre invalide : on ignore plutôt que de renvoyer 500
+        return qs
 
     def _apply_period(self, qs):
         start = self.request.query_params.get("start")

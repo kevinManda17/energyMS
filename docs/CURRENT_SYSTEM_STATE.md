@@ -33,14 +33,21 @@ compenser une inversion côté interface (la protection surcharge s'inverserait)
 
 ### Capteurs analogiques (sorties ≤ 3,3 V impératif)
 
-| Capteur | Grandeur | GPIO |
-|---------|----------|------|
-| ZMPT101B-1 | Tension L1 | G34 |
-| ZMCT103C-1 | Courant L1 | G35 |
-| ZMPT101B-2 | Tension L2 | G32 |
-| ZMCT103C-2 | Courant L2 | G33 |
-| ZMPT101B-3 | Tension L3 | G36 (SP / SVP) |
-| ZMCT103C-3 | Courant L3 | G39 (SN / SVN) |
+| Code | Capteur | Grandeur | GPIO |
+|------|---------|----------|------|
+| `V1` | ZMPT101B-1 | Tension L1 | G34 |
+| `I1` | ZMCT103C-1 | Courant L1 | G35 |
+| `V2` | ZMPT101B-2 | Tension L2 | G32 |
+| `I2` | ZMCT103C-2 | Courant L2 | G33 |
+| `V3` | ZMPT101B-3 | Tension L3 | G36 (SP / SVP) |
+| `I3` | ZMCT103C-3 | Courant L3 | G39 (SN / SVN) |
+
+Chaque capteur porte un **code stable** (`V1`, `I1`…) exploité par l'application
+et la calibration. La puissance n'est pas un capteur : elle est **calculée**
+(`V1 × I1 → puissance ligne 1`). Détail complet et méthode de calibration :
+[SENSORS_AND_CALIBRATION.md](SENSORS_AND_CALIBRATION.md).
+
+Création en base : `python manage.py seed_prototype --house <id>` (idempotent).
 
 Tous sur l'**ADC1** : fonctionnels même Wi-Fi actif. G34/G35/G36/G39 sont des
 **entrées seulement**. Broches interdites : CMD, SD0-SD3, CLK (flash interne).
@@ -49,11 +56,16 @@ Tous sur l'**ADC1** : fonctionnels même Wi-Fi actif. G34/G35/G36/G39 sont des
 
 ## 2. Charges par ligne
 
-| Ligne | Charge |
-|-------|--------|
-| Ligne 1 | Lampe 10 W + prise 1 |
-| Ligne 2 | **Lampe 20 W** |
-| Ligne 3 | Lampe 10 W + prise 2 |
+| Ligne | Charges (en parallèle) | Priorités |
+|-------|------------------------|-----------|
+| Ligne 1 | Lampe L1 (10 W) + Prise 1 | normale / non prioritaire |
+| Ligne 2 | **Lampe L2 (20 W) seule** | prioritaire |
+| Ligne 3 | Lampe L3 (10 W) + Prise 2 | normale / non prioritaire |
+
+Une ligne **n'est pas réductible à une seule charge** : les lignes 1 et 3 en
+portent deux, en parallèle. Couper la ligne 1 coupe la lampe *et* la prise 1.
+Les charges sont enregistrées comme `Equipment` (`load_type` = lamp/socket,
+`relay_line`, `priority`).
 
 > **Écart signalé et tranché (19/07/2026)** : le cahier des charges annonçait
 > L2 = 10 W + prise 2 et L3 = 20 W. Après vérification, le mapping **ci-dessus

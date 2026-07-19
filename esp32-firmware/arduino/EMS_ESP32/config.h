@@ -136,13 +136,38 @@ constexpr int SAMPLE_DELAY_US  = 500;
  * tant que la procédure ci-dessus n'a pas été faite ligne par ligne. C'est
  * volontaire : mieux vaut une valeur brute assumée qu'un chiffre inventé.
  */
-constexpr float CAL_V1 = 1.0f;   // à calibrer : U_multimètre / U_affichée (ligne 1)
-constexpr float CAL_V2 = 1.0f;   // à calibrer : U_multimètre / U_affichée (ligne 2)
-constexpr float CAL_V3 = 1.0f;   // à calibrer : U_multimètre / U_affichée (ligne 3)
+/* Un coefficient ET un offset par capteur :
+ *     valeur_physique = valeur_brute_rms × CAL_x + OFFSET_x
+ * L'offset corrige un résidu constant (bruit de fond lu alors qu'aucun courant
+ * ne circule, par exemple). Le laisser à 0 tant qu'il n'a pas été mesuré.
+ *
+ * Les coefficients d'un même type doivent être PROCHES (mêmes modules, même
+ * alimentation, même source AC) sans être identiques. Le backend compare V1/V2/V3
+ * entre eux et I1/I2/I3 entre eux, et signale « suspect » tout capteur qui
+ * s'écarte de plus de 15 % de la médiane de ses semblables : c'est le signe d'un
+ * problème de câblage, d'alimentation, de GND ou de potentiomètre — pas une
+ * valeur à corriger artificiellement.                                          */
+constexpr float CAL_V1 = 1.0f;   // à calibrer : U_multimètre / U_brute (ligne 1)
+constexpr float CAL_V2 = 1.0f;   // à calibrer : U_multimètre / U_brute (ligne 2)
+constexpr float CAL_V3 = 1.0f;   // à calibrer : U_multimètre / U_brute (ligne 3)
+constexpr float OFFSET_V1 = 0.0f;
+constexpr float OFFSET_V2 = 0.0f;
+constexpr float OFFSET_V3 = 0.0f;
 
-constexpr float CAL_I1 = 1.0f;   // à calibrer : I_attendu / I_affiché (ligne 1)
-constexpr float CAL_I2 = 1.0f;   // à calibrer : I_attendu / I_affiché (ligne 2)
-constexpr float CAL_I3 = 1.0f;   // à calibrer : I_attendu / I_affiché (ligne 3)
+constexpr float CAL_I1 = 1.0f;   // à calibrer : I_attendu / I_brut (ligne 1)
+constexpr float CAL_I2 = 1.0f;   // à calibrer : I_attendu / I_brut (ligne 2)
+constexpr float CAL_I3 = 1.0f;   // à calibrer : I_attendu / I_brut (ligne 3)
+constexpr float OFFSET_I1 = 0.0f;
+constexpr float OFFSET_I2 = 0.0f;
+constexpr float OFFSET_I3 = 0.0f;
+
+/* ==================== FACTEUR DE PUISSANCE ==================== */
+/* P = U × I × cos(phi). Le prototype ne mesure PAS le déphasage : on retient
+ * cos(phi) = 1, ce qui revient à calculer la puissance APPARENTE (VA) et à
+ * l'assimiler à la puissance active (W). Correct pour des lampes résistives,
+ * optimiste pour un chargeur à découpage. À documenter dans le mémoire comme
+ * une estimation simplifiée, et non comme une mesure de puissance active. */
+constexpr float POWER_FACTOR = 1.0f;
 
 /* ==================== SEUILS DE SECURITE ==================== */
 /* Onduleur 150 W -> marge de sécurité. Le vrai système expert est côté

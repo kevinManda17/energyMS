@@ -18,12 +18,32 @@ class SensorSerializer(serializers.ModelSerializer):
             "energy_asset",
             "energy_asset_name",
             "name",
+            # Identité physique : ce qu'on lit sur le montage.
+            "code",
             "sensor_type",
+            "line_number",
+            "gpio_pin",
             "unit",
+            "color",
+            "description",
+            "last_seen_at",
+            # Calibration : valeur brute -> grandeur physique.
+            "calibration_factor",
+            "calibration_offset",
+            "calibration_status",
+            "calibrated_at",
+            "calibration_method",
+            "is_calibrated",
             "is_active",
             "created_at",
         )
-        read_only_fields = ("id", "house", "created_at")
+        # La calibration ne se modifie PAS par un PATCH direct : elle passe par
+        # l'endpoint dédié, qui impose l'étape de confirmation.
+        read_only_fields = (
+            "id", "house", "created_at", "last_seen_at", "is_calibrated",
+            "calibration_factor", "calibration_offset", "calibration_status",
+            "calibrated_at", "calibration_method",
+        )
 
     def validate_energy_asset(self, energy_asset: EnergyAsset | None):
         if energy_asset is None:
@@ -49,6 +69,7 @@ class EquipmentSerializer(serializers.ModelSerializer):
             "house",
             "name",
             "equipment_type",
+            "load_type",
             "rated_power_kw",
             "priority",
             "relay_line",

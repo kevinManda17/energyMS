@@ -11,6 +11,7 @@ from rest_framework.views import APIView
 from apps.houses.models import House
 from apps.measurements.models import Measurement
 
+from . import calibration
 from .models import Equipment, RelayState, Sensor
 from .serializers import EquipmentSerializer, RelayStateSerializer, SensorSerializer
 
@@ -199,6 +200,117 @@ class HouseRelayView(APIView):
             "auto_pending_lines", "auto_pending_since", "updated_at",
         ])
         return Response(RelayStateSerializer(state).data)
+
+
+class SensorCalibrationView(APIView):
+    """Calibration d'un capteur — POST /api/sensors/{sensor_id}/calibration/
+
+    Deux actions, volontairement séparées pour qu'aucun coefficient ne soit
+    appliqué sans validation humaine explicite (§21 du cahier des charges) :
+
+      {"action": "propose", "reference_value": 219.0, "raw_value": 1.84}
+          -> calcule et RENVOIE le coefficient, sans rien enregistrer.
+             `raw_value` est optionnel : à défaut, on prend la dernière mesure
+             brute connue du capteur.
+
+      {"action": "apply", "calibration_factor": 119.02, "calibration_offset": 0}
+          -> enregistre le coefficient confirmé par l'utilisateur, horodate la
+             calibration, puis relance la validation croisée de la maison.
+
+    `turns` (courant seulement) : nombre de tours du fil de phase dans le tore.
+    N tours font voir N × I au capteur ; la référence devient donc N × I_réel.
+    """
+
+    def post(self, request, sensor_id):
+        sensor = Sensor.objects.filter(
+            pk=sensor_id, house__in=_accessible_houses(request.user)
+        ).first()
+        if sensor is None:
+            raise PermissionDenied("Capteur introuvable ou non accessible.")
+
+        action = str(request.data.get("action", "")).lower()
+        if action == "propose":
+            return self._propose(request, sensor)
+        if action == "apply":
+            return self._apply(request, sensor)
+        return Response(
+            {"detail": "action doit valoir 'propose' ou 'apply'."}, status=400
+        )
+
+    @staticmethod
+    def _latest_raw(sensor):
+        row = (
+            Measurement.objects.filter(sensor=sensor)
+            .exclude(raw_value=None)
+            .order_by("-timestamp")
+            .first()
+        )
+        return row.raw_value if row else None
+
+    def _propose(self, request, sensor):
+        try:
+            reference = float(request.data["reference_value"])
+        except (KeyError, TypeError, ValueError):
+            return Response(
+                {"detail": "reference_value (valeur lue au multimètre) est requise."},
+                status=400,
+            )
+        raw = request.data.get("raw_value")
+        raw = float(raw) if raw is not None else self._latest_raw(sensor)
+        if raw is None:
+            return Response(
+                {"detail": "Aucune valeur brute disponible pour ce capteur : "
+                           "fournir raw_value, ou attendre un relevé du nœud."},
+                status=400,
+            )
+        turns = int(request.data.get("turns", 1) or 1)
+        try:
+            factor = calibration.propose_factor(raw, reference, turns=turns)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=400)
+
+        proposal = calibration.CalibrationProposal(
+            sensor_code=sensor.code or sensor.name,
+            raw_value=raw,
+            reference_value=reference,
+            proposed_factor=factor,
+            current_factor=sensor.calibration_factor,
+        )
+        payload = proposal.to_dict()
+        payload["turns"] = turns
+        # Rien n'est enregistré : l'utilisateur doit confirmer via "apply".
+        payload["applied"] = False
+        return Response(payload)
+
+    def _apply(self, request, sensor):
+        try:
+            factor = float(request.data["calibration_factor"])
+        except (KeyError, TypeError, ValueError):
+            return Response({"detail": "calibration_factor est requis."}, status=400)
+        if factor == 0:
+            return Response({"detail": "Un facteur nul est invalide."}, status=400)
+        offset = float(request.data.get("calibration_offset", 0.0) or 0.0)
+
+        sensor.calibration_factor = factor
+        sensor.calibration_offset = offset
+        sensor.calibrated_at = timezone.now()
+        sensor.calibration_method = str(request.data.get("method", "multimètre"))[:120]
+        sensor.save(update_fields=["calibration_factor", "calibration_offset",
+                                   "calibrated_at", "calibration_method"])
+
+        # Un capteur calibré change la moyenne du groupe : on réévalue tout le
+        # monde pour repérer un éventuel capteur devenu (ou redevenu) suspect.
+        counts = calibration.refresh_calibration_status(sensor.house)
+        sensor.refresh_from_db()
+        return Response({
+            "sensor_code": sensor.code or sensor.name,
+            "calibration_factor": sensor.calibration_factor,
+            "calibration_offset": sensor.calibration_offset,
+            "calibration_status": sensor.calibration_status,
+            "calibrated_at": sensor.calibrated_at,
+            "group_summary": counts,
+            "applied": True,
+        })
 
 
 class EmsDecisionView(APIView):

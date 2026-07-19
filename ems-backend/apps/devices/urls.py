@@ -6,6 +6,7 @@ from .views import (
     HouseEquipmentListCreateView,
     HouseRelayView,
     HouseSensorListCreateView,
+    SensorCalibrationView,
 )
 
 urlpatterns = [
@@ -28,6 +29,13 @@ urlpatterns = [
         "equipment/<int:pk>/",
         EquipmentDetailView.as_view(),
         name="equipment-detail",
+    ),
+    # Calibration d'un capteur : "propose" calcule le coefficient, "apply"
+    # l'enregistre. Deux étapes = aucun coefficient appliqué sans confirmation.
+    path(
+        "sensors/<int:sensor_id>/calibration/",
+        SensorCalibrationView.as_view(),
+        name="sensor-calibration",
     ),
     # Point de sondage du noeud IoT (ESP32) : renvoie "L1=x;L2=x;L3=x".
     path(

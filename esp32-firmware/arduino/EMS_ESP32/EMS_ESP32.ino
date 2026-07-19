@@ -120,13 +120,20 @@ float readSensorRmsVoltage(uint8_t pin) {
   return (float)(sqrt(variance) * ADC_REF_V / ADC_MAX);
 }
 
-LineData readLine(uint8_t pinV, uint8_t pinI, float calV, float calI) {
+/* Applique la calibration d'un capteur : valeur_brute × coefficient + offset.
+ * La valeur brute (vSensorRms / iSensorRms) est conservée telle quelle et
+ * transmise au backend : elle permet de recalculer un coefficient plus tard
+ * sans refaire la manipulation physique. */
+LineData readLine(uint8_t pinV, uint8_t pinI,
+                  float calV, float offV, float calI, float offI) {
   LineData data;
   data.vSensorRms = readSensorRmsVoltage(pinV);
   data.iSensorRms = readSensorRmsVoltage(pinI);
-  data.voltage = data.vSensorRms * calV;
-  data.current = data.iSensorRms * calI;
-  data.power   = data.voltage * data.current;
+  data.voltage = data.vSensorRms * calV + offV;
+  data.current = data.iSensorRms * calI + offI;
+  // P = U × I × cos(phi). Le déphasage n'étant pas mesuré, POWER_FACTOR = 1 :
+  // c'est donc la puissance APPARENTE (VA) assimilée à de l'actif (W).
+  data.power   = data.voltage * data.current * POWER_FACTOR;
   return data;
 }
 
@@ -430,9 +437,9 @@ void loop() {
   if (now - lastMeasureMs >= MEASURE_INTERVAL_MS) {
     lastMeasureMs = now;
 
-    lastLine1 = readLine(PIN_V1, PIN_I1, CAL_V1, CAL_I1);
-    lastLine2 = readLine(PIN_V2, PIN_I2, CAL_V2, CAL_I2);
-    lastLine3 = readLine(PIN_V3, PIN_I3, CAL_V3, CAL_I3);
+    lastLine1 = readLine(PIN_V1, PIN_I1, CAL_V1, OFFSET_V1, CAL_I1, OFFSET_I1);
+    lastLine2 = readLine(PIN_V2, PIN_I2, CAL_V2, OFFSET_V2, CAL_I2, OFFSET_I2);
+    lastLine3 = readLine(PIN_V3, PIN_I3, CAL_V3, OFFSET_V3, CAL_I3, OFFSET_I3);
 
     printMeasurements(lastLine1, lastLine2, lastLine3);
 

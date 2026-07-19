@@ -57,8 +57,20 @@ class Measurement(models.Model):
         related_name="measurements",
     )
     measurement_type = models.CharField(max_length=20, choices=Type.choices)
+    # Valeur exploitée par l'application, dans l'unité physique (V, A, kW…).
+    # Pour un capteur calibré : raw_value × facteur + offset.
     value = models.FloatField()
     unit = models.CharField(max_length=20, default="kW")
+    # Valeur BRUTE remontée par le capteur (RMS en volts ADC), conservée telle
+    # quelle. C'est elle qui permet de (re)calculer un coefficient plus tard
+    # sans refaire la manipulation physique. Null = mesure sans capteur associé
+    # (météo, agrégat calculé…).
+    raw_value = models.FloatField(null=True, blank=True)
+    # Coefficients réellement utilisés au moment de la mesure : indispensable
+    # pour relire un historique après une recalibration, sans le fausser.
+    calibration_factor_used = models.FloatField(null=True, blank=True)
+    calibration_offset_used = models.FloatField(null=True, blank=True)
+    quality_status = models.CharField(max_length=16, blank=True)
     timestamp = models.DateTimeField(db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
