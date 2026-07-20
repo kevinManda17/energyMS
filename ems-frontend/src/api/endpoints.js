@@ -86,6 +86,27 @@ export const forecastingApi = {
     api.patch(`/forecasting/models/${id}/`, p).then((r) => r.data),
 };
 
+// ---- N.E.R.A. (agent conversationnel) -------------------------------------
+export const neraApi = {
+  chat: (houseId, message, history = []) =>
+    api.post("/nera/chat/", { house: houseId, message, history }).then((r) => r.data),
+
+  // Enregistrement vocal : transcription + action + réponse en un appel.
+  // `speak` demande en plus la réponse audio (base64) pour la jouer sans
+  // second aller-retour.
+  voice: (houseId, audioBlob, { speak = true } = {}) => {
+    const form = new FormData();
+    form.append("house", houseId);
+    form.append("audio", audioBlob, "commande.webm");
+    form.append("speak", speak ? "true" : "false");
+    return api
+      .post("/nera/voice/", form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      })
+      .then((r) => r.data);
+  },
+};
+
 export const decisionsApi = {
   list: (params) => api.get("/decisions/", { params }).then((r) => r.data),
   latest: () => api.get("/decisions/latest/").then((r) => r.data),

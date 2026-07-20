@@ -28,6 +28,7 @@ import ForecastingScreen from "../screens/ForecastingScreen";
 import ReportsScreen from "../screens/ReportsScreen";
 import PricingScreen from "../screens/PricingScreen";
 import MoreScreen from "../screens/MoreScreen";
+import NeraScreen from "../screens/NeraScreen";
 import ProfileScreen from "../screens/ProfileScreen";
 import PasswordScreen from "../screens/PasswordScreen";
 import DisplayScreen from "../screens/DisplayScreen";
@@ -126,6 +127,7 @@ export default function Navigation() {
             <Stack.Screen name="DecisionDetail" component={DecisionDetailScreen} options={{ ...stackScreenOptions, title: "Détail décision" }} />
             <Stack.Screen name="AlertDetail" component={AlertDetailScreen} options={{ ...stackScreenOptions, title: "Détail alerte" }} />
             <Stack.Screen name="Devices" component={DevicesScreen} options={{ ...stackScreenOptions, title: "Équipements" }} />
+            <Stack.Screen name="Nera" component={NeraScreen} options={{ ...stackScreenOptions, title: "N.E.R.A." }} />
             <Stack.Screen name="Forecasting" component={ForecastingScreen} options={{ ...stackScreenOptions, title: "Prévisions" }} />
             <Stack.Screen name="Reports" component={ReportsScreen} options={{ ...stackScreenOptions, title: "Rapports" }} />
             <Stack.Screen name="Pricing" component={PricingScreen} options={{ ...stackScreenOptions, title: "Tarifs" }} />

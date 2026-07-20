@@ -6,8 +6,9 @@ commande les trois lignes électriques à la voix ou au clavier.
 Branche : `feat/conversational-agent-nera`
 Dernière mise à jour : **19/07/2026**
 
-> **État : backend fonctionnel, interface non faite.** Les endpoints existent et
-> sont testés ; il n'y a pas encore de bouton micro dans le web ni le mobile.
+> **État : backend + interfaces web et mobile faits.** Reste à valider avec une
+> vraie clé OpenAI : les tests simulent le client, ils ne prouvent donc pas la
+> qualité de compréhension du modèle.
 
 ---
 
@@ -124,13 +125,35 @@ curl -X POST http://192.168.84.117:8000/api/nera/chat/ \
 
 ---
 
-## 7. Limites connues
+## 7. Interfaces
 
-- **Pas d'interface** : aucun bouton micro dans le web ni le mobile. Les
-  endpoints s'utilisent pour l'instant en curl ou depuis un client HTTP.
+**Web** — page « N.E.R.A. » dans le menu latéral. Conversation au clavier,
+suggestions au premier lancement, et affichage des actions **réellement
+exécutées** (on n'affiche pas ce que le modèle *dit* avoir fait, mais ce que le
+backend a fait).
+
+> ⚠ **Le micro est bloqué sur le LAN en HTTP.** Les navigateurs exigent un
+> contexte sécurisé (HTTPS ou `localhost`) pour `getUserMedia` — exactement la
+> même contrainte que la géolocalisation. Sur `http://192.168.84.117:5173`, le
+> bouton micro est désactivé avec l'explication affichée ; le clavier fonctionne
+> normalement. Pour parler : utiliser le mobile, ou servir le web en HTTPS.
+
+**Mobile** — écran « N.E.R.A. » (onglet *Plus*). C'est **là que la voix prend
+tout son sens** : une application native n'a pas la contrainte HTTPS. Micro
+(permission demandée au premier usage), transcription, action, et la réponse est
+**jouée à voix haute** automatiquement.
+
+Le lecteur audio est libéré en quittant l'écran, sinon une réponse continuerait
+de jouer après la navigation.
+
+---
+
+## 8. Limites connues
+
 - **Pas de mot d'éveil** : dire « NERA » ne déclenche rien ; il faut lancer
   l'enregistrement explicitement. Un vrai *wake word* demande une écoute
   permanente côté client.
+- **Micro web indisponible en HTTP sur le LAN** (voir §7).
 - **Latence** : trois appels réseau en chaîne (STT, chat, TTS). Compter quelques
   secondes. Les API temps réel d'OpenAI réduiraient cela, au prix d'une
   architecture WebSocket.

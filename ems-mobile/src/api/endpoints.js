@@ -36,6 +36,26 @@ export const devicesApi = {
   removeEquipment: (id) => api.delete(`/equipment/${id}/`),
 };
 
+// ---- N.E.R.A. (agent conversationnel) -------------------------------------
+export const neraApi = {
+  chat: (houseId, message, history = []) =>
+    api.post("/nera/chat/", { house: houseId, message, history }).then((r) => r.data),
+
+  // `uri` : fichier audio produit par expo-av. React Native envoie le fichier
+  // via une référence {uri, name, type} plutôt qu'un Blob.
+  voice: (houseId, uri, { speak = true } = {}) => {
+    const form = new FormData();
+    form.append("house", String(houseId));
+    form.append("speak", speak ? "true" : "false");
+    form.append("audio", { uri, name: "commande.m4a", type: "audio/m4a" });
+    return api
+      .post("/nera/voice/", form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      })
+      .then((r) => r.data);
+  },
+};
+
 // Commande des relais (3 lignes du prototype) : toujours en direct.
 export const relaysApi = {
   get: (houseId) => api.get(`/houses/${houseId}/relays/`).then((r) => r.data),

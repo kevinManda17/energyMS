@@ -1,6 +1,7 @@
 import { ScrollView, Text, TouchableOpacity, StyleSheet, View } from "react-native";
 import {
   Bell,
+  Bot,
   ChartLine,
   ChevronRight,
   Cpu,
@@ -16,6 +17,7 @@ import { useTheme } from "../hooks/useTheme";
 import { palette } from "../theme/colors";
 
 const TOOLS = [
+  { label: "N.E.R.A.",     screen: "Nera",        icon: Bot,       color: palette.purple },
   { label: "Equipements",  screen: "Devices",     icon: Cpu,       color: palette.blue  },
   { label: "Prévisions",   screen: "Forecasting", icon: ChartLine, color: palette.green },
   { label: "Rapports",     screen: "Reports",     icon: FileText,  color: palette.solar },
