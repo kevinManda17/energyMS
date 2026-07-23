@@ -41,7 +41,7 @@ DEBUG = env_bool("DJANGO_DEBUG", "True")
 # `localhost` / `127.0.0.1` restent acceptés, mais uniquement comme repli de
 # développement sur la machine elle-même : un téléphone ou l'ESP32 ne peuvent
 # pas les joindre (localhost y désigne l'appareil lui-même).
-LAN_HOST = os.getenv("LAN_HOST", "192.168.84.117")
+LAN_HOST = os.getenv("LAN_HOST", "192.168.0.117")
 BACKEND_HOST = os.getenv("BACKEND_HOST", "0.0.0.0")  # écoute sur toutes les interfaces
 BACKEND_PORT = int(os.getenv("BACKEND_PORT", "8000"))
 FRONTEND_PORT = int(os.getenv("FRONTEND_PORT", "5173"))

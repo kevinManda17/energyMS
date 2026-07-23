@@ -31,7 +31,7 @@
       ]
     ],
     "extra": {
-      "apiBaseUrl": "http://192.168.84.117:8000/api"
+      "apiBaseUrl": "http://192.168.0.117:8000/api"
     }
   }
 }

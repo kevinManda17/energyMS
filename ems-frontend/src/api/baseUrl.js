@@ -5,7 +5,7 @@
  *   1. VITE_API_BASE_URL (fichier .env) — c'est la voie recommandée ;
  *   2. repli dynamique : même hôte que la page, port 8000. Utile quand on ouvre
  *      le tableau de bord depuis un autre appareil du réseau : la page servie
- *      par http://192.168.84.117:5173 appellera http://192.168.84.117:8000/api,
+ *      par http://192.168.0.117:5173 appellera http://192.168.0.117:8000/api,
  *      sans rien reconfigurer ;
  *   3. repli statique (hors navigateur : tests, SSR).
  *
@@ -18,7 +18,7 @@
 export const BACKEND_PORT = 8000;
 
 // Repli utilisé uniquement hors navigateur (tests unitaires, rendu serveur).
-const STATIC_FALLBACK_HOST = "192.168.84.117";
+const STATIC_FALLBACK_HOST = "192.168.0.117";
 
 export function resolveApiBaseUrl(env = import.meta.env, loc = globalThis.location) {
   const configured = env?.VITE_API_BASE_URL;

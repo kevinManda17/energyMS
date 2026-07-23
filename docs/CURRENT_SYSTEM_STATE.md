@@ -117,12 +117,12 @@ formulaire mobile) :
 
 | Élément | Valeur |
 |---------|--------|
-| Adresse LAN du PC | `192.168.84.117` |
+| Adresse LAN du PC | `192.168.0.117` |
 | Backend (écoute) | `0.0.0.0:8000` (toutes interfaces) |
-| Backend (accès) | `http://192.168.84.117:8000` |
-| Frontend | `http://192.168.84.117:5173` |
-| API | `http://192.168.84.117:8000/api` |
-| Endpoint ESP32 | `http://192.168.84.117:8000/api/ems/decision/` |
+| Backend (accès) | `http://192.168.0.117:8000` |
+| Frontend | `http://192.168.0.117:5173` |
+| API | `http://192.168.0.117:8000/api` |
+| Endpoint ESP32 | `http://192.168.0.117:8000/api/ems/decision/` |
 
 `localhost` / `127.0.0.1` restent acceptés **uniquement** comme repli de
 développement sur le PC lui-même. Un téléphone ou l'ESP32 ne peuvent pas les
@@ -142,9 +142,9 @@ Le script ne peut pas mettre à jour l'ESP32 (il faut reflasher) : changer
 
 | Composant | Variable / constante | Repli |
 |-----------|---------------------|-------|
-| Backend | `LAN_HOST` (settings/base.py) | `192.168.84.117` |
+| Backend | `LAN_HOST` (settings/base.py) | `192.168.0.117` |
 | Frontend | `VITE_API_BASE_URL` (.env) | hôte de la page + `:8000/api` |
-| Mobile | `EXPO_PUBLIC_API_BASE_URL` (.env) | `192.168.84.117` en dur |
+| Mobile | `EXPO_PUBLIC_API_BASE_URL` (.env) | `192.168.0.117` en dur |
 | ESP32 | `BACKEND_HOST_STR` (config.h) | aucun — recompilation requise |
 
 Le frontend est le seul à savoir s'adapter seul : il déduit l'API de l'hôte de
@@ -158,14 +158,14 @@ machine. Le mobile et l'ESP32 n'ont aucun moyen fiable de deviner l'adresse.
 ### Backend (`ems-backend/.env`)
 
 ```env
-LAN_HOST=192.168.84.117
+LAN_HOST=192.168.0.117
 BACKEND_HOST=0.0.0.0
 BACKEND_PORT=8000
-API_BASE_URL=http://192.168.84.117:8000/api
-FRONTEND_BASE_URL=http://192.168.84.117:5173
-PUBLIC_APP_BASE_URL=http://192.168.84.117:5173
-DJANGO_ALLOWED_HOSTS=192.168.84.117,localhost,127.0.0.1
-CORS_ALLOWED_ORIGINS=http://192.168.84.117:5173,http://localhost:5173
+API_BASE_URL=http://192.168.0.117:8000/api
+FRONTEND_BASE_URL=http://192.168.0.117:5173
+PUBLIC_APP_BASE_URL=http://192.168.0.117:5173
+DJANGO_ALLOWED_HOSTS=192.168.0.117,localhost,127.0.0.1
+CORS_ALLOWED_ORIGINS=http://192.168.0.117:5173,http://localhost:5173
 DJANGO_SECRET_KEY=<au moins 32 octets — sert aussi à signer les JWT>
 EMS_AUTO_CONFIRM_SECONDS=180
 ```
@@ -173,15 +173,15 @@ EMS_AUTO_CONFIRM_SECONDS=180
 ### Frontend (`ems-frontend/.env`)
 
 ```env
-VITE_API_BASE_URL=http://192.168.84.117:8000/api
-VITE_WS_URL=ws://192.168.84.117:8000/ws
+VITE_API_BASE_URL=http://192.168.0.117:8000/api
+VITE_WS_URL=ws://192.168.0.117:8000/ws
 ```
 
 ### Mobile (`ems-mobile/.env`)
 
 ```env
-EXPO_PUBLIC_API_BASE_URL=http://192.168.84.117:8000/api
-EXPO_PUBLIC_EDGE_API_URL=http://192.168.84.117:8000/api
+EXPO_PUBLIC_API_BASE_URL=http://192.168.0.117:8000/api
+EXPO_PUBLIC_EDGE_API_URL=http://192.168.0.117:8000/api
 ```
 
 ---

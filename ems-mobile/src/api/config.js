@@ -5,7 +5,7 @@ import { storage } from "../storage";
 // Aucune détection automatique fiable côté mobile — on passe donc par
 // EXPO_PUBLIC_API_BASE_URL (fichier .env), avec ce repli en dur.
 // Pour retrouver l'adresse courante : python scripts/configure_lan.py
-const LAN_API_FALLBACK = "http://192.168.84.117:8000/api";
+const LAN_API_FALLBACK = "http://192.168.0.117:8000/api";
 
 const CLOUD = process.env.EXPO_PUBLIC_API_BASE_URL || LAN_API_FALLBACK;
 const EDGE = process.env.EXPO_PUBLIC_EDGE_API_URL || LAN_API_FALLBACK;

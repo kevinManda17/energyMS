@@ -47,14 +47,14 @@ constexpr const char* WIFI_PASSWORD = "";
  *   L1=1;L2=0;L3=1
  *
  * Historique des adresses (réseaux précédents) : 172.20.10.14, 192.168.203.117,
- * 192.168.188.117. Pour connaître l'adresse courante du PC :
+ * 192.168.188.117, 192.168.84.117. Pour connaître l'adresse courante du PC :
  *   python scripts/configure_lan.py
  *
  * ÉVOLUTION PRÉVUE (non implémentée) : rendre l'hôte modifiable sans recompiler,
  * via une commande série (`host 192.168.x.y`) stockée en NVS Preferences, ou par
  * découverte mDNS. Aujourd'hui, changer de réseau impose un téléversement.      */
 /* >>> SEULE LIGNE À MODIFIER quand le PC change de réseau <<< */
-#define BACKEND_HOST_STR "192.168.84.117"
+#define BACKEND_HOST_STR "192.168.0.117"
 #define BACKEND_PORT_NUM 8000
 #define BACKEND_PATH_STR "/api/ems/decision/"
 

@@ -4,23 +4,23 @@ import { resolveApiBaseUrl } from "../api/baseUrl";
 describe("resolveApiBaseUrl", () => {
   it("utilise VITE_API_BASE_URL quand elle est definie", () => {
     const url = resolveApiBaseUrl(
-      { VITE_API_BASE_URL: "http://192.168.84.117:8000/api" },
+      { VITE_API_BASE_URL: "http://192.168.0.117:8000/api" },
       { hostname: "autre-hote", protocol: "http:" }
     );
-    expect(url).toBe("http://192.168.84.117:8000/api");
+    expect(url).toBe("http://192.168.0.117:8000/api");
   });
 
   it("supprime le slash final de la variable d'environnement", () => {
     const url = resolveApiBaseUrl(
-      { VITE_API_BASE_URL: "http://192.168.84.117:8000/api/" },
+      { VITE_API_BASE_URL: "http://192.168.0.117:8000/api/" },
       {}
     );
-    expect(url).toBe("http://192.168.84.117:8000/api");
+    expect(url).toBe("http://192.168.0.117:8000/api");
   });
 
   it("retombe sur l'hote de la page quand la variable est absente", () => {
-    const url = resolveApiBaseUrl({}, { hostname: "192.168.84.117", protocol: "http:" });
-    expect(url).toBe("http://192.168.84.117:8000/api");
+    const url = resolveApiBaseUrl({}, { hostname: "192.168.0.117", protocol: "http:" });
+    expect(url).toBe("http://192.168.0.117:8000/api");
   });
 
   it("suit l'hote courant, quel que soit le reseau", () => {
