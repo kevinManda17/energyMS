@@ -50,16 +50,20 @@ const EQUIP_ICON = {
   appliance:  { icon: Plug,      color: "text-energy",   bg: "bg-green-50 dark:bg-green-500/10" },
 };
 
+// Les cinq niveaux du modèle Equipment (du plus protégé au plus délestable).
+// LOW manquait : une charge « Secondaire » s'affichait alors en code brut.
 const PRIORITY_COLOR = {
   CRITICAL:     "text-danger",
   IMPORTANT:    "text-solar",
   NORMAL:       "text-energy",
+  LOW:          "text-electric",
   NON_CRITICAL: "text-slate-400",
 };
 const PRIORITY_LABEL = {
   CRITICAL:     "Critique",
   IMPORTANT:    "Important",
   NORMAL:       "Normal",
+  LOW:          "Secondaire",
   NON_CRITICAL: "Non critique",
 };
 

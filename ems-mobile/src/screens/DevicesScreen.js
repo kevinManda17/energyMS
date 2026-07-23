@@ -57,6 +57,18 @@ const EQUIP_ICONS = {
 
 const EQUIP_TYPES = ["LOAD", "SOLAR_PANEL", "BATTERY", "INVERTER", "APPLIANCE"];
 
+// Les cinq niveaux de priorité du modèle Equipment, du plus protégé au plus
+// délestable. La décision les regroupe en trois catégories, mais l'utilisateur
+// choisit bien parmi les cinq. Auparavant la priorité était figée à NORMAL.
+const PRIORITIES = [
+  { value: "CRITICAL",     label: "Critique",    color: palette.danger },
+  { value: "IMPORTANT",    label: "Important",   color: palette.solar },
+  { value: "NORMAL",       label: "Normal",      color: palette.green },
+  { value: "LOW",          label: "Secondaire",  color: palette.blue },
+  { value: "NON_CRITICAL", label: "Non critique", color: palette.slate },
+];
+const PRIORITY_LABEL = Object.fromEntries(PRIORITIES.map((p) => [p.value, p.label]));
+
 function getSensorMeta(sensor) {
   const key = Object.keys(SENSOR_ICONS).find((k) =>
     sensor.sensor_type?.toLowerCase().includes(k) || sensor.name?.toLowerCase().includes(k)
@@ -74,7 +86,7 @@ export default function DevicesScreen() {
   const [sensors, setSensors]     = useState([]);
   const [equipment, setEquipment] = useState([]);
   const [showModal, setShowModal] = useState(false);
-  const [form, setForm]           = useState({ name: "", equipment_type: "LOAD", rated_power_kw: "" });
+  const [form, setForm]           = useState({ name: "", equipment_type: "LOAD", rated_power_kw: "", priority: "NORMAL" });
   const [saving, setSaving]       = useState(false);
 
   const load = useCallback(async () => {
@@ -97,10 +109,10 @@ export default function DevicesScreen() {
         name:             form.name,
         equipment_type:   form.equipment_type,
         rated_power_kw:   Number(form.rated_power_kw || 0),
-        priority: "NORMAL",
+        priority:         form.priority,
         status:   "ACTIVE",
       });
-      setForm({ name: "", equipment_type: "LOAD", rated_power_kw: "" });
+      setForm({ name: "", equipment_type: "LOAD", rated_power_kw: "", priority: "NORMAL" });
       setShowModal(false);
       load();
     } catch {
@@ -154,6 +166,8 @@ export default function DevicesScreen() {
               {item.equipment_type || "Appareil"} · {fmt(item.rated_power_kw)} kW
               {" · "}
               {item.relay_line ? `Ligne ${item.relay_line}` : "ligne non rattachée"}
+              {" · "}
+              {PRIORITY_LABEL[item.priority] || item.priority || "Normal"}
             </Text>
           </DeviceCard>
         );
@@ -234,6 +248,30 @@ export default function DevicesScreen() {
                   keyboardType="numeric"
                   selectionColor={palette.blue}
                 />
+              </View>
+
+              <Text style={[styles.fieldLabel, { color: t.sub }]}>Priorité</Text>
+              <View style={styles.typeGrid}>
+                {PRIORITIES.map((p) => {
+                  const active = form.priority === p.value;
+                  return (
+                    <TouchableOpacity
+                      key={p.value}
+                      onPress={() => setForm((f) => ({ ...f, priority: p.value }))}
+                      style={[
+                        styles.typeChip,
+                        {
+                          borderColor: active ? p.color : t.border,
+                          backgroundColor: active ? p.color + "18" : "transparent",
+                        },
+                      ]}
+                    >
+                      <Text style={{ color: active ? p.color : t.sub, fontSize: 12, fontWeight: "700" }}>
+                        {p.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
 
               <TouchableOpacity

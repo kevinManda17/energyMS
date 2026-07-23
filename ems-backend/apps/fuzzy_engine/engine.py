@@ -75,9 +75,19 @@ def _pv_nominal_power_kw(house, fallback: float = 5.0) -> float:
 def _load_priority(house) -> str:
     active = Equipment.objects.filter(house=house, status=Equipment.Status.ACTIVE)
     priorities = set(active.values_list("priority", flat=True))
+    # Les 5 niveaux du modèle Equipment sont regroupés en 3 catégories pour la
+    # DÉCISION : le moteur flou n'a besoin que de savoir s'il doit protéger,
+    # recommander, ou peut délester. Les 5 niveaux restent visibles côté
+    # données et interfaces ; seule la décision les regroupe.
+    #   CRITICAL              -> CRITICAL     (jamais coupée automatiquement)
+    #   IMPORTANT, NORMAL     -> PRIORITY     (recommandation seulement)
+    #   LOW, NON_CRITICAL     -> NON_PRIORITY (délestable)
     if Equipment.Priority.CRITICAL in priorities:
         return "CRITICAL"
-    if Equipment.Priority.IMPORTANT in priorities or Equipment.Priority.NORMAL in priorities:
+    if (
+        Equipment.Priority.IMPORTANT in priorities
+        or Equipment.Priority.NORMAL in priorities
+    ):
         return "PRIORITY"
     return "NON_PRIORITY"
 

@@ -60,6 +60,21 @@ def test_shedding_targets_line_with_lowest_priority_equipment(auth_client):
     assert desired == {"line1": True, "line2": True, "line3": False}
 
 
+def test_low_priority_sheds_before_normal(auth_client):
+    """LOW (Secondaire) doit se délester AVANT NORMAL — sinon LOW retombait,
+    par défaut, au rang de NORMAL et n'était jamais choisie en premier."""
+    _client, house = auth_client
+    Equipment.objects.create(house=house, name="Ventilateur", priority="LOW",
+                             relay_line=1, status="ACTIVE")
+    Equipment.objects.create(house=house, name="Box internet", priority="NORMAL",
+                             relay_line=2, status="ACTIVE")
+    Equipment.objects.create(house=house, name="Frigo", priority="IMPORTANT",
+                             relay_line=3, status="ACTIVE")
+    desired = desired_lines_for_decision(_Res("SHED_NON_PRIORITY_LOAD"), house=house)
+    # La ligne 1 (LOW) est délestée, pas la 2 (NORMAL) ni la 3 (IMPORTANT).
+    assert desired == {"line1": False, "line2": True, "line3": True}
+
+
 def test_critical_line_is_never_shed_automatically(auth_client):
     _client, house = auth_client
     # Toutes les lignes portent une charge critique : aucune coupure auto.

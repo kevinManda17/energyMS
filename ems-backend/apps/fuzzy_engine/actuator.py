@@ -27,8 +27,17 @@ from __future__ import annotations
 LINES = ("line1", "line2", "line3")
 ALL_ON = {"line1": True, "line2": True, "line3": True}
 
-# Rang de priorité d'un équipement (plus haut = plus prioritaire).
-PRIORITY_RANK = {"NON_CRITICAL": 0, "NORMAL": 1, "IMPORTANT": 2, "CRITICAL": 3}
+# Rang de priorité d'un équipement (plus haut = plus prioritaire, donc coupé en
+# dernier). Les cinq niveaux du modèle Equipment sont couverts : sans LOW, une
+# charge « Secondaire » retombait sur le défaut et était classée comme NORMAL,
+# alors qu'elle doit se délester avant une charge normale.
+PRIORITY_RANK = {
+    "NON_CRITICAL": 0,   # délestée en premier
+    "LOW": 1,            # secondaire
+    "NORMAL": 2,
+    "IMPORTANT": 3,      # prioritaire
+    "CRITICAL": 4,       # jamais coupée automatiquement
+}
 
 # Repli quand aucun équipement n'est rattaché à une ligne : convention du
 # firmware (L3 prioritaire, L1 moyenne, L2 délestée en premier).
@@ -60,7 +69,8 @@ def _line_context(house):
         key = f"line{line_no}"
         if key not in ranks:
             continue
-        mapped[key] = max(mapped.get(key, -1), PRIORITY_RANK.get(priority, 1))
+        # Priorité inconnue -> rang de NORMAL (défaut du modèle), pas LOW.
+        mapped[key] = max(mapped.get(key, -1), PRIORITY_RANK.get(priority, 2))
         if priority == "CRITICAL":
             critical.add(key)
 

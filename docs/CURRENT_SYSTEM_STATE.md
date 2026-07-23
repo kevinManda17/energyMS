@@ -67,6 +67,32 @@ portent deux, en parallèle. Couper la ligne 1 coupe la lampe *et* la prise 1.
 Les charges sont enregistrées comme `Equipment` (`load_type` = lamp/socket,
 `relay_line`, `priority`).
 
+### Priorité des charges — 5 niveaux
+
+Le modèle `Equipment.priority` définit **cinq niveaux**, du plus protégé au plus
+délestable. Ils sont sélectionnables à la création d'une charge (web en lecture,
+formulaire mobile) :
+
+| Niveau | Libellé | Rôle |
+|--------|---------|------|
+| `CRITICAL` | Critique | jamais coupée automatiquement |
+| `IMPORTANT` | Important | prioritaire |
+| `NORMAL` | Normal | charge courante (défaut) |
+| `LOW` | Secondaire | délestée avant une charge normale |
+| `NON_CRITICAL` | Non critique | délestée **en premier** |
+
+> **La décision regroupe ces 5 niveaux en 3 catégories** (`_load_priority`), car
+> le moteur flou n'a besoin que de savoir s'il doit **protéger**, **recommander**
+> ou peut **délester** :
+> `CRITICAL → CRITICAL` · `IMPORTANT, NORMAL → PRIORITY` · `LOW, NON_CRITICAL → NON_PRIORITY`.
+> Les 5 niveaux restent visibles côté données et interfaces ; seul le
+> raisonnement décisionnel les regroupe. Le classement de délestage
+> (`actuator.PRIORITY_RANK`), lui, distingue bien les 5.
+
+> **À corriger dans le mémoire** (§4.4.2) : le texte décrit la priorité en trois
+> niveaux « faible / moyenne / élevée ». La taxonomie réelle est celle des cinq
+> niveaux ci-dessus. Signalé, non encore répercuté dans le PDF.
+
 > **Écart signalé et tranché (19/07/2026)** : le cahier des charges annonçait
 > L2 = 10 W + prise 2 et L3 = 20 W. Après vérification, le mapping **ci-dessus
 > a été confirmé** : la lampe 20 W est bien sur la **ligne 2**. Le code (web et
