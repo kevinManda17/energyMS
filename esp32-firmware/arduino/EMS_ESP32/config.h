@@ -54,7 +54,7 @@ constexpr const char* WIFI_PASSWORD = "";
  * via une commande série (`host 192.168.x.y`) stockée en NVS Preferences, ou par
  * découverte mDNS. Aujourd'hui, changer de réseau impose un téléversement.      */
 /* >>> SEULE LIGNE À MODIFIER quand le PC change de réseau <<< */
-#define BACKEND_HOST_STR "192.168.0.117"
+#define BACKEND_HOST_STR "172.20.10.15"
 #define BACKEND_PORT_NUM 8000
 #define BACKEND_PATH_STR "/api/ems/decision/"
 
