@@ -1,6 +1,13 @@
 # EMS - Architecture, MCD, MLD, MPD et scripts de génération des diagrammes
 
 > Note : ce fichier garde les diagrammes generaux du memoire. Pour le schema de base de donnees a jour, voir `docs/EMS_database_diagrammes_actuels.md`.
+>
+> **Mise a jour 25/07/2026** — MCD / MLD / MPD / classes alignes sur les champs
+> recents `HOUSE.pv_capacity_kw`, `HOUSE.battery_capacity_kwh`, `HOUSE.last_activity_at`
+> et `IMPORTED_MODEL.reference_peak_w`. Les sections **architecture cible et
+> perspectives** (MQTT, Edge Gateway, deploiement AWS/Vercel) decrivent l'evolution
+> visee, pas le prototype actuel — conservees volontairement. Schema physique complet
+> et a jour : ERD `audit-diagrammes/*/diagrammes/09-base-de-donnees` + `CURRENT_SYSTEM_STATE.md`.
 
 Ce document rassemble les modèles de données et les scripts permettant de générer les diagrammes nécessaires au mémoire.
 
@@ -66,7 +73,10 @@ erDiagram
         int owner_id FK
         string name
         string location
+        float pv_capacity_kw
+        float battery_capacity_kwh
         string status
+        datetime last_activity_at
     }
 
     ENERGY_ASSET {
@@ -120,6 +130,7 @@ erDiagram
         string model_type
         string file_path
         string version
+        float reference_peak_w
         json input_schema
         json metrics
         bool is_active
@@ -214,7 +225,10 @@ HOUSE(
   latitude,
   longitude,
   description,
+  pv_capacity_kw NULL,
+  battery_capacity_kwh NULL,
   status,
+  last_activity_at NULL,
   created_at,
   updated_at
 )
@@ -275,6 +289,7 @@ IMPORTED_MODEL(
   model_type,
   file_path,
   version,
+  reference_peak_w NULL,
   input_schema,
   metrics,
   is_active,
@@ -370,7 +385,10 @@ CREATE TABLE houses_house (
     latitude DOUBLE PRECISION,
     longitude DOUBLE PRECISION,
     description TEXT,
+    pv_capacity_kw DOUBLE PRECISION,
+    battery_capacity_kwh DOUBLE PRECISION,
     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+    last_activity_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
@@ -431,6 +449,7 @@ CREATE TABLE forecasting_importedmodel (
     model_type VARCHAR(50) NOT NULL,
     file_path VARCHAR(255) NOT NULL,
     version VARCHAR(50) NOT NULL DEFAULT 'v1',
+    reference_peak_w DOUBLE PRECISION,
     input_schema JSONB NOT NULL DEFAULT '{}'::jsonb,
     metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -516,7 +535,10 @@ classDiagram
         +id
         +name
         +location
+        +pv_capacity_kw
+        +battery_capacity_kwh
         +status
+        +last_activity_at
     }
 
     class EnergyAsset {
@@ -563,6 +585,7 @@ classDiagram
         +target
         +model_type
         +version
+        +reference_peak_w
         +input_schema
         +metrics
         +is_active

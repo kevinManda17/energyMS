@@ -1,6 +1,16 @@
 # EMS - Diagrammes actuels de la base de donnees
 
-Date de reference : 2026-07-03
+Date de reference : 2026-07-03 · **Champs recents mis a jour le 2026-07-25**
+
+> **Mise a jour 25/07/2026** — les diagrammes ci-dessous ont ete alignes sur les
+> champs ajoutes recemment : `HOUSE.pv_capacity_kw`, `HOUSE.battery_capacity_kwh`,
+> `HOUSE.last_activity_at`, `IMPORTED_MODEL.reference_peak_w`. D'autres colonnes
+> issues du travail sur les capteurs (calibration `SENSOR.code/line_number/gpio_pin/
+> calibration_*`, `EQUIPMENT.relay_line/load_type`, `MEASUREMENT.raw_value/
+> calibration_factor_used/quality_status`) ne sont pas encore reportees dans TOUTES
+> les representations de ce fichier. **Schema de reference complet et a jour** :
+> voir l'ERD `audit-diagrammes/*/diagrammes/09-base-de-donnees` et
+> `docs/CURRENT_SYSTEM_STATE.md`.
 
 Source : modeles Django charges via `ems-backend/manage.py` et base locale `ems-backend/db.sqlite3`.
 
@@ -108,7 +118,10 @@ erDiagram
         float latitude
         float longitude
         text description
+        float pv_capacity_kw
+        float battery_capacity_kwh
         varchar status
+        datetime last_activity_at
         datetime created_at
         datetime updated_at
     }
@@ -180,6 +193,7 @@ erDiagram
         int sequence_length
         json feature_columns
         varchar version
+        float reference_peak_w
         json input_schema
         json metrics
         bool is_active
@@ -300,7 +314,10 @@ HOUSE(
   latitude NULL,
   longitude NULL,
   description,
+  pv_capacity_kw NULL,
+  battery_capacity_kwh NULL,
   status,
+  last_activity_at NULL,
   created_at,
   updated_at
 )
@@ -378,6 +395,7 @@ IMPORTED_MODEL(
   sequence_length,
   feature_columns,
   version,
+  reference_peak_w NULL,
   input_schema,
   metrics,
   is_active,

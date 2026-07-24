@@ -7,7 +7,7 @@
 >
 > Vérification automatique : `python scripts/audit_config.py --strict`
 
-Dernière mise à jour : **19/07/2026**
+Dernière mise à jour : **25/07/2026**
 
 ---
 
@@ -284,6 +284,27 @@ sans multiplier par la durée donnerait une valeur 6× trop grande.
 **Limite assumée** : aucun modèle multi-horizon (t+10…t+60) n'est entraîné. Une
 prévision à 1 h reste une extrapolation du modèle à 10 min.
 
+### Collecte météo et mise à l'échelle PV
+
+- **Collecte Open-Meteo** — deux déclencheurs, un seul service partagé :
+  - à la demande : bouton « Collecter la météo » (web + mobile),
+    `POST /api/measurements/weather/collect/` (réponse **`202`**, non bloquante) ;
+  - automatique : thread d'arrière-plan démarré avec le serveur
+    (`WEATHER_AUTO_COLLECT`, `WEATHER_COLLECT_INTERVAL_MINUTES`). Il ne vise que
+    les micro-réseaux **consultés récemment** (`House.last_activity_at` dans la
+    fenêtre `WEATHER_ACTIVE_WINDOW_MINUTES`), pas toutes les maisons figées.
+  - état / fraîcheur : `GET /api/measurements/weather/status/`.
+- **Mise à l'échelle PV** — les modèles prédisent les watts du **panneau de
+  référence** ayant servi à l'entraînement. La prévision est ramenée à
+  l'installation réelle par le rapport `capacité_estimée / reference_peak_w` :
+  - `House.pv_capacity_kw` — capacité estimée (kWc), **modifiable** ; à défaut,
+    somme des `EnergyAsset` PV actifs ;
+  - `ImportedModel.reference_peak_w` — puissance crête du panneau de référence,
+    **modifiable par un admin** (`PATCH /api/forecasting/models/{id}/`).
+  - Tant que les **deux** ne sont pas renseignés, le facteur reste `1.0` (sortie
+    brute) — aucune valeur n'est inventée. `reference_peak_w` est encore vide en
+    base de dev : à renseigner pour activer le scaling.
+
 ---
 
 ## 9. Fonctionnalités — état réel
@@ -297,6 +318,14 @@ prévision à 1 h reste une extrapolation du modèle à 10 min.
 - Mappage charge ↔ ligne (`Equipment.relay_line`) ; ligne critique jamais coupée.
 - Interface de test du système expert (injection manuelle de faits).
 - Prévision ML (GRU consommation, RF production) avec météo Open-Meteo.
+- Collecte météo (bouton + planificateur d'arrière-plan) et mise à l'échelle des
+  prévisions PV sur la capacité estimée (`pv_capacity_kw` / `reference_peak_w`).
+- **Faits contextuels enrichis** transmis au système expert (lot 1) :
+  `ambient_temperature_c`, `solar_irradiance_wm2`, `module_temperature_c`, `hour`,
+  `day_of_week`, `operating_mode` (← `RelayState.control_mode`). Ils sont assemblés
+  par `facts_from_house()`, **préservés à travers la normalisation**
+  (`dataclasses.replace`) et tracés dans `Decision.input_facts` ; ils sont
+  disponibles pour de futures règles sans modifier les 24 règles actuelles.
 - Géolocalisation de la maison (web + mobile).
 
 ### Non réalisé / limites connues

@@ -77,11 +77,14 @@ collecte meteo automatique ne vise que les micro-reseaux consultes recemment
 | --- | --- | --- |
 | POST | `/forecasting/models/import/` | Importer un modele pre-entraine, admin uniquement |
 | GET | `/forecasting/models/` | Lister les modeles importes/fallback |
+| PATCH | `/forecasting/models/{id}/` | Modifier un modele (ex. `reference_peak_w` pour le calibrage PV), **admin uniquement** |
 | POST/GET | `/forecasting/predict/` | Produire et stocker des previsions |
 | GET | `/forecasting/forecasts/` | Historique des previsions |
 | GET | `/forecasting/forecasts/latest/` | Derniere prevision |
 
 Le backend ne propose pas d'endpoint d'entrainement utilisateur : les modeles sont entraines hors-ligne puis enregistres via `python manage.py register_models` (lit `ems-backend/ml_models/`). Modeles actifs par defaut : **GRU** (consommation), **Random Forest** (production ; le LSTM reste enregistre en reference). En l'absence de modele actif pour une cible, la prevision ne renvoie pas d'estimation de repli : une erreur explicite est levee.
+
+Les previsions de production sont **mises a l'echelle** de l'installation reelle par le rapport `House.pv_capacity_kw / ImportedModel.reference_peak_w` (les deux modifiables ; facteur `1.0` tant que l'un manque — aucune valeur inventee).
 
 ## Decisions
 

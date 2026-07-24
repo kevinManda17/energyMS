@@ -62,10 +62,17 @@ Construites par `facts_from_house()` à partir de l'état réel du micro-réseau
 | `forecast_pv_energy_kwh` | Intégration des `Forecast` (24 h), sinon `puissance × 24 h` |
 | `forecast_load_energy_kwh` | Intégration des `Forecast` (24 h), sinon `puissance × 24 h` |
 | `battery_soc_percent` | Dernière mesure `battery_soc` (défaut 50) |
-| `battery_temperature_c` | Dernière mesure `temperature` (défaut 25) |
-| `load_priority` | Pire priorité parmi les `Equipment` actifs : `CRITICAL` > `PRIORITY` > `NON_PRIORITY` |
+| `battery_temperature_c` | Dernière mesure **`battery_temp`** (sonde dédiée, défaut 25). **Jamais** `temperature` (= météo ambiante) |
+| `load_priority` | Pire priorité parmi les `Equipment` actifs, regroupée en 3 depuis les 5 niveaux du modèle : `CRITICAL` > `PRIORITY` > `NON_PRIORITY` |
 | `data_quality` | `GOOD` / `PARTIAL` / `BAD` selon les mesures disponibles |
-| `pv_nominal_power_kw` | Somme des `EnergyAsset` PV actifs (défaut 5.0) |
+| `pv_nominal_power_kw` | Somme des `EnergyAsset` PV actifs, sinon `House.pv_capacity_kw`, sinon 5.0 |
+
+**Faits contextuels enrichis (lot 1)** — additifs, tracés dans `Decision.input_facts`,
+disponibles pour de futures règles sans modifier les 24 règles actuelles :
+`ambient_temperature_c` (mesure `temperature`), `solar_irradiance_wm2` (`irradiance`),
+`module_temperature_c` (`module_temp`/`panel_temp`), `hour`, `day_of_week`,
+`operating_mode` (`RelayState.control_mode`). Préservés à travers la normalisation
+(`dataclasses.replace`).
 
 ## 4. Étape 1 — Fuzzification (`membership.py`)
 
