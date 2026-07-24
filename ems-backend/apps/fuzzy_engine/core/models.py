@@ -18,6 +18,17 @@ class EnergyFacts:
     load_priority: str
     data_quality: str
     pv_nominal_power_kw: float = 5.0
+    # --- Faits contextuels enrichis --------------------------------------- #
+    # Additifs et optionnels : transmis au moteur et tracés dans la Decision,
+    # disponibles pour de futures règles sans casser les règles existantes.
+    # Alimentés depuis des mesures déjà collectées (météo, sonde module) et
+    # l'horloge ; None quand la donnée n'existe pas encore (sonde non posée).
+    ambient_temperature_c: float | None = None   # Measurement "temperature" (API météo)
+    solar_irradiance_wm2: float | None = None     # Measurement "irradiance"
+    module_temperature_c: float | None = None     # Measurement "module_temp"/"panel_temp"
+    hour: int | None = None                       # 0..23
+    day_of_week: int | None = None                # 0 = lundi … 6 = dimanche
+    operating_mode: str = "MANUAL"                # RelayState.control_mode : MANUAL|ASSISTED|AUTO
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

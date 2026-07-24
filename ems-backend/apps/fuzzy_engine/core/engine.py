@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from .decision_mapper import map_decision
 from .facts import fuzzify_facts
 from .inference import run_inference
@@ -29,7 +31,11 @@ class FuzzyExpertEngine:
         if data_quality not in VALID_DATA_QUALITY:
             data_quality = "PARTIAL"
 
-        return EnergyFacts(
+        # replace() (et non EnergyFacts(...)) pour PRESERVER les faits enrichis
+        # optionnels : les recréer champ par champ les perdrait silencieusement
+        # avant les règles et dans Decision.input_facts.
+        return replace(
+            facts,
             current_pv_power_kw=max(0.0, float(facts.current_pv_power_kw)),
             current_load_power_kw=max(0.0, float(facts.current_load_power_kw)),
             forecast_pv_energy_kwh=max(0.0, float(facts.forecast_pv_energy_kwh)),
@@ -39,4 +45,5 @@ class FuzzyExpertEngine:
             load_priority=load_priority,
             data_quality=data_quality,
             pv_nominal_power_kw=max(0.001, float(facts.pv_nominal_power_kw)),
+            operating_mode=(facts.operating_mode or "MANUAL").strip().upper(),
         )

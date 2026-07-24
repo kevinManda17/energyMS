@@ -72,6 +72,18 @@ def _pv_nominal_power_kw(house, fallback: float = 5.0) -> float:
     return total or fallback
 
 
+def _operating_mode(house) -> str:
+    """Mode de pilotage courant des lignes : MANUAL | ASSISTED | AUTO.
+
+    C'est l'état réel de RelayState.control_mode (le même que celui qui régit
+    l'application des décisions dans EmsDecisionView), transmis au moteur comme
+    fait contextuel. MANUAL par défaut si aucun RelayState n'existe encore."""
+    from apps.devices.models import RelayState
+
+    state = RelayState.objects.filter(house=house).only("control_mode").first()
+    return state.control_mode if state else "MANUAL"
+
+
 def _load_priority(house) -> str:
     active = Equipment.objects.filter(house=house, status=Equipment.Status.ACTIVE)
     priorities = set(active.values_list("priority", flat=True))
@@ -181,6 +193,12 @@ def evaluate(
     load_priority: str | None = None,
     data_quality: str = "GOOD",
     pv_nominal_power_kw: float = 5.0,
+    ambient_temperature_c: float | None = None,
+    solar_irradiance_wm2: float | None = None,
+    module_temperature_c: float | None = None,
+    hour: int | None = None,
+    day_of_week: int | None = None,
+    operating_mode: str = "MANUAL",
 ) -> ExpertEvaluation:
     facts = EnergyFacts(
         current_pv_power_kw=production_pv,
@@ -200,6 +218,12 @@ def evaluate(
         load_priority=load_priority or ("NON_PRIORITY" if non_critiques_actives else "PRIORITY"),
         data_quality=data_quality,
         pv_nominal_power_kw=pv_nominal_power_kw,
+        ambient_temperature_c=ambient_temperature_c,
+        solar_irradiance_wm2=solar_irradiance_wm2,
+        module_temperature_c=module_temperature_c,
+        hour=hour,
+        day_of_week=day_of_week,
+        operating_mode=operating_mode,
     )
     return ExpertEvaluation(FuzzyExpertEngine().evaluate(facts))
 
@@ -254,6 +278,15 @@ def facts_from_house(house, overrides: dict | None = None) -> EnergyFacts:
         }
     )
 
+    # Faits contextuels enrichis, tirés de mesures déjà collectées et de
+    # l'horloge. `temperature` = température ambiante de l'API météo (jamais
+    # utilisée comme température batterie — cf. plus haut) ; ici elle est
+    # transmise explicitement sous son vrai nom, sans ambiguïté.
+    now = timezone.now()
+    module_temp = _latest_value(house, "module_temp")
+    if module_temp is None:
+        module_temp = _latest_value(house, "panel_temp")
+
     return EnergyFacts(
         current_pv_power_kw=production,
         current_load_power_kw=consumption,
@@ -264,6 +297,12 @@ def facts_from_house(house, overrides: dict | None = None) -> EnergyFacts:
         load_priority=priority,
         data_quality=data_quality,
         pv_nominal_power_kw=_pv_nominal_power_kw(house),
+        ambient_temperature_c=_latest_value(house, "temperature"),
+        solar_irradiance_wm2=_latest_value(house, "irradiance"),
+        module_temperature_c=module_temp,
+        hour=now.hour,
+        day_of_week=now.weekday(),
+        operating_mode=_operating_mode(house),
     )
 
 
