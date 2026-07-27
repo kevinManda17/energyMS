@@ -93,17 +93,21 @@ class RelayStateSerializer(serializers.ModelSerializer):
             # candidat en cours de confirmation (mode AUTOMATIC).
             "auto_pending_lines",
             "auto_pending_since",
-            "device_token",
+            # `device_token` N'EST PLUS EXPOSÉ. C'est le secret partagé qui
+            # authentifie le nœud : le renvoyer dans la réponse de l'API le
+            # faisait transiter à chaque affichage de la page Équipements, et
+            # atterrir dans le cache du navigateur comme dans les outils de
+            # développement. Un secret qu'on affiche n'en est plus un.
+            # Provisionner un nœud passe par l'administration.
             "last_contact_at",
             "last_report",
             "updated_at",
         )
         # Seuls les états de ligne et le mode sont modifiables par l'interface ;
-        # le jeton, les propositions et l'horodatage sont gérés côté serveur.
+        # les propositions et l'horodatage sont gérés côté serveur.
         read_only_fields = (
             "auto_pending_lines",
             "auto_pending_since",
-            "device_token",
             "last_contact_at",
             "last_report",
             "updated_at",

@@ -87,6 +87,80 @@ def _store_line_measurements(house, payload, ts):
         )
 
 
+def _store_dc_measurements(house, payload, ts):
+    """Enregistre le bloc CONTINU du relevé (ESP32 secondaire).
+
+    Le nœud principal ne mesure que l'alternatif ; le bloc `dc` vient du nœud
+    secondaire et porte les trois grandeurs qui manquaient au moteur : tension
+    et courant batterie, puissance photovoltaïque. Voir docs/PROTOCOLE_ESP32.md.
+
+    Absent de la charge utile actuelle à trois lignes : la fonction ne fait
+    alors rien, et le moteur continue de dire « je ne sais pas » pour ces
+    grandeurs. La rétrocompatibilité n'est pas une politesse — un nœud déjà
+    posé sur le mur ne se met pas à jour à distance.
+
+    ⚠ `battery_current_a` est SIGNÉ, positif = charge. Sans le signe,
+    impossible de distinguer une batterie qui se remplit d'une batterie qui se
+    vide, donc impossible de compter les coulombs.
+    """
+    dc = payload.get("dc")
+    if not isinstance(dc, dict):
+        return
+
+    rows = []
+    for key, mtype, unit in (
+        ("batteryVoltage", Measurement.Type.BATTERY_VOLTAGE, "V"),
+        ("batteryCurrent", Measurement.Type.BATTERY_CURRENT, "A"),
+        ("batteryTemp", Measurement.Type.BATTERY_TEMP, "°C"),
+        ("pvVoltage", Measurement.Type.PV_VOLTAGE, "V"),
+        ("pvCurrent", Measurement.Type.PV_CURRENT, "A"),
+        ("panelTemp", Measurement.Type.PANEL_TEMP, "°C"),
+    ):
+        value = _to_float(dc, key)
+        if value is not None:
+            rows.append((mtype, value, unit))
+
+    # Puissances CALCULÉES, jamais mesurées : le nœud n'a pas de wattmètre.
+    # Elles sont dérivées ici plutôt que côté firmware pour que le produit
+    # V x I reste vérifiable à partir des deux mesures conservées.
+    battery_v = _to_float(dc, "batteryVoltage")
+    battery_i = _to_float(dc, "batteryCurrent")
+    if battery_v is not None and battery_i is not None:
+        rows.append((Measurement.Type.BATTERY_POWER, battery_v * battery_i, "W"))
+
+    pv_v = _to_float(dc, "pvVoltage")
+    pv_i = _to_float(dc, "pvCurrent")
+    if pv_v is not None and pv_i is not None:
+        pv_power_w = pv_v * pv_i
+        rows.append((Measurement.Type.PV_POWER, pv_power_w, "W"))
+        # `production` est l'agrégat applicatif, en kW (cf. MEASUREMENTS_UNITS).
+        # C'est le premier producteur réel de ce fait : jusqu'ici le moteur
+        # retombait sur 0 kW faute de source.
+        rows.append(("production", pv_power_w / WATTS_PER_KILOWATT, "kW"))
+
+    for mtype, value, unit in rows:
+        Measurement.objects.create(
+            house=house, measurement_type=mtype,
+            value=round(value, 4), unit=unit, timestamp=ts,
+        )
+
+
+def _refresh_battery_states(house):
+    """Réestime le SOC de chaque batterie. Toute erreur est avalée.
+
+    Le nœud doit TOUJOURS recevoir une réponse valide : une estimation de SOC
+    qui échoue ne doit pas priver le firmware de sa consigne de relais et le
+    laisser sur son dernier état connu.
+    """
+    try:
+        from apps.energy_assets.soc_service import refresh_house_battery_states
+
+        refresh_house_battery_states(house)
+    except Exception:
+        logger.warning("Estimation du SOC impossible pour la maison %s",
+                       house.pk, exc_info=True)
+
+
 def _accessible_houses(user):
     qs = House.objects.all()
     if user.is_authenticated and not user.is_admin:
@@ -314,45 +388,56 @@ class SensorCalibrationView(APIView):
 
 
 class EmsDecisionView(APIView):
-    """POST /api/ems/decision/?token=<device_token>
+    """POST /api/ems/decision/ — sondage du nœud IoT (ESP32).
 
-    Point de sondage du nœud IoT (ESP32). Le firmware POST ses mesures par
-    ligne et attend en retour une décision au format texte `L1=1;L2=0;L3=1`.
-    Authentification par jeton d'appareil (partagé, transmis dans l'URL) et
-    non par JWT, car le nœud embarqué ne gère pas de session utilisateur.
+    Le firmware POST ses mesures et attend une décision au format texte
+    `L1=1;L2=0;L3=1`. L'authentification se fait par JETON D'APPAREIL et non
+    par JWT : le nœud embarqué ne gère pas de session utilisateur.
 
-    Le serveur ne calcule rien ici : il restitue l'état commandé par les
-    interfaces et mémorise le dernier relevé du nœud (pour l'affichage
-    "appareil en ligne" et les dernières mesures).
+    LE JETON PASSE PAR L'EN-TÊTE `X-Device-Token`, plus par l'URL. Une URL
+    finit dans les journaux d'accès de Nginx, dans l'historique du navigateur
+    et dans l'en-tête `Referer` : un jeton qui y figure est un jeton diffusé.
+    Le paramètre d'URL reste accepté en lecture — le firmware déployé l'utilise
+    encore et un nœud sur le terrain ne se reflashe pas à distance — mais il
+    est signalé comme obsolète dans les journaux.
+
+    IL N'Y A PLUS DE MODE SANS JETON. Le repli « suivre le micro-réseau le plus
+    récemment piloté » sélectionnait un `RelayState` TOUTES MAISONS ET TOUS
+    UTILISATEURS CONFONDUS : n'importe qui pouvant atteindre le port 8000
+    recevait l'état des relais du dernier micro-réseau actif, et le pilotait en
+    lui renvoyant des mesures. Sur un réseau domestique partagé, cela suffit.
+    Sans jeton valide : 403.
     """
 
     permission_classes = [AllowAny]
 
     def post(self, request):
-        token = (
+        header_token = (request.headers.get("X-Device-Token") or "").strip()
+        query_token = (
             request.query_params.get("token")
             or request.query_params.get("device_token")
             or ""
         ).strip()
+        token = header_token or query_token
 
-        if token:
-            # Mode explicite : le nœud vise un micro-réseau précis par jeton.
-            state = RelayState.objects.filter(device_token=token).first()
-            if state is None:
-                return HttpResponse("ERR=invalid_token", status=403,
-                                    content_type="text/plain")
-        else:
-            # Mode automatique (sans jeton) : le nœud suit le micro-réseau le
-            # plus récemment piloté depuis une interface.
-            state = (
-                RelayState.objects.exclude(last_commanded_at=None)
-                .order_by("-last_commanded_at")
-                .first()
+        if not token:
+            return HttpResponse("ERR=missing_token", status=403,
+                                content_type="text/plain")
+
+        state = RelayState.objects.filter(device_token=token).first()
+        if state is None:
+            return HttpResponse("ERR=invalid_token", status=403,
+                                content_type="text/plain")
+
+        if not header_token:
+            # Signalé une fois par sondage, sans bloquer : le nœud déployé doit
+            # continuer de fonctionner pendant la migration.
+            logger.info(
+                "Noeud %s : jeton transmis dans l'URL (obsolete). "
+                "Utiliser l'en-tete X-Device-Token — une URL finit dans les "
+                "journaux Nginx.",
+                state.house_id,
             )
-            if state is None:
-                # Aucun ordre encore donné : tout OFF par sécurité. Basculez un
-                # interrupteur dans l'app pour lier le nœud à ce micro-réseau.
-                return HttpResponse("L1=0;L2=0;L3=0", content_type="text/plain")
 
         # Mémorise le dernier relevé remonté par le nœud (best-effort) et le
         # persiste comme mesures réelles (throttle) pour le moteur expert.
@@ -371,6 +456,13 @@ class EmsDecisionView(APIView):
             )
             if due:
                 _store_line_measurements(state.house, payload, now)
+                _store_dc_measurements(state.house, payload, now)
+                # Les grandeurs continues viennent d'arriver : c'est le moment,
+                # et le seul, où le SOC peut être réestimé. Le faire ici plutôt
+                # qu'à la lecture des faits garantit que le comptage
+                # coulométrique voit CHAQUE relevé — un pas manqué est de
+                # l'énergie qui a circulé sans être comptée.
+                _refresh_battery_states(state.house)
                 state.last_measurement_at = now
                 fields.append("last_measurement_at")
         state.save(update_fields=fields)
