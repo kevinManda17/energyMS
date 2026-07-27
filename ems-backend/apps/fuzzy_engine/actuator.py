@@ -81,6 +81,81 @@ def _line_context(house):
     return ranks, critical
 
 
+def _optimized_plan(result):
+    """Fait tourner l'optimiseur sur les faits de ligne de la décision.
+
+    Renvoie ``None`` — donc repli sur la convention de rang — dans les seuls
+    cas où l'optimiseur n'aurait rien à arbitrer : pas de faits de ligne, ou
+    aucune ligne mesurée. Choisir « la plus grosse » parmi des puissances
+    inconnues n'est pas une optimisation, c'est un tirage au sort déguisé.
+
+    Le déficit à résorber (`D`) est calculé par `shedding_target_w`, qui le
+    déduit de l'autonomie quand la réserve est connue, et du score de délestage
+    du moteur sinon.
+    """
+    from .core.autonomy import usable_energy_wh
+    from .core.optimizer import LineOption, optimize_shedding, shedding_target_w
+
+    lines = getattr(result, "input_facts", {}).get("lines") or []
+    if not lines:
+        return None
+
+    evaluations = {
+        entry["line_number"]: entry
+        for entry in (result.trace or {}).get("lines", [])
+    }
+    options = []
+    measured = False
+    for line in lines:
+        evaluation = evaluations.get(line["line_number"], {})
+        is_measured = bool(line.get("is_measured"))
+        measured = measured or is_measured
+        options.append(
+            LineOption(
+                line_number=line["line_number"],
+                power_w=float(line.get("power_w") or 0.0),
+                priority=line.get("priority") or "NORMAL",
+                currently_on=bool(line.get("relay_closed", True)),
+                shed_score=float(evaluation.get("shed_score", 0.0)),
+                # Un veto des règles de ligne (charge vitale, capteur muet,
+                # ligne déjà ouverte) devient une CONTRAINTE de l'optimiseur.
+                # Les deux couches disent la même chose de deux façons, et
+                # c'est voulu : la règle l'explique, la contrainte l'impose.
+                fixed=bool(evaluation.get("blocked")) or not is_measured,
+            )
+        )
+    if not measured:
+        return None
+
+    facts = getattr(result, "input_facts", {})
+    reserve_wh = usable_energy_wh(
+        [_BatteryView(entry) for entry in (facts.get("batteries") or [])]
+    )
+    deficit_w = shedding_target_w(
+        load_power_w=float(facts.get("current_load_power_kw") or 0.0) * 1000.0,
+        pv_power_w=float(facts.get("current_pv_power_kw") or 0.0) * 1000.0,
+        usable_energy_wh=reserve_wh,
+        sheddable_powers_w=[
+            option.power_w for option in options
+            if option.currently_on and not option.fixed
+        ],
+    )
+    return optimize_shedding(options, deficit_w=deficit_w)
+
+
+class _BatteryView:
+    """Adaptateur : une batterie sérialisée en dict redevient lisible par
+    `core.autonomy`, qui attend des attributs. La trace stocke des dicts (JSON),
+    le calcul travaille sur des objets — cette classe fait le pont sans dupliquer
+    la formule de l'énergie utilisable."""
+
+    __slots__ = ("soc_percent", "capacity_wh")
+
+    def __init__(self, entry: dict):
+        self.soc_percent = entry.get("soc_percent")
+        self.capacity_wh = entry.get("capacity_wh")
+
+
 def desired_lines_for_decision(result, house=None) -> dict[str, bool] | None:
     """Traduit un EnergyDecisionResult en état voulu des 3 lignes.
 
@@ -112,7 +187,22 @@ def desired_lines_for_decision(result, house=None) -> dict[str, bool] | None:
         return {k: (k == keep or k in critical) for k in LINES}
 
     if code == "SHED_NON_PRIORITY_LOAD":
-        # Délestage ciblé de la ligne la moins prioritaire, jamais une critique.
+        # L'optimiseur choisit la COMBINAISON de lignes (cf. core/optimizer.py).
+        # Il ne s'applique que si le moteur a produit des faits de ligne
+        # mesurés : sans puissances, il n'a rien à arbitrer.
+        plan = _optimized_plan(result)
+        if plan is not None:
+            # Le plan rejoint la piste d'audit. Sans lui, la trace dirait
+            # « délestage » sans dire pourquoi CETTE ligne-là — c'est-à-dire
+            # qu'elle perdrait la moitié de l'explication.
+            if isinstance(getattr(result, "trace", None), dict):
+                result.trace["optimizer"] = plan.to_dict()
+            return {f"line{n}": state for n, state in plan.desired.items()}
+
+        # Repli historique : la ligne de rang minimal, jamais une critique.
+        # C'est ce que faisait le système avant l'optimiseur — conservé pour
+        # les micro-réseaux sans télémétrie par ligne, où il n'y a rien de
+        # mieux à faire.
         candidates = [k for k in LINES if k not in critical]
         if not candidates:
             return None  # tout est critique : aucune coupure automatique

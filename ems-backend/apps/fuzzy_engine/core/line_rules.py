@@ -343,9 +343,21 @@ def _explain(line, blocked, block_reasons, shed_score, fired) -> str:
         )
         return f"{head} : le systeme n'y touchera pas, car {reasons}."
 
-    if shed_score >= LINE_SHED_THRESHOLD:
-        best = max(fired, key=lambda r: r["activation_degree"] * max(
-            r["effects"].get("shed_score", 0.0), 1.0))
-        return f"{head} : candidate au delestage. {best['explanation']}"
+    if not fired:
+        return f"{head} : rien ne la designe pour un delestage."
 
-    return f"{head} : rien ne justifie de la couper pour l'instant."
+    best = max(fired, key=lambda r: r["activation_degree"] * max(
+        r["effects"].get("shed_score", 0.0), 1.0))
+
+    # Le texte gradue la CANDIDATURE de la ligne ; il ne prejuge pas de la
+    # decision finale. Dire « rien ne justifie de la couper » sur une ligne que
+    # l'optimiseur va couper contredirait la decision sous les yeux de
+    # l'utilisateur : la ligne peut fort bien etre la moins mauvaise a couper
+    # sans etre, en elle-meme, une candidate evidente.
+    if shed_score >= LINE_SHED_THRESHOLD:
+        rating = "candidate nette au delestage"
+    elif shed_score > 0:
+        rating = "candidate possible, sans rien qui la designe particulierement"
+    else:
+        rating = "aucune raison propre de la couper"
+    return f"{head} : {rating}. {best['explanation']}"

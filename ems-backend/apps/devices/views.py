@@ -445,8 +445,12 @@ class EmsDecisionView(APIView):
 
         try:
             result = evaluate_house(state.house)
-            _trace(result)
+            # L'ordre compte : `desired_lines_for_decision` fait tourner
+            # l'optimiseur et enrichit la trace du plan retenu. Tracer avant
+            # aurait persiste une decision disant « delestage » sans dire
+            # pourquoi CETTE ligne-la.
             desired = desired_lines_for_decision(result, house=state.house)
+            _trace(result)
             now = timezone.now()
 
             # Décision non actionnable, ou lignes déjà dans l'état voulu :

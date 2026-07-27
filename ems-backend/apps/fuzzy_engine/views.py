@@ -68,6 +68,14 @@ class DecisionViewSet(
             .order_by("-created_at")
             .first()
         )
+        # L'actionnement AVANT la persistance : c'est lui qui fait tourner
+        # l'optimiseur et complete la trace du raisonnement. Persister d'abord
+        # aurait enregistre une decision amputee de la moitie de son
+        # explication — le « pourquoi cette ligne-la ».
+        applied_lines = None
+        if should_apply:
+            applied_lines = apply_decision_to_relays(house, result, request.user)
+
         decision = Decision.objects.create(
             house=house,
             forecast=forecast,
@@ -76,10 +84,6 @@ class DecisionViewSet(
 
         if result.action in CRITICAL_ACTIONS:
             self._raise_alert(house, decision)
-
-        applied_lines = None
-        if should_apply:
-            applied_lines = apply_decision_to_relays(house, result, request.user)
 
         payload = self.get_serializer(decision).data
         # Indique à l'interface de test ce qui a réellement été appliqué aux
