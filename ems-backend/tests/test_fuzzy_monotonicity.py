@@ -298,24 +298,48 @@ def test_shedding_is_reachable_with_the_real_prototype_lines():
     assert result.execution_mode == "AUTOMATIC"
 
 
+def _critical_lines():
+    """Trois lignes vitales : rien n'y est délestable automatiquement."""
+    return [
+        LineFacts(line_number=n, voltage_v=220.0, current_a=0.1, power_w=20.0,
+                  relay_closed=True, priority="CRITICAL", nominal_power_w=20.0,
+                  load_names=[f"vital {n}"], is_measured=True)
+        for n in (1, 2, 3)
+    ]
+
+
 def test_every_decision_code_is_reachable():
-    """Un code de décision qu'aucune situation n'atteint est un code mort."""
+    """Un code de décision qu'aucune situation n'atteint est un code mort.
+
+    La configuration des LIGNES fait partie du balayage : sans elle,
+    `RECOMMEND_REDUCE_PRIORITY_LOAD` resterait hors d'atteinte. Ce code répond
+    exactement à « le délestage se justifie, mais rien n'est délestable » — il
+    lui faut donc un micro-réseau dont toutes les lignes sont vitales. Le
+    manquer aurait laissé croire à un code mort là où c'est la grille qui
+    était trop étroite.
+    """
     from apps.fuzzy_engine.core.decision_mapper import DECISION_LABELS
 
     seen = set()
-    for soc in (0.0, 10.0, 22.0, 40.0, 60.0, 90.0, 100.0):
-        for temp in (-15.0, 5.0, 25.0, 45.0, 70.0):
-            for balance in (0.0, 0.5, 1.0, 1.6, 2.0):
-                for pv_kw, load_kw in ((0.0, 3.0), (4.5, 0.3), (1.5, 1.5)):
-                    for priority in ("CRITICAL", "PRIORITY", "NON_PRIORITY"):
-                        for quality in ("GOOD", "PARTIAL", "BAD"):
-                            facts = make_facts(
-                                soc=soc, temp=temp, balance=balance, pv_kw=pv_kw,
-                                load_kw=load_kw, priority=priority,
-                                quality=quality,
-                            )
-                            facts.lines = _prototype_lines()
-                            seen.add(ENGINE.evaluate(facts).decision_code)
+    line_sets = {
+        "prototype": _prototype_lines,
+        "tout critique": _critical_lines,
+        "sans telemetrie": list,
+    }
+    for lines_of in line_sets.values():
+        for soc in (0.0, 10.0, 22.0, 40.0, 60.0, 90.0, 100.0):
+            for temp in (-15.0, 5.0, 25.0, 45.0, 70.0):
+                for balance in (0.0, 0.5, 1.0, 1.6, 2.0):
+                    for pv_kw, load_kw in ((0.0, 3.0), (4.5, 0.3), (1.5, 1.5)):
+                        for priority in ("CRITICAL", "PRIORITY", "NON_PRIORITY"):
+                            for quality in ("GOOD", "PARTIAL", "BAD"):
+                                facts = make_facts(
+                                    soc=soc, temp=temp, balance=balance,
+                                    pv_kw=pv_kw, load_kw=load_kw,
+                                    priority=priority, quality=quality,
+                                )
+                                facts.lines = lines_of()
+                                seen.add(ENGINE.evaluate(facts).decision_code)
     missing = set(DECISION_LABELS) - seen
     assert not missing, f"codes de decision jamais atteints : {sorted(missing)}"
 
@@ -337,19 +361,27 @@ def test_every_rule_can_reach_a_non_zero_activation():
                     for priority in ("CRITICAL", "PRIORITY", "NON_PRIORITY"):
                         for quality in ("GOOD", "PARTIAL", "BAD"):
                             for mode in ("MANUAL", "AUTOMATIC"):
-                                facts = make_facts(
-                                    soc=soc, temp=temp, balance=balance,
-                                    pv_kw=pv_kw, load_kw=load_kw,
-                                    priority=priority, quality=quality,
-                                    with_battery=True,
-                                    operating_mode=mode,
-                                    solar_irradiance_wm2=900.0 if pv_kw > 2 else 5.0,
-                                    module_temperature_c=65.0,
-                                    ambient_temperature_c=38.0,
-                                    hour=19, day_of_week=2,
-                                )
-                                for entry in ENGINE.evaluate(facts).fired_rules:
-                                    activated.add(entry["rule_id"])
+                                # L'irradiance est un axe INDÉPENDANT de la
+                                # production. La lier à `pv_kw` (« du soleil
+                                # quand ça produit ») rendrait justement
+                                # introuvable la situation que R032 détecte :
+                                # plein soleil ET production nulle, c'est-à-dire
+                                # la panne. Une grille qui suppose la cohérence
+                                # ne peut pas tester la détection d'incohérence.
+                                for irradiance in (5.0, 250.0, 900.0):
+                                    facts = make_facts(
+                                        soc=soc, temp=temp, balance=balance,
+                                        pv_kw=pv_kw, load_kw=load_kw,
+                                        priority=priority, quality=quality,
+                                        with_battery=True,
+                                        operating_mode=mode,
+                                        solar_irradiance_wm2=irradiance,
+                                        module_temperature_c=65.0,
+                                        ambient_temperature_c=38.0,
+                                        hour=19, day_of_week=2,
+                                    )
+                                    for entry in ENGINE.evaluate(facts).fired_rules:
+                                        activated.add(entry["rule_id"])
     never = {rule.id for rule in rules} - activated
     assert not never, f"regles jamais activees : {sorted(never)}"
 
