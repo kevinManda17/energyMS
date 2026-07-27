@@ -17,6 +17,7 @@ from .core import (
     LineFacts,
 )
 from .core import priorities as prio
+from .core.autonomy import autonomy_hours
 
 
 # Température batterie retenue quand aucune sonde ne la mesure. Neutre : elle
@@ -37,15 +38,8 @@ LINE_NUMBERS = (1, 2, 3)
 # manqués avant de déclarer la ligne inconnue.
 LINE_REPORT_MAX_AGE_S = 120
 
-# Part de l'énergie stockée gardée en réserve et donc NON comptée dans
-# l'autonomie. Une batterie qu'on vide entièrement s'use vite ; le système ne
-# doit pas promettre une autonomie qu'il ne s'autorisera pas à consommer.
-BATTERY_RESERVE_FRACTION = 0.20
-
-# Plafond de l'autonomie annoncée. Au-delà de trois jours, la distinction
-# cesse d'avoir un sens décisionnel, et une division par un déficit quasi nul
-# produirait des milliers d'heures — un chiffre faux qui aurait l'air précis.
-MAX_AUTONOMY_HOURS = 72.0
+# Le calcul d'autonomie lui-même vit dans core/autonomy.py : c'est de la
+# physique, pas de l'accès aux données, et il doit rester mesurable sans Django.
 
 
 def _latest_value(house, measurement_type: str, default: float | None = None):
@@ -174,8 +168,25 @@ def _line_facts(house) -> list[LineFacts]:
     et `power_w` reste None. La différence est capitale — un 0 W inventé ferait
     croire à l'optimiseur qu'il ne gagne rien à couper cette ligne, alors qu'il
     n'en sait rien.
+
+    Renvoie une liste VIDE quand le micro-réseau n'a pas de `RelayState`,
+    c'est-à-dire quand aucun nœud ne lui a jamais été rattaché. Il faut
+    distinguer deux absences que l'on confond facilement :
+
+      - « j'ai trois lignes pilotables et je ne les vois pas » (nœud muet) :
+        les lignes existent, elles sont non mesurées, et le moteur s'interdit
+        d'y toucher ;
+      - « je n'ai aucun canal de télémétrie par ligne » (pas de nœud, cas de
+        l'interface de test) : le raisonnement par ligne ne s'applique pas, et
+        le moteur retombe sur le raisonnement maison.
+
+    Fabriquer trois lignes fantômes dans le second cas aurait bloqué toute
+    décision automatique sur un micro-réseau qui n'a jamais prétendu en
+    fournir.
     """
     report, state = _line_report(house)
+    if state is None:
+        return []
 
     loads: dict[int, list] = {n: [] for n in LINE_NUMBERS}
     rows = Equipment.objects.filter(
@@ -312,55 +323,6 @@ def _park_temperature_c(batteries: list[BatteryFacts]) -> float | None:
         return None
     comfort_c = 25.0
     return max(known, key=lambda t: abs(t - comfort_c))
-
-
-def _autonomy_hours(
-    batteries: list[BatteryFacts],
-    load_power_kw: float | None,
-    pv_power_kw: float | None,
-) -> float | None:
-    """Combien d'heures le stockage tient au rythme actuel.
-
-    C'est le fait qui COUPLE la production, la consommation et le stockage.
-    Jusqu'ici, ces trois grandeurs n'entraient dans les règles que par des
-    conjonctions (`min`) : chacune plafonnait les autres, et faire varier le
-    bilan prévisionnel sur toute son étendue ne changeait rien à la décision
-    dans une large part des situations. L'autonomie, elle, est une grandeur
-    unique et directement interprétable à l'oral : « le système sait combien
-    d'heures il tient ».
-
-        énergie_disponible_wh = Σ (soc/100 x capacité_wh x (1 - réserve))
-        autonomie_h           = énergie_disponible_wh / (P_charge - P_PV)
-
-    La réserve est retranchée en proportion de l'énergie STOCKÉE (et non de la
-    capacité nominale) : c'est la simplification retenue, conservatrice et
-    facile à défendre — le système ne promet jamais une autonomie qu'il ne
-    s'autoriserait pas à consommer.
-
-    Renvoie None si le SOC ou la capacité manquent : une autonomie inventée
-    serait pire qu'une autonomie absente, car elle a l'air d'une mesure.
-    """
-    usable_wh = 0.0
-    known = False
-    for battery in batteries:
-        if battery.soc_percent is None or not battery.capacity_wh:
-            continue
-        known = True
-        usable_wh += (
-            battery.soc_percent / 100.0
-            * battery.capacity_wh
-            * (1.0 - BATTERY_RESERVE_FRACTION)
-        )
-    if not known or load_power_kw is None or pv_power_kw is None:
-        return None
-
-    deficit_w = (load_power_kw - pv_power_kw) * WATTS_PER_KILOWATT
-    if deficit_w <= 0:
-        # La production couvre la consommation : le stockage ne se vide pas.
-        # On plafonne au lieu de renvoyer l'infini — un très grand nombre issu
-        # d'une division par presque zéro n'est pas une information.
-        return MAX_AUTONOMY_HOURS
-    return min(usable_wh / deficit_w, MAX_AUTONOMY_HOURS)
 
 
 def _data_quality(values: dict[str, float | None]) -> str:
@@ -583,7 +545,7 @@ def facts_from_house(house, overrides: dict | None = None) -> EnergyFacts:
         operating_mode=_operating_mode(house),
         lines=lines,
         batteries=batteries,
-        autonomy_hours=_autonomy_hours(batteries, consumption, production),
+        autonomy_hours=autonomy_hours(batteries, consumption, production),
     )
 
 

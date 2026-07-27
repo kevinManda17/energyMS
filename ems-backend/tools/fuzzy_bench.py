@@ -25,8 +25,10 @@ import sys
 from collections import Counter
 from dataclasses import fields as dataclass_fields
 
-from apps.fuzzy_engine.core import EnergyFacts, FuzzyExpertEngine
+from apps.fuzzy_engine.core import BatteryFacts, EnergyFacts, FuzzyExpertEngine
+from apps.fuzzy_engine.core.autonomy import autonomy_hours
 from apps.fuzzy_engine.core.rules import get_default_rules
+from apps.fuzzy_engine.core.safety import protect_floor, risk_floor
 
 
 # Barème de gravité : classe chaque décision sur une échelle ordinale. Deux
@@ -76,6 +78,14 @@ INDICATOR_THRESHOLDS = {
 
 PV_NOMINAL_KW = 5.0
 
+# Parc de stockage de la grille : une batterie de 5 kWh. Sa présence est ce qui
+# rend l'autonomie CALCULABLE — sans elle, `autonomy_hours` vaut None et toutes
+# les règles d'autonomie restent muettes, ce qui ne mesurerait rien. La mesure
+# de référence, faite sur le moteur d'origine, ne connaissait pas les batteries
+# (le fait n'existait pas) : la comparaison reste valide, elle chiffre
+# précisément ce que l'ajout du stockage change.
+BENCH_BATTERY_CAPACITY_WH = 5000.0
+
 # --- Grille de référence ---------------------------------------------------- #
 # Chaque axe couvre toute l'étendue physique de la grandeur, bornes comprises.
 SOC_AXIS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
@@ -89,7 +99,8 @@ QUALITY_AXIS = ["GOOD", "PARTIAL", "BAD"]
 FORECAST_LOAD_KWH = 10.0
 
 
-def make_facts(soc, temp, balance, pv_kw, load_kw, priority, quality, **extra):
+def make_facts(soc, temp, balance, pv_kw, load_kw, priority, quality,
+               battery_capacity_wh=None, **extra):
     """Construit un jeu de faits depuis les coordonnées de la grille.
 
     Le bilan prévisionnel est piloté par son RATIO (production prévue /
@@ -97,6 +108,37 @@ def make_facts(soc, temp, balance, pv_kw, load_kw, priority, quality, **extra):
     fixer la consommation prévue et faire varier la production donne le ratio
     voulu sans changer d'échelle.
     """
+    # Sans capacité, aucune batterie : `autonomy_hours` reste None et les règles
+    # d'autonomie restent muettes. C'est l'état RÉEL du prototype aujourd'hui,
+    # et c'est ce que mesure la grille de référence. L'autonomie a sa mesure
+    # dédiée (`measure_autonomy`), sur une grille où elle existe.
+    if battery_capacity_wh is None:
+        return EnergyFacts(
+            current_pv_power_kw=pv_kw,
+            current_load_power_kw=load_kw,
+            forecast_pv_energy_kwh=FORECAST_LOAD_KWH * balance,
+            forecast_load_energy_kwh=FORECAST_LOAD_KWH,
+            battery_soc_percent=soc,
+            battery_temperature_c=temp,
+            load_priority=priority,
+            data_quality=quality,
+            pv_nominal_power_kw=PV_NOMINAL_KW,
+            **extra,
+        )
+
+    battery = BatteryFacts(
+        battery_id="bench",
+        soc_percent=soc,
+        soc_method="BMS",
+        soc_uncertainty_percent=0.0,
+        voltage_v=None,
+        current_a=None,
+        power_w=None,
+        direction="UNKNOWN",
+        temperature_c=temp,
+        capacity_wh=battery_capacity_wh,
+        energy_wh=None,
+    )
     return EnergyFacts(
         current_pv_power_kw=pv_kw,
         current_load_power_kw=load_kw,
@@ -107,6 +149,8 @@ def make_facts(soc, temp, balance, pv_kw, load_kw, priority, quality, **extra):
         load_priority=priority,
         data_quality=quality,
         pv_nominal_power_kw=PV_NOMINAL_KW,
+        batteries=[battery],
+        autonomy_hours=autonomy_hours([battery], load_kw, pv_kw),
         **extra,
     )
 
@@ -148,6 +192,14 @@ def measure_grid(engine: FuzzyExpertEngine) -> dict:
     modes = Counter()
     # Groupe = toutes les coordonnées SAUF le bilan prévisionnel.
     balance_groups: dict[tuple, set] = {}
+    # Sous-ensemble : batterie dans sa fenêtre de fonctionnement normale, donc
+    # AUCUN plancher de sûreté actif. C'est là que la prévision est censée
+    # décider — quand la batterie est presque vide ou en surchauffe, le fait
+    # que la production reprenne demain ne change rien à ce qu'il faut faire
+    # maintenant, et l'inertie y est le comportement CORRECT. Mesurer les deux
+    # évite à la fois de se féliciter d'une inertie qui n'en est pas une, et de
+    # masquer celle qui en est une.
+    nominal_groups: dict[tuple, set] = {}
     bad_quality_total = 0
     bad_quality_not_blocked = 0
 
@@ -166,8 +218,11 @@ def measure_grid(engine: FuzzyExpertEngine) -> dict:
         if quality == "GOOD":
             key = (soc, temp, pv_kw, load_kw, priority)
             balance_groups.setdefault(key, set()).add(result.decision_code)
+            if risk_floor(soc, temp) == 0.0 and protect_floor(soc, temp) == 0.0:
+                nominal_groups.setdefault(key, set()).add(result.decision_code)
 
     inert = sum(1 for codes in balance_groups.values() if len(codes) == 1)
+    nominal_inert = sum(1 for codes in nominal_groups.values() if len(codes) == 1)
     total = sum(decisions.values())
 
     return {
@@ -182,6 +237,10 @@ def measure_grid(engine: FuzzyExpertEngine) -> dict:
         "risk_stddev": round(_stddev(risks), 4),
         "forecast_balance_inertia": round(inert / len(balance_groups), 6),
         "forecast_balance_groups": len(balance_groups),
+        "forecast_balance_inertia_nominal": round(
+            nominal_inert / max(len(nominal_groups), 1), 6
+        ),
+        "forecast_balance_groups_nominal": len(nominal_groups),
         "bad_quality_not_blocked": round(
             bad_quality_not_blocked / max(bad_quality_total, 1), 6
         ),
@@ -307,6 +366,72 @@ def measure_monotonicity(engine: FuzzyExpertEngine) -> dict:
     }
 
 
+def measure_autonomy(engine: FuzzyExpertEngine) -> dict:
+    """Mesure dédiée du fait d'autonomie, sur une grille où il EXISTE.
+
+    La grille de référence n'a pas de batterie : c'est l'état réel du prototype
+    (aucune grandeur batterie n'est mesurée), et c'est ce qui la rend
+    comparable à la mesure d'origine. Mais un fait qu'on n'alimente jamais ne
+    se mesure pas non plus. Cette grille-ci donne donc une capacité au parc et
+    balaie l'autonomie sur toute son étendue.
+
+    Deux propriétés y sont vérifiées :
+      - la sévérité ne décroît pas quand l'autonomie diminue ;
+      - l'autonomie n'est pas inerte : la faire varier CHANGE la décision.
+    """
+    capacity_wh = BENCH_BATTERY_CAPACITY_WH
+    inversions = []
+    groups: dict[tuple, set] = {}
+
+    # L'autonomie se pilote par le SOC à déficit fixé : c'est ainsi qu'elle
+    # varie dans la réalité (la capacité, elle, ne change pas en marche).
+    soc_axis = _frange(100.0, 0.0, 0.25)
+    for pv_kw, load_kw in ((0.0, 1.0), (0.5, 2.0), (1.0, 4.0)):
+        for priority in PRIORITY_AXIS:
+            previous = None
+            key = (pv_kw, load_kw, priority)
+            for soc in soc_axis:
+                facts = make_facts(
+                    soc, 25, 1.0, pv_kw, load_kw, priority, "GOOD",
+                    battery_capacity_wh=capacity_wh,
+                )
+                result = engine.evaluate(facts)
+                groups.setdefault(key, set()).add(result.decision_code)
+                danger = DANGER_SEVERITY[result.decision_code]
+                if previous is not None and danger < previous[1]:
+                    inversions.append({
+                        "context": {"pv_kw": pv_kw, "load_kw": load_kw,
+                                    "priority": priority},
+                        "from": previous[0], "to": soc,
+                        "autonomy_hours": facts.autonomy_hours,
+                        "decision": result.decision_code,
+                    })
+                previous = (soc, danger)
+
+    inert = sum(1 for codes in groups.values() if len(codes) == 1)
+    return {
+        "danger_inversions": len(inversions),
+        "inert_groups": inert,
+        "groups": len(groups),
+        "autonomy_inertia": round(inert / max(len(groups), 1), 6),
+        "samples": inversions[:3],
+    }
+
+
+def _probe_lines():
+    """Trois lignes plausibles, pour vérifier que les règles de ligne les lisent."""
+    from apps.fuzzy_engine.core import LineFacts
+
+    for number, priority, power in ((1, "NORMAL", 12.0), (2, "IMPORTANT", 20.0),
+                                    (3, "CRITICAL", 11.0)):
+        yield LineFacts(
+            line_number=number, voltage_v=220.0, current_a=power / 220.0,
+            power_w=power, relay_closed=True, priority=priority,
+            nominal_power_w=power, load_names=[f"charge {number}"],
+            is_measured=True,
+        )
+
+
 def measure_rule_base(rules=None) -> dict:
     """Analyse statique de la base de règles, sans exécuter le moteur.
 
@@ -389,13 +514,31 @@ def measure_fact_usage(rules=None) -> dict:
             except Exception:  # une règle qui casse sur ces faits n'a rien lu
                 pass
 
-    # Les faits consommés par la fuzzification comptent aussi : ils atteignent
-    # les règles sous forme d'ensembles flous, pas d'attributs.
+    # Les faits consommés par la FUZZIFICATION comptent aussi : ils atteignent
+    # les règles sous forme d'ensembles flous, jamais comme attributs — le
+    # mouchard ne peut donc pas les voir.
     fuzzified = {
         "current_pv_power_kw", "current_load_power_kw", "forecast_pv_energy_kwh",
         "forecast_load_energy_kwh", "battery_soc_percent",
         "battery_temperature_c", "data_quality", "pv_nominal_power_kw",
+        "autonomy_hours",
     }
+    # Les faits lus par la base de règles PAR LIGNE, qui ne prend pas
+    # `EnergyFacts` en argument : chaque règle reçoit un `LineFacts` et un
+    # contexte déjà agrégé. On les compte en évaluant réellement ces règles.
+    from apps.fuzzy_engine.core.line_rules import evaluate_lines
+
+    line_probe = make_facts(30, 25, 0.2, 0.0, 4.0, "NON_PRIORITY", "GOOD",
+                            battery_capacity_wh=BENCH_BATTERY_CAPACITY_WH)
+    line_probe.lines = list(_probe_lines())
+    if evaluate_lines(line_probe, fuzzify_facts(line_probe), {"risk_score": 90.0}):
+        fuzzified |= {"lines"}
+    if line_probe.batteries:
+        # `batteries` alimente le SOC agrégé, la température retenue et
+        # l'autonomie : il est lu, mais par l'assembleur de faits, pas par une
+        # règle. C'est un fait de SECOND RANG, et il faut le dire.
+        fuzzified |= {"batteries"}
+
     used = (read & set(declared)) | fuzzified
     return {
         "declared": declared,
@@ -409,6 +552,7 @@ def run(engine: FuzzyExpertEngine | None = None) -> dict:
     return {
         "grid": measure_grid(engine),
         "monotonicity": measure_monotonicity(engine),
+        "autonomy": measure_autonomy(engine),
         "rule_base": measure_rule_base(),
         "fact_usage": measure_fact_usage(),
     }
@@ -434,6 +578,9 @@ def print_report(report: dict) -> None:
     print(f"\nRisque    : moyenne {grid['risk_mean']}, écart-type {grid['risk_stddev']}")
     print(f"Inertie du bilan prévisionnel : {_percent(grid['forecast_balance_inertia'])} "
           f"({grid['forecast_balance_groups']} groupes, qualité GOOD)")
+    print(f"  dont hors plancher de sûreté : "
+          f"{_percent(grid['forecast_balance_inertia_nominal'])} "
+          f"({grid['forecast_balance_groups_nominal']} groupes)")
     print(f"Données BAD non bloquées      : {_percent(grid['bad_quality_not_blocked'])}")
 
     mono = report["monotonicity"]
@@ -447,6 +594,13 @@ def print_report(report: dict) -> None:
         print(f"{flag}{axis:<28} {strict:>8} {danger:>8} {risk:>8}")
     print(f"  {'TOTAL':<28} {mono['inversions_total']:>8} "
           f"{mono['danger_inversions_total']:>8} {mono['risk_inversions_total']:>8}")
+
+    auto = report.get("autonomy")
+    if auto:
+        print(f"\n=== Autonomie (grille dediee, parc 5 kWh) ===")
+        print(f"  inversions sur l'echelle de danger : {auto['danger_inversions']}")
+        print(f"  inertie de l'autonomie             : "
+              f"{_percent(auto['autonomy_inertia'])} ({auto['groups']} groupes)")
 
     base = report["rule_base"]
     print(f"\n=== Base de règles : {base['rules']} règles ===")

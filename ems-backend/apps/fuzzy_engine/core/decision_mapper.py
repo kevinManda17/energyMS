@@ -185,7 +185,9 @@ def _safety_floor_note(
     )
 
 
-def _shed_capability(facts: EnergyFacts) -> tuple[bool, list[int]]:
+def _shed_capability(
+    facts: EnergyFacts, line_evaluations=None
+) -> tuple[bool, list[int]]:
     """Le micro-réseau a-t-il quelque chose à délester, et quoi ?
 
     C'est LA question que la cascade doit poser avant de produire un délestage
@@ -210,6 +212,19 @@ def _shed_capability(facts: EnergyFacts) -> tuple[bool, list[int]]:
     """
     if not facts.lines:
         return facts.load_priority == "NON_PRIORITY", []
+
+    # Quand les règles de ligne ont tourné, ce sont ELLES qui font foi : leurs
+    # vetos couvrent les trois cas d'interdiction (charge critique, ligne déjà
+    # ouverte, capteur muet) et restent explicables un par un. Le repli
+    # ci-dessous ne sert qu'aux appels qui n'évaluent pas les lignes.
+    if line_evaluations:
+        candidates = [
+            evaluation.line_number
+            for evaluation in line_evaluations
+            if not evaluation.blocked
+        ]
+        return bool(candidates), candidates
+
     candidates = [
         line.line_number
         for line in facts.lines
@@ -222,6 +237,7 @@ def map_decision(
     facts: EnergyFacts,
     inference_result: FuzzyInferenceResult,
     fuzzy_values: dict,
+    line_evaluations=None,
 ) -> EnergyDecisionResult:
     scores = inference_result.aggregated_scores
     risk_score = _score(scores, "risk_score")
@@ -240,7 +256,7 @@ def map_decision(
     # data_quality = BAD et charge critique. La piste d'audit affirmait donc
     # l'inverse de ce que le moteur avait conclu.
     quality_blocked = False
-    shed_capable, sheddable_lines = _shed_capability(facts)
+    shed_capable, sheddable_lines = _shed_capability(facts, line_evaluations)
 
     if facts.data_quality == "BAD" or blocked_score >= 60:
         decision_code = "BLOCK_AUTOMATIC_ACTION"
@@ -337,5 +353,8 @@ def map_decision(
             "quality_blocked": quality_blocked,
             "shed_capable": shed_capable,
             "sheddable_lines": sheddable_lines,
+            "lines": [
+                evaluation.to_dict() for evaluation in (line_evaluations or [])
+            ],
         },
     )

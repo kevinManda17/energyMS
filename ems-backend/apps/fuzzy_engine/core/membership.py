@@ -101,6 +101,44 @@ def fuzzify_pv_generation_ratio(value: float) -> dict[str, float]:
     }
 
 
+def fuzzify_autonomy_hours(value: float) -> dict[str, float]:
+    """Combien d'heures le stockage tient au rythme actuel.
+
+    C'est la variable qui COUPLE production, consommation et stockage. Les
+    autres faits n'entraient dans les règles que par des conjonctions (`min`) :
+    chacun plafonnait les autres, et faire varier le bilan prévisionnel sur
+    toute son étendue ne changeait rien à la décision dans une large part des
+    situations. L'autonomie, elle, est une grandeur unique — et la seule du
+    moteur qui se dise telle quelle à l'oral : « le système tient trois heures ».
+
+    Univers borné à 72 h : au-delà de trois jours, la distinction cesse d'avoir
+    un sens décisionnel.
+    """
+    x = clamp(value, 0.0, 72.0)
+    return {
+        "critical": trapezoidal(x, 0, 0, 1, 2),      # moins d'une heure
+        "short": trapezoidal(x, 1, 2, 4, 6),         # une à quatre heures
+        "comfortable": trapezoidal(x, 4, 6, 12, 16),  # quatre à douze heures
+        "large": trapezoidal(x, 12, 16, 72, 72),     # plus de douze heures
+    }
+
+
+def fuzzify_line_power_share(value: float) -> dict[str, float]:
+    """Part d'une ligne dans la puissance totale du micro-réseau.
+
+    Fuzzifiée en RELATIF et non en absolu, pour la même raison que les autres
+    ratios du moteur : l'indépendance au dimensionnement. « 20 W » ne veut rien
+    dire seul — c'est énorme sur ce prototype de 120 W, négligeable sur une
+    installation de 3 kW. Les mêmes règles doivent valoir dans les deux cas.
+    """
+    x = clamp(value, 0.0, 1.0)
+    return {
+        "negligible": trapezoidal(x, 0, 0, 0.10, 0.25),
+        "moderate": trapezoidal(x, 0.15, 0.30, 0.45, 0.60),
+        "dominant": trapezoidal(x, 0.45, 0.60, 1.0, 1.0),
+    }
+
+
 # --- Prémisses cumulatives ---------------------------------------------------
 #
 # Une règle qui veut dire « la batterie est faible OU pire » écrivait
@@ -134,6 +172,26 @@ def balance_at_most_deficit(value: float) -> float:
 def temperature_at_least_high(value: float) -> float:
     """« La batterie est chaude ou pire » — sommet et pied gauche de `high`."""
     return trapezoidal(clamp(value, -20.0, 100.0), 35, 45, 100, 100)
+
+
+def autonomy_at_most_short(value: float) -> float:
+    """« L'autonomie est courte ou pire » — sommet et pied droit de `short`."""
+    return trapezoidal(clamp(value, 0.0, 72.0), 0, 0, 4, 6)
+
+
+def autonomy_at_least_comfortable(value: float) -> float:
+    """« L'autonomie est confortable ou mieux » — sommet et pied gauche.
+
+    Sert de prémisse de RELÂCHEMENT : c'est la seule condition qui autorise le
+    moteur à ne pas s'alarmer d'une production faible. Elle n'est vraie que si
+    l'autonomie est effectivement connue et suffisante — jamais par défaut.
+    """
+    return trapezoidal(clamp(value, 0.0, 72.0), 4, 6, 72, 72)
+
+
+def line_power_at_least_moderate(value: float) -> float:
+    """« La ligne pèse moyennement ou plus » — sommet et pied gauche."""
+    return trapezoidal(clamp(value, 0.0, 1.0), 0.15, 0.30, 1.0, 1.0)
 
 
 def fuzzify_data_quality(value: str) -> dict[str, float]:

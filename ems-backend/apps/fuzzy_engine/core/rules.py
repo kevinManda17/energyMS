@@ -41,6 +41,45 @@ def _sensor_anomaly(fuzzy_values: dict) -> float:
     return fuzzy_or(fuzzy_values["data_quality"]["partial"], fuzzy_values["data_quality"]["bad"])
 
 
+def _shortfall_is_covered(fuzzy_values: dict) -> float:
+    """« Le creux de production est couvert » — par la réserve ou par la suite.
+
+    Deux façons, indépendantes, qu'une production momentanément faible ne soit
+    PAS un problème :
+
+      - l'autonomie est confortable : la batterie tient le temps qu'il faut ;
+      - le bilan prévisionnel annonce un excédent ET la batterie n'est pas
+        basse : la production va revenir, et il y a de quoi patienter.
+
+    Disjonction et non conjonction : l'une OU l'autre suffit. C'est bien deux
+    raisons distinctes de ne pas s'alarmer.
+    """
+    return fuzzy_or(
+        fuzzy_values["cumulative"]["autonomy_at_least_comfortable"],
+        fuzzy_and(
+            fuzzy_values["energy_balance"]["surplus"],
+            fuzzy_not(fuzzy_values["cumulative"]["soc_at_most_low"]),
+        ),
+    )
+
+
+def _shortfall_not_covered(fuzzy_values: dict) -> float:
+    """« Rien ne couvre le creux de production. »
+
+    Prémisse ajoutée aux règles de tension IMMÉDIATE (production faible, charge
+    élevée). Sans elle, ces règles se déclenchaient à l'identique que la
+    batterie soit pleine ou vide et que la prévision soit bonne ou mauvaise :
+    ni le stockage ni le bilan n'apparaissaient dans leur prémisse. Le moteur
+    recommandait donc de réduire la consommation avec une batterie à 100 % et
+    un excédent annoncé — c'est pourtant très exactement ce à quoi servent une
+    batterie et une prévision.
+
+    Vaut 1 (aucun relâchement) quand l'autonomie est INCONNUE et le bilan
+    déficitaire : le moteur ne se rassure jamais sur une donnée qu'il n'a pas.
+    """
+    return fuzzy_not(_shortfall_is_covered(fuzzy_values))
+
+
 def _make_rule(
     rule_id: str,
     name: str,
@@ -214,6 +253,7 @@ def get_default_rules() -> list[FuzzyRule]:
             lambda _f, v: fuzzy_and(
                 v["current_load"]["high"],
                 v["cumulative"]["balance_at_most_deficit"],
+                _shortfall_not_covered(v),
             ),
             {
                 "risk_score": 90,
@@ -319,6 +359,7 @@ def get_default_rules() -> list[FuzzyRule]:
             lambda _f, v: fuzzy_and(
                 v["cumulative"]["pv_at_most_low"],
                 v["current_load"]["high"],
+                _shortfall_not_covered(v),
             ),
             {
                 "risk_score": 90,
@@ -406,5 +447,92 @@ def get_default_rules() -> list[FuzzyRule]:
             "La batterie est trop froide : la recharger maintenant deposerait du "
             "lithium metallique sur l'anode et lui ferait perdre definitivement "
             "de la capacite. Il faut attendre qu'elle se rechauffe.",
+        ),
+        # --- Autonomie prevue ------------------------------------------------
+        # Ces deux regles sont les seules a lire une grandeur qui COMBINE
+        # production, consommation et stockage. Toutes les autres les lisent
+        # separement, puis les font se plafonner par des `min`.
+        _make_rule(
+            "R026_AUTONOMY_CRITICAL",
+            "Autonomie critique",
+            "Moins d'une heure d'autonomie au rythme actuel.",
+            lambda _f, v: v["autonomy"]["critical"],
+            {
+                "risk_score": 95,
+                "shedding_level": 90,
+                "protect_battery_score": 65,
+                "automatic_score": 85,
+                "recommendation_score": 95,
+            },
+            "Au rythme actuel, la reserve d'energie ne tiendra pas une heure : il "
+            "faut reduire la consommation tout de suite.",
+        ),
+        _make_rule(
+            "R027_AUTONOMY_SHORT",
+            "Autonomie courte",
+            "Une a quatre heures d'autonomie : anticiper avant la panne.",
+            lambda _f, v: fuzzy_and(
+                v["autonomy"]["short"], fuzzy_not(v["autonomy"]["critical"])
+            ),
+            {
+                "risk_score": 70,
+                "shedding_level": 62,
+                "recommendation_score": 85,
+            },
+            "La reserve d'energie ne couvre que quelques heures : mieux vaut "
+            "alleger maintenant que subir une coupure plus tard.",
+        ),
+        # --- Bilan previsionnel SEUL -----------------------------------------
+        # Le bilan n'intervenait qu'en conjonction avec un terme portant sur le
+        # SOC ou la charge. Consequence mesuree : faire varier le bilan sur
+        # toute son etendue (0 a 2) ne changeait PAS la decision dans une large
+        # part des situations de bonne qualite. Une prevision qui n'influence
+        # jamais rien n'est pas une prevision, c'est un affichage.
+        _make_rule(
+            "R028_FORECAST_CRITICAL_DEFICIT",
+            "Deficit previsionnel critique",
+            "La production prevue ne couvrira pas la consommation prevue.",
+            lambda _f, v: v["energy_balance"]["critical_deficit"],
+            {
+                "risk_score": 75,
+                "recommendation_score": 85,
+            },
+            "Les previsions annoncent nettement moins de production que de "
+            "consommation : il faut s'y preparer des maintenant.",
+        ),
+        _make_rule(
+            "R029_FORECAST_COMFORTABLE_SURPLUS",
+            "Surplus previsionnel confortable",
+            "Production prevue nettement superieure a la consommation prevue.",
+            lambda _f, v: fuzzy_and(
+                v["energy_balance"]["surplus"],
+                v["battery_temperature"]["normal"],
+                fuzzy_not(v["cumulative"]["soc_at_most_low"]),
+            ),
+            {
+                "automatic_score": 75,
+                "charge_battery_score": 60,
+            },
+            "Les previsions annoncent plus de production que necessaire et la "
+            "batterie est en bon etat : le systeme peut fonctionner normalement "
+            "et stocker le surplus.",
+        ),
+        _make_rule(
+            "R030_STORAGE_COVERS_LOW_PRODUCTION",
+            "La reserve couvre la faible production",
+            "Production faible et charge elevee, mais l'autonomie est confortable.",
+            lambda _f, v: fuzzy_and(
+                v["cumulative"]["pv_at_most_low"],
+                v["current_load"]["high"],
+                _shortfall_is_covered(v),
+            ),
+            {
+                "discharge_battery_score": 80,
+                "automatic_score": 70,
+                "risk_score": 25,
+            },
+            "La production est faible en ce moment, mais la reserve d'energie "
+            "couvre largement les besoins : puiser dans la batterie est la "
+            "reponse normale, il n'y a rien a couper.",
         ),
     ]

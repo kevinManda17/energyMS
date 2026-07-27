@@ -5,6 +5,7 @@ from dataclasses import replace
 from .decision_mapper import map_decision
 from .facts import fuzzify_facts
 from .inference import run_inference
+from .line_rules import LineRule, evaluate_lines
 from .membership import clamp
 from .models import EnergyDecisionResult, EnergyFacts, FuzzyRule
 
@@ -14,14 +15,38 @@ VALID_DATA_QUALITY = {"GOOD", "PARTIAL", "BAD"}
 
 
 class FuzzyExpertEngine:
-    def __init__(self, rules: list[FuzzyRule] | None = None) -> None:
+    def __init__(
+        self,
+        rules: list[FuzzyRule] | None = None,
+        line_rules: list[LineRule] | None = None,
+    ) -> None:
         self.rules = rules
+        self.line_rules = line_rules
 
     def evaluate(self, facts: EnergyFacts) -> EnergyDecisionResult:
+        """Pipeline complet : fuzzification, inférence maison, évaluation par
+        ligne, puis cascade de décision.
+
+        L'évaluation par ligne vient APRÈS l'inférence maison, parce qu'elle
+        lit le risque agrégé : une ligne ne se juge pas dans le vide. Elle
+        vient AVANT la cascade, parce que la cascade a besoin de savoir s'il
+        existe quelque chose à délester.
+        """
         normalized_facts = self._validate_and_normalize_facts(facts)
         fuzzy_values = fuzzify_facts(normalized_facts)
         inference_result = run_inference(normalized_facts, fuzzy_values, self.rules)
-        return map_decision(normalized_facts, inference_result, fuzzy_values)
+        line_evaluations = evaluate_lines(
+            normalized_facts,
+            fuzzy_values,
+            inference_result.aggregated_scores,
+            self.line_rules,
+        )
+        return map_decision(
+            normalized_facts,
+            inference_result,
+            fuzzy_values,
+            line_evaluations=line_evaluations,
+        )
 
     def _validate_and_normalize_facts(self, facts: EnergyFacts) -> EnergyFacts:
         load_priority = (facts.load_priority or "").strip().upper()

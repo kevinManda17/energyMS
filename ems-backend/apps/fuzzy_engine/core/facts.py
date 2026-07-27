@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from .membership import (
+    autonomy_at_least_comfortable,
+    autonomy_at_most_short,
     balance_at_most_deficit,
+    fuzzify_autonomy_hours,
     fuzzify_battery_soc,
     fuzzify_battery_temperature,
     fuzzify_current_load_ratio,
@@ -32,6 +35,17 @@ def fuzzify_facts(facts: EnergyFacts) -> dict:
         "current_load": fuzzify_current_load_ratio(current_load_ratio),
         "pv_generation": fuzzify_pv_generation_ratio(pv_generation_ratio),
         "data_quality": fuzzify_data_quality(facts.data_quality),
+        # Autonomie : tous les termes à zéro quand elle n'est pas calculable
+        # (SOC ou capacité inconnus). Une règle d'autonomie ne se déclenche
+        # alors pas — elle ne se déclenche pas « en faveur du calme » non plus,
+        # elle ne se déclenche simplement pas. `known` permet aux règles de
+        # distinguer « autonomie confortable » de « autonomie inconnue ».
+        "autonomy": (
+            fuzzify_autonomy_hours(facts.autonomy_hours)
+            if facts.autonomy_hours is not None
+            else {"critical": 0.0, "short": 0.0, "comfortable": 0.0, "large": 0.0}
+        ),
+        "autonomy_known": 1.0 if facts.autonomy_hours is not None else 0.0,
         # Lectures cumulatives « ce terme ou pire ». Fuzzifiées ici, donc
         # tracées dans la Decision au même titre que les ensembles : une règle
         # qui s'en sert reste vérifiable a posteriori.
@@ -41,6 +55,18 @@ def fuzzify_facts(facts: EnergyFacts) -> dict:
             "balance_at_most_deficit": balance_at_most_deficit(energy_balance_ratio),
             "temperature_at_least_high": temperature_at_least_high(
                 facts.battery_temperature_c
+            ),
+            "autonomy_at_most_short": (
+                autonomy_at_most_short(facts.autonomy_hours)
+                if facts.autonomy_hours is not None
+                else 0.0
+            ),
+            # Prémisse de RELÂCHEMENT. Vaut 0 quand l'autonomie est inconnue :
+            # le moteur ne se rassure jamais sur une donnée qu'il n'a pas.
+            "autonomy_at_least_comfortable": (
+                autonomy_at_least_comfortable(facts.autonomy_hours)
+                if facts.autonomy_hours is not None
+                else 0.0
             ),
         },
     }
