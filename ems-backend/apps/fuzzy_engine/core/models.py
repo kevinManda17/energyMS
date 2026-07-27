@@ -8,6 +8,64 @@ RuleEvaluator = Callable[["EnergyFacts", dict[str, Any]], float]
 
 
 @dataclass
+class LineFacts:
+    """État d'une ligne électrique commutable.
+
+    Une ligne n'est PAS une charge : plusieurs charges peuvent lui être
+    rattachées en parallèle (le prototype a une lampe ET une prise sur les
+    lignes 1 et 3). Couper une ligne coupe tout ce qu'elle porte — c'est
+    pourquoi la priorité d'une ligne est celle de la charge la PLUS
+    prioritaire qu'elle alimente, jamais une moyenne.
+
+    Unités : suffixe obligatoire dans le nom, puissances en W (cf. §7 du
+    cahier de refonte et docs/MEASUREMENTS_UNITS.md).
+    """
+
+    line_number: int                       # 1, 2, 3 — identifiant physique du relais
+    voltage_v: float | None                # tension mesurée
+    current_a: float | None                # courant mesuré
+    power_w: float | None                  # V x I x cos(phi)
+    relay_closed: bool                     # la ligne est-elle alimentée
+    priority: str                          # CRITICAL|IMPORTANT|NORMAL|LOW|NON_CRITICAL
+    nominal_power_w: float                 # somme des puissances nominales rattachées
+    load_names: list[str] = field(default_factory=list)  # pour l'explication
+    # Les capteurs ont-ils répondu. Faux = on ne sait pas ce que tire cette
+    # ligne ; l'optimiseur a interdiction d'y toucher (on ne coupe pas à
+    # l'aveugle, et on ne rétablit pas non plus).
+    is_measured: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class BatteryFacts:
+    """État d'une batterie du parc.
+
+    `soc_method` n'est pas décoratif : un SOC estimé par tension au repos
+    (OCV, ±10 %) et un SOC intégré au coulomb-mètre n'ont pas la même valeur
+    de preuve. Les confondre reviendrait à présenter une estimation grossière
+    comme une mesure. Quand aucune méthode n'est applicable, `soc_percent`
+    vaut None et `soc_method` vaut UNKNOWN — jamais une valeur inventée.
+    """
+
+    battery_id: str
+    soc_percent: float | None
+    soc_method: str                        # OCV | COULOMB | BMS | UNKNOWN
+    soc_uncertainty_percent: float | None
+    voltage_v: float | None
+    current_a: float | None                # signé : positif = charge
+    power_w: float | None
+    direction: str                         # CHARGE | DISCHARGE | IDLE | UNKNOWN
+    temperature_c: float | None
+    capacity_wh: float | None
+    energy_wh: float | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class EnergyFacts:
     current_pv_power_kw: float
     current_load_power_kw: float
@@ -29,6 +87,25 @@ class EnergyFacts:
     hour: int | None = None                       # 0..23
     day_of_week: int | None = None                # 0 = lundi … 6 = dimanche
     operating_mode: str = "MANUAL"                # RelayState.control_mode : MANUAL|ASSISTED|AUTO
+
+    # --- Faits par ligne et par batterie ---------------------------------- #
+    # Le moteur raisonnait uniquement sur des AGRÉGATS du micro-réseau : une
+    # seule priorité pour toutes les charges, un seul SOC pour tout le parc.
+    # Conséquence mesurée sur le prototype : `load_priority` valait toujours
+    # "PRIORITY" (une lampe IMPORTANT sur L2 suffit), et le délestage
+    # automatique — qui exige "NON_PRIORITY" — était mathématiquement
+    # inatteignable. Ces listes rendent le raisonnement par ligne possible.
+    # Les champs agrégés ci-dessus sont CONSERVÉS et restent calculés : les
+    # 25 règles maison continuent de fonctionner. C'est une extension.
+    lines: list[LineFacts] = field(default_factory=list)
+    batteries: list[BatteryFacts] = field(default_factory=list)
+
+    # Autonomie prévue, en heures. Fait dérivé qui COUPLE enfin la prévision,
+    # la capacité de stockage et le SOC, au lieu de les laisser se plafonner
+    # mutuellement par un `min`. Directement interprétable : « le système sait
+    # combien d'heures il tient ». None = pas calculable (SOC ou capacité
+    # inconnus) — et alors aucune règle d'autonomie ne se déclenche.
+    autonomy_hours: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
