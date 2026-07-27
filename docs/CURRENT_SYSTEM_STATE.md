@@ -7,7 +7,7 @@
 >
 > Vérification automatique : `python scripts/audit_config.py --strict`
 
-Dernière mise à jour : **25/07/2026**
+Dernière mise à jour : **27/07/2026**
 
 ---
 
@@ -56,11 +56,28 @@ Tous sur l'**ADC1** : fonctionnels même Wi-Fi actif. G34/G35/G36/G39 sont des
 
 ## 2. Charges par ligne
 
-| Ligne | Charges (en parallèle) | Priorités |
-|-------|------------------------|-----------|
-| Ligne 1 | Lampe L1 (10 W) + Prise 1 | normale / non prioritaire |
-| Ligne 2 | **Lampe L2 (20 W) seule** | prioritaire |
-| Ligne 3 | Lampe L3 (10 W) + Prise 2 | normale / non prioritaire |
+| Ligne | Charges (en parallèle) | Priorité de la ligne | Ordre de délestage |
+|-------|------------------------|----------------------|--------------------|
+| Ligne 1 | Lampe L1 (10 W) + Prise 1 | `NORMAL` | **délestée en premier** |
+| Ligne 3 | Lampe L3 (10 W) + Prise 2 | `NORMAL` | ensuite |
+| Ligne 2 | **Lampe L2 (20 W) seule** | `IMPORTANT` | **délestée en dernier** |
+
+> **Contradiction tranchée (27/07/2026).** Quatre sources disaient trois choses
+> différentes de la ligne 2 : `actuator.FALLBACK_RANK` et `esp32/config.h`
+> annonçaient « L2 délestée en premier », tandis que ce document et
+> `seed_prototype.py` la donnent prioritaire. Les deux dernières l'emportent —
+> seules adossées au matériel réellement monté, et l'écart avait déjà été
+> vérifié physiquement le 19/07/2026. Les deux premières dataient d'avant
+> l'existence de `Equipment.relay_line`.
+>
+> **Source de vérité unique** : `apps/fuzzy_engine/core/priorities.py`. Le
+> firmware, l'actionneur et les tests y sont désormais alignés.
+>
+> **Le rang n'est pas un veto.** Une seule interdiction est absolue : une ligne
+> `CRITICAL` n'est jamais coupée automatiquement. Tout le reste est un **coût**,
+> ce qui permet à l'optimiseur d'arbitrer. Traiter la priorité comme un veto
+> rendait le délestage inatteignable sur ce prototype, dont aucune ligne n'est
+> « non prioritaire » au sens strict.
 
 Une ligne **n'est pas réductible à une seule charge** : les lignes 1 et 3 en
 portent deux, en parallèle. Couper la ligne 1 coupe la lampe *et* la prise 1.
@@ -252,8 +269,14 @@ système affiche 217 / 224 / 210 — et non trois fois la même valeur.
 > **Corrigé le 19/07/2026** : le système expert lisait `temperature` (la météo)
 > comme température de batterie. Les règles thermiques batterie (R001, R002)
 > pouvaient donc se déclencher sur la météo du jour. Le moteur lit désormais
-> `battery_temp` uniquement ; sans sonde, il retient 25 °C (valeur neutre) et
-> les règles thermiques restent inactives — c'est voulu et assumé.
+> `battery_temp` uniquement.
+>
+> **Corrigé le 27/07/2026** : sans sonde, le moteur retenait 25 °C. Cette
+> « valeur neutre » n'était pas neutre — elle faisait affirmer à R015 que « la
+> température est normale », une assertion que le système n'avait aucun moyen
+> de faire. La température vaut désormais `None` : elle n'appartient à **aucun**
+> terme flou, aucune règle thermique ne se déclenche, et l'absence devient
+> visible au lieu d'être masquée. Même correction pour le SOC, qui valait 50 %.
 
 **Extension prévue (non installée à ce jour)** : sondes DS18B20 sur le panneau
 solaire, la batterie 1, la batterie 2, et la future batterie lithium.
@@ -312,7 +335,9 @@ prévision à 1 h reste une extrapolation du modèle à 10 min.
 ### Réalisé
 
 - Chaîne temps réel ESP32 → backend → interfaces (sondage 3 s, mesures 30 s).
-- Système expert flou : 24 règles, fuzzification, inférence, agrégation, mapping.
+- Système expert flou : **30 règles maison + 6 règles de ligne**, fuzzification,
+  inférence, agrégation par maximum pondéré, planchers de sûreté, cascade,
+  optimiseur de délestage.
 - Boucle fermée décision → relais, avec 3 modes : `MANUAL`, `ASSISTED`, `AUTO`.
 - Fenêtre de confirmation en mode AUTO (180 s) : pas de coupure sur transitoire.
 - Mappage charge ↔ ligne (`Equipment.relay_line`) ; ligne critique jamais coupée.
@@ -320,13 +345,39 @@ prévision à 1 h reste une extrapolation du modèle à 10 min.
 - Prévision ML (GRU consommation, RF production) avec météo Open-Meteo.
 - Collecte météo (bouton + planificateur d'arrière-plan) et mise à l'échelle des
   prévisions PV sur la capacité estimée (`pv_capacity_kw` / `reference_peak_w`).
-- **Faits contextuels enrichis** transmis au système expert (lot 1) :
-  `ambient_temperature_c`, `solar_irradiance_wm2`, `module_temperature_c`, `hour`,
-  `day_of_week`, `operating_mode` (← `RelayState.control_mode`). Ils sont assemblés
-  par `facts_from_house()`, **préservés à travers la normalisation**
-  (`dataclasses.replace`) et tracés dans `Decision.input_facts` ; ils sont
-  disponibles pour de futures règles sans modifier les 24 règles actuelles.
 - Géolocalisation de la maison (web + mobile).
+
+### Refonte du système expert (27/07/2026)
+
+Documentation complète : **[SYSTEME_EXPERT.md](SYSTEME_EXPERT.md)**.
+Protocole des nœuds : **[PROTOCOLE_ESP32.md](PROTOCOLE_ESP32.md)**.
+
+- **Raisonnement par ligne** : `EnergyFacts.lines` et `.batteries`, 6 règles de
+  ligne, et une cascade qui demande « ai-je une ligne à couper ? » au lieu de
+  « aucune charge n'est-elle prioritaire ? ». Le délestage automatique était
+  **mathématiquement inatteignable** sur ce prototype ; il ne l'est plus.
+- **Planchers de sûreté** (`core/safety.py`) : la gravité ne redescend plus
+  dans les trous laissés entre deux frontières émergentes (SOC 19,7–26,5 %,
+  température 48–55 °C).
+- **Optimiseur** (`core/optimizer.py`) : le moteur flou décide *s'il faut*
+  délester, l'optimiseur décide *quoi*. Énumération exacte, aucun solveur.
+- **Estimation du SOC** (`core/soc.py`, `BatteryState`) : trois méthodes
+  distinguées (OCV, coulométrique, BMS), chacune avec son incertitude. Jamais
+  de SOC tiré d'une tension sous charge.
+- **Fin des valeurs par défaut** : plus de 50 % ni de 25 °C substitués en
+  silence. Une donnée absente vaut `None`, dégrade la qualité et bloque la
+  décision.
+- **Les six faits contextuels sont exploités** : irradiance, température de
+  module, ambiante, heure, jour de la semaine, régime de pilotage. Ils étaient
+  transmis, tracés — et lus par aucune règle.
+- **Sécurité du sondage IoT** : plus de mode sans jeton (il ouvrait les relais
+  du dernier micro-réseau piloté, toutes maisons confondues), jeton en en-tête
+  `X-Device-Token`, jeton retiré de l'API.
+- **Vocabulaire unifié** sur `AUTOMATIC` (backend, web, mobile), avec migration
+  de données.
+- **Banc de mesure** `python -m tools.fuzzy_bench` : 222 750 situations,
+  sans Django. Références figées dans `tools/mesure_avant_refonte.json` et
+  `tools/mesure_apres_refonte.json`.
 
 ### Non réalisé / limites connues
 
@@ -334,8 +385,11 @@ prévision à 1 h reste une extrapolation du modèle à 10 min.
   encore des volts/ampères réels. Prérequis à toute exploitation du mode `AUTO`.
 - **Sondes de température** (DS18B20) : non installées.
 - **Mesure PV et batterie** : le prototype ne mesure que 3 lignes de
-  consommation. Production et SOC viennent d'autres sources ou de valeurs par
-  défaut — le système expert raisonne donc sur des données partielles.
+  consommation. Le nœud secondaire (3 tensions DC, 3 courants DC, 3
+  températures) **n'est pas monté** ; le backend accepte déjà sa charge utile
+  et les tests la couvrent. Tant qu'il manque, le SOC vaut `UNKNOWN` et le
+  moteur **bloque ses décisions** — c'est le comportement voulu, et il se verra
+  en démonstration.
 - **Historique de mesures antérieur au 19/07/2026** : consommations fausses d'un
   facteur 1000 (voir §5).
 - **ESP32** : l'adresse du backend impose une recompilation. Configuration par
