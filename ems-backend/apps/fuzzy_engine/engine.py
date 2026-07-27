@@ -20,9 +20,16 @@ from .core import priorities as prio
 from .core.autonomy import autonomy_hours
 
 
-# Température batterie retenue quand aucune sonde ne la mesure. Neutre : elle
-# ne déclenche ni la règle "température élevée" ni "dangereuse".
-BATTERY_TEMP_DEFAULT_C = 25.0
+# Il n'y a PLUS de valeur par défaut pour le SOC ni pour la température
+# batterie. Le moteur substituait 50 % et 25 °C en silence quand aucune source
+# ne répondait : le résultat avait l'air d'une batterie à moitié pleine et
+# tempérée, alors que c'était l'absence de mesure. Onze règles raisonnaient sur
+# ces chiffres inventés, et R015 allait jusqu'à affirmer « la température est
+# normale » — une assertion que le système n'avait aucun moyen de faire.
+#
+# Désormais l'absence vaut None, elle dégrade la qualité des données, et la
+# décision se bloque. C'est un changement de comportement VOULU : rendre
+# l'absence visible plutôt que de la masquer.
 
 WATTS_PER_KILOWATT = 1000.0
 WH_PER_KWH = 1000.0
@@ -37,6 +44,12 @@ LINE_NUMBERS = (1, 2, 3)
 # est de 3 s, celle de stockage de 30 s : 120 s laissent passer quatre sondages
 # manqués avant de déclarer la ligne inconnue.
 LINE_REPORT_MAX_AGE_S = 120
+
+# Même principe pour l'état estimé d'une batterie : au-delà d'un quart d'heure,
+# il décrit un état qui n'existe plus. Plus tolérant que pour les lignes, car un
+# SOC bouge lentement — mais borné, car un SOC périmé lu comme actuel est
+# exactement le genre de valeur fausse qui a l'air juste.
+BATTERY_STATE_MAX_AGE_S = 900
 
 # Le calcul d'autonomie lui-même vit dans core/autonomy.py : c'est de la
 # physique, pas de l'accès aux données, et il doit rester mesurable sans Django.
@@ -248,13 +261,14 @@ def _to_float(mapping, key):
 def _battery_facts(house) -> list[BatteryFacts]:
     """Assemble l'état de chaque batterie du parc.
 
-    À ce stade, le prototype ne mesure aucune grandeur continue : les batteries
-    existent en base comme `EnergyAsset`, avec leur capacité nominale, mais
-    aucun capteur ne remonte ni tension, ni courant, ni SOC. Les champs
-    correspondants restent donc None et `soc_method` vaut UNKNOWN — c'est la
-    vérité, et le moteur doit pouvoir la dire plutôt que de la masquer.
+    L'état vient du dernier `BatteryState`, c'est-à-dire d'une ESTIMATION
+    horodatée, avec sa méthode et son incertitude. Un `BatteryState` absent ou
+    périmé ne se remplace pas par une valeur plausible : `soc_percent` reste
+    None et `soc_method` vaut UNKNOWN. C'est la vérité sur le prototype
+    d'aujourd'hui, qui ne mesure aucune grandeur continue — et le moteur doit
+    pouvoir la dire plutôt que de la masquer.
     """
-    from apps.energy_assets.models import EnergyAsset
+    from apps.energy_assets.models import BatteryState, EnergyAsset
 
     rows = EnergyAsset.objects.filter(
         house=house,
@@ -262,7 +276,11 @@ def _battery_facts(house) -> list[BatteryFacts]:
         status=EnergyAsset.Status.ACTIVE,
     ).order_by("id")
 
+    # Sonde partagée : tant qu'une seule sonde équipe le parc, sa lecture vaut
+    # pour toutes les batteries. Une sonde par batterie la remplacera dès que
+    # `BatteryState.temperature_celsius` sera alimenté individuellement.
     shared_temperature = _latest_value(house, "battery_temp")
+    now = timezone.now()
 
     facts = []
     for asset in rows:
@@ -271,19 +289,40 @@ def _battery_facts(house) -> list[BatteryFacts]:
             if asset.capacity_kwh is not None
             else None
         )
+        state = (
+            BatteryState.objects.filter(battery=asset).order_by("-timestamp").first()
+        )
+        if state is not None and (
+            now - state.timestamp
+        ).total_seconds() > BATTERY_STATE_MAX_AGE_S:
+            # Un état périmé décrit une batterie qui n'existe plus. On préfère
+            # ne rien savoir que savoir faux.
+            state = None
+
         facts.append(
             BatteryFacts(
                 battery_id=str(asset.pk),
-                soc_percent=None,
-                soc_method="UNKNOWN",
-                soc_uncertainty_percent=None,
-                voltage_v=None,
-                current_a=None,
-                power_w=None,
-                direction="UNKNOWN",
-                temperature_c=shared_temperature,
+                soc_percent=state.soc_percent if state else None,
+                soc_method=state.estimation_method if state else "UNKNOWN",
+                soc_uncertainty_percent=(
+                    state.uncertainty_percent if state else None
+                ),
+                voltage_v=state.voltage_v if state else None,
+                current_a=state.current_a if state else None,
+                power_w=(
+                    state.voltage_v * state.current_a
+                    if state and state.voltage_v is not None
+                    and state.current_a is not None
+                    else None
+                ),
+                direction=state.direction if state else "UNKNOWN",
+                temperature_c=(
+                    state.temperature_celsius
+                    if state and state.temperature_celsius is not None
+                    else shared_temperature
+                ),
                 capacity_wh=capacity_wh,
-                energy_wh=None,
+                energy_wh=state.energy_wh if state else None,
             )
         )
     return facts
@@ -483,18 +522,13 @@ def facts_from_house(house, overrides: dict | None = None) -> EnergyFacts:
 
     production = raw["production"] if raw["production"] is not None else 0.0
     consumption = raw["consumption"] if raw["consumption"] is not None else 0.0
-    battery_soc = raw["battery_soc"] if raw["battery_soc"] is not None else 50.0
-    # Aucune sonde batterie installée à ce jour : sans mesure, on retient une
-    # valeur neutre (25 °C) plutôt que de substituer la température ambiante.
-    # Les règles thermiques batterie restent alors inactives — c'est voulu.
+    # Aucune substitution : None traverse jusqu'aux règles, qui ne se
+    # déclenchent alors ni dans le sens de l'alarme ni dans celui du calme.
+    battery_soc = raw["battery_soc"]
     battery_temp = (
         overrides["battery_temperature"]
         if overrides.get("battery_temperature") is not None
-        else (
-            raw["battery_temperature"]
-            if raw["battery_temperature"] is not None
-            else BATTERY_TEMP_DEFAULT_C
-        )
+        else raw["battery_temperature"]
     )
     priority = (
         "NON_PRIORITY"

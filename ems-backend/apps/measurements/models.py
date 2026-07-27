@@ -25,6 +25,17 @@ class Measurement(models.Model):
         # défaut plutôt que la température ambiante.
         BATTERY_TEMP = "battery_temp", "Battery temperature (probe)"
         PANEL_TEMP = "panel_temp", "Solar panel temperature (probe)"
+        # Grandeurs continues du bloc DC, remontées par l'ESP32 secondaire
+        # (3 tensions, 3 courants, 3 températures — cf. docs/PROTOCOLE_ESP32.md).
+        # Unités : V, A, W. `battery_current` est SIGNÉ, positif = charge :
+        # sans le signe, impossible de distinguer une batterie qui se remplit
+        # d'une batterie qui se vide, donc impossible de compter les coulombs.
+        BATTERY_VOLTAGE = "battery_voltage", "Battery voltage (V)"
+        BATTERY_CURRENT = "battery_current", "Battery current, signed (A)"
+        BATTERY_POWER = "battery_power", "Battery power (W)"
+        # Production photovoltaïque mesurée côté continu, en W. À ne pas
+        # confondre avec `production` (kW), qui est l'agrégat applicatif.
+        PV_POWER = "pv_power", "PV power, DC side (W)"
         LUMINOSITY = "luminosity", "Luminosity"
         IRRADIANCE = "irradiance", "Irradiance"
         IRRADIANCE_TILT15 = "irradiance_tilt15", "Irradiance inclinee 15°"

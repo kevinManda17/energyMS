@@ -81,8 +81,16 @@ class FuzzyExpertEngine:
             current_load_power_kw=max(0.0, float(facts.current_load_power_kw)),
             forecast_pv_energy_kwh=max(0.0, float(facts.forecast_pv_energy_kwh)),
             forecast_load_energy_kwh=max(0.0, float(facts.forecast_load_energy_kwh)),
-            battery_soc_percent=clamp(facts.battery_soc_percent, 0.0, 100.0),
-            battery_temperature_c=clamp(facts.battery_temperature_c, -20.0, 100.0),
+            # None traverse la normalisation intact : c'est une valeur
+            # légitime (« pas de mesure »), pas une valeur à borner.
+            battery_soc_percent=(
+                None if facts.battery_soc_percent is None
+                else clamp(facts.battery_soc_percent, 0.0, 100.0)
+            ),
+            battery_temperature_c=(
+                None if facts.battery_temperature_c is None
+                else clamp(facts.battery_temperature_c, -20.0, 100.0)
+            ),
             load_priority=load_priority,
             data_quality=data_quality,
             pv_nominal_power_kw=max(0.001, float(facts.pv_nominal_power_kw)),

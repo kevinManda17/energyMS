@@ -39,7 +39,24 @@ def trapezoidal(x: float, a: float, b: float, c: float, d: float) -> float:
     return clamp((d - x) / max(d - c, 1e-12), 0.0, 1.0)
 
 
-def fuzzify_battery_soc(value: float) -> dict[str, float]:
+# Ensembles tous nuls : la réponse à « je ne sais pas ». Surtout pas un terme
+# à 1,0, qui affirmerait quelque chose. Aucune règle ne se déclenche alors, ni
+# dans le sens de l'alarme ni dans celui du calme.
+_UNKNOWN_SOC = {"critical": 0.0, "low": 0.0, "medium": 0.0, "high": 0.0}
+_UNKNOWN_TEMPERATURE = {"cold": 0.0, "normal": 0.0, "high": 0.0, "dangerous": 0.0}
+
+
+def fuzzify_battery_soc(value: float | None) -> dict[str, float]:
+    """Un SOC inconnu n'appartient à AUCUN terme.
+
+    Le moteur substituait 50 % en silence quand aucune source ne fournissait le
+    SOC. Le résultat avait l'air d'une batterie à moitié pleine, alors que
+    c'était l'absence de mesure. Onze règles raisonnaient donc sur un chiffre
+    inventé. Désormais l'absence est visible : elle dégrade la qualité des
+    données et la décision se bloque, au lieu d'improviser.
+    """
+    if value is None:
+        return dict(_UNKNOWN_SOC)
     x = clamp(value, 0.0, 100.0)
     return {
         "critical": trapezoidal(x, 0, 0, 15, 25),
@@ -63,6 +80,8 @@ def fuzzify_battery_temperature(value: float) -> dict[str, float]:
     l'univers) : entre 0 et 10 °C, la batterie n'est plus franchement normale
     sans être encore franchement froide.
     """
+    if value is None:
+        return dict(_UNKNOWN_TEMPERATURE)
     x = clamp(value, -20.0, 100.0)
     return {
         "cold": trapezoidal(x, -20, -20, 0, 10),
@@ -154,8 +173,15 @@ def fuzzify_line_power_share(value: float) -> dict[str, float]:
 # reprennent le sommet et le pied du terme concerné, en saturant du côté du
 # danger. La monotonie est alors vraie par construction, pas par chance.
 
-def soc_at_most_low(value: float) -> float:
-    """« Le SOC est faible ou pire » — sommet et pied droit de `low`."""
+def soc_at_most_low(value: float | None) -> float:
+    """« Le SOC est faible ou pire » — sommet et pied droit de `low`.
+
+    Vaut 0 quand le SOC est inconnu : l'ignorance n'est pas une bonne nouvelle,
+    mais elle n'est pas non plus une preuve de faiblesse. C'est la qualité des
+    données qui porte le doute, pas cette prémisse.
+    """
+    if value is None:
+        return 0.0
     return trapezoidal(clamp(value, 0.0, 100.0), 0, 0, 30, 45)
 
 
@@ -169,8 +195,10 @@ def balance_at_most_deficit(value: float) -> float:
     return trapezoidal(clamp(value, 0.0, 2.0), 0, 0, 0.70, 0.95)
 
 
-def temperature_at_least_high(value: float) -> float:
+def temperature_at_least_high(value: float | None) -> float:
     """« La batterie est chaude ou pire » — sommet et pied gauche de `high`."""
+    if value is None:
+        return 0.0
     return trapezoidal(clamp(value, -20.0, 100.0), 35, 45, 100, 100)
 
 

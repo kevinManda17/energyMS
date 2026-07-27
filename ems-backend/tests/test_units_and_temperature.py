@@ -5,7 +5,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.devices.models import RelayState
-from apps.fuzzy_engine.engine import BATTERY_TEMP_DEFAULT_C, facts_from_house
+from apps.fuzzy_engine.engine import facts_from_house
 from apps.houses.models import House
 from apps.measurements.models import Measurement
 
@@ -98,7 +98,12 @@ def test_weather_temperature_is_not_used_as_battery_temperature(house):
         timestamp=timezone.now(),
     )
     facts = facts_from_house(house)
-    assert facts.battery_temperature_c == BATTERY_TEMP_DEFAULT_C
+    # Sans sonde dediee, la temperature batterie est INCONNUE, pas « 25 C par
+    # defaut ». La valeur neutre d'autrefois faisait affirmer a R015 que « la
+    # temperature est normale », ce que le systeme n'avait aucun moyen de
+    # savoir. Ce que ce test protege reste le meme : la meteo (38 C ici) ne
+    # doit jamais servir de temperature batterie.
+    assert facts.battery_temperature_c is None
 
 
 def test_battery_probe_is_used_when_present(house):

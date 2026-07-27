@@ -71,8 +71,11 @@ class EnergyFacts:
     current_load_power_kw: float
     forecast_pv_energy_kwh: float
     forecast_load_energy_kwh: float
-    battery_soc_percent: float
-    battery_temperature_c: float
+    # None = aucune source. Le moteur substituait 50 % et 25 C en silence :
+    # onze regles raisonnaient alors sur des chiffres inventes qui avaient
+    # l'air de mesures. L'absence doit rester VISIBLE.
+    battery_soc_percent: float | None
+    battery_temperature_c: float | None
     load_priority: str
     data_quality: str
     # Fraction des faits attendus effectivement presents (0..1). Rend la
