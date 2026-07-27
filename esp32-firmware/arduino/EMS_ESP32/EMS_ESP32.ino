@@ -14,7 +14,15 @@
    - garde-fou local appliqué à TOUTE décision automatique, y compris
      celle du backend : une ligne en surcharge n'est jamais activée ;
    - backend muet : dernier état conservé, puis délestage de la ligne
-     non prioritaire (L2) après BACKEND_MAX_FAILURES échecs consécutifs.
+     la moins prioritaire (L1) après BACKEND_MAX_FAILURES échecs
+     consécutifs.
+
+  Priorité des lignes — L2 est la ligne PRIORITAIRE du prototype (elle
+  porte la lampe 20 W enregistrée IMPORTANT) ; L1 et L3 portent chacune
+  une lampe normale et une prise secondaire, et se délestent donc avant.
+  Ce firmware disait l'inverse jusqu'au 27/07/2026, par une convention
+  antérieure au rattachement charge -> ligne côté backend. Source de
+  vérité unique : ems-backend/apps/fuzzy_engine/core/priorities.py.
 
   Toute la configuration (pins, calibration, seuils, Wi-Fi) : config.h
   (onglet à côté de ce fichier — Arduino IDE le compile automatiquement,
@@ -149,9 +157,12 @@ Decision clampDecision(Decision d, const LineData& l1, const LineData& l2,
   if (l2.power > MAX_LINE_POWER_W) d.l2 = false;
   if (l3.power > MAX_LINE_POWER_W) d.l3 = false;
 
-  if (totalPower > MAX_TOTAL_POWER_W) d.l2 = false;           // L2 : non prioritaire
-  if (l1.power + l3.power > MAX_TOTAL_POWER_W) d.l1 = false;  // L1 : moyenne priorité
-  if (l3.power > MAX_TOTAL_POWER_W) {                         // dernier recours
+  /* Délestage par priorité CROISSANTE : la ligne la moins prioritaire part
+     en premier. L1 et L3 portent une lampe normale + une prise secondaire,
+     L2 la lampe prioritaire — elle ne tombe qu'en dernier recours. */
+  if (totalPower > MAX_TOTAL_POWER_W) d.l1 = false;           // L1 : délestée en premier
+  if (l2.power + l3.power > MAX_TOTAL_POWER_W) d.l3 = false;  // L3 : ensuite
+  if (l2.power > MAX_TOTAL_POWER_W) {                         // dernier recours
     d.l1 = false;
     d.l2 = false;
     d.l3 = false;
@@ -160,7 +171,7 @@ Decision clampDecision(Decision d, const LineData& l1, const LineData& l2,
 }
 
 /* Règles locales provisoires (secours / test sans backend).
-   Priorités : L3 prioritaire, L1 moyenne, L2 non prioritaire. */
+   Priorités : L2 prioritaire, L1 et L3 délestables (cf. en-tête). */
 Decision localExpertDecision(const LineData& l1, const LineData& l2,
                              const LineData& l3) {
   Decision d;
@@ -241,7 +252,7 @@ Decision backendDecision(const LineData& l1, const LineData& l2,
   } else {
     if (backendFailures < 255) backendFailures++;
     if (backendFailures >= BACKEND_MAX_FAILURES) {
-      d.l2 = false;  // délestage de précaution : ligne non prioritaire
+      d.l1 = false;  // délestage de précaution : ligne la moins prioritaire
     }
     /* Diagnostic explicite :
          wifi=0            -> pas connecte au Wi-Fi (2,4 GHz / identifiants)

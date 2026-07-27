@@ -3,45 +3,45 @@ Pont entre une décision du système expert flou et les trois lignes physiques
 (relais ESP32). C'est ici que « les règles sont réellement appliquées » : la
 décision cesse d'être seulement consultative pour piloter les lignes.
 
-Priorité des lignes du prototype (identique aux règles locales du firmware,
-cf. esp32-firmware/.../config.h : « L3 prioritaire, L1 moyenne, L2 non
-prioritaire, délestée en premier ») :
+Priorité des lignes : déduite des charges réellement rattachées
+(`Equipment.relay_line`), source de vérité unique définie dans
+`core/priorities.py`. Sur le prototype :
 
-    line3  = PRIORITAIRE        -> coupée en dernier recours seulement
-    line1  = MOYENNE            -> coupée en cas de protection forte
-    line2  = NON PRIORITAIRE    -> première délestée
+    line2  = IMPORTANT (lampe 20 W)      -> délestée en dernier
+    line1  = NORMAL + prise secondaire   -> délestable
+    line3  = NORMAL + prise secondaire   -> délestable
+
+La convention historique du firmware disait l'inverse (« L2 délestée en
+premier ») ; elle datait d'avant le rattachement charge -> ligne. L'arbitrage
+et l'alignement des quatre sources sont documentés dans `core/priorities.py`.
 
 Règles de sécurité (volontairement conservatrices) :
   - seules les décisions en mode AUTOMATIC actionnent les relais ; une
     RECOMMENDATION ou un blocage (BLOCKED, données BAD) ne touche jamais les
     lignes — l'humain garde la main ;
-  - une ligne prioritaire (line3) n'est jamais coupée automatiquement, sauf
-    décision explicite de protection batterie (risque matériel) ;
+  - une ligne portant une charge CRITIQUE n'est jamais coupée automatiquement,
+    y compris en protection batterie ; les autres priorités se paient (coût de
+    confort) mais ne constituent pas un veto ;
   - le garde-fou de surcharge du firmware (clampDecision) reste actif par
     dessus : il peut refuser d'alimenter une ligne même si le backend la
     demande.
 """
 from __future__ import annotations
 
+from .core import priorities as prio
+
 
 LINES = ("line1", "line2", "line3")
 ALL_ON = {"line1": True, "line2": True, "line3": True}
 
-# Rang de priorité d'un équipement (plus haut = plus prioritaire, donc coupé en
-# dernier). Les cinq niveaux du modèle Equipment sont couverts : sans LOW, une
-# charge « Secondaire » retombait sur le défaut et était classée comme NORMAL,
-# alors qu'elle doit se délester avant une charge normale.
-PRIORITY_RANK = {
-    "NON_CRITICAL": 0,   # délestée en premier
-    "LOW": 1,            # secondaire
-    "NORMAL": 2,
-    "IMPORTANT": 3,      # prioritaire
-    "CRITICAL": 4,       # jamais coupée automatiquement
+# Rangs et repli viennent de core/priorities.py : un seul endroit décide de ce
+# qui se déleste avant quoi. Les avoir en double ici avait produit la
+# contradiction que ce module documentait sans la résoudre.
+PRIORITY_RANK = prio.PRIORITY_RANK
+FALLBACK_RANK = {
+    f"line{number}": prio.rank(priority)
+    for number, priority in prio.FALLBACK_LINE_PRIORITY.items()
 }
-
-# Repli quand aucun équipement n'est rattaché à une ligne : convention du
-# firmware (L3 prioritaire, L1 moyenne, L2 délestée en premier).
-FALLBACK_RANK = {"line2": 0, "line1": 1, "line3": 2}
 
 
 def _line_context(house):
@@ -69,8 +69,11 @@ def _line_context(house):
         key = f"line{line_no}"
         if key not in ranks:
             continue
-        # Priorité inconnue -> rang de NORMAL (défaut du modèle), pas LOW.
-        mapped[key] = max(mapped.get(key, -1), PRIORITY_RANK.get(priority, 2))
+        # Rang de la charge la PLUS prioritaire de la ligne : couper la ligne
+        # les coupe toutes. Priorité inconnue -> rang de NORMAL (défaut du
+        # modèle), jamais 0 : une saisie fautive ne doit pas rendre une charge
+        # délestable en premier.
+        mapped[key] = max(mapped.get(key, -1), prio.rank(priority))
         if priority == "CRITICAL":
             critical.add(key)
 

@@ -29,6 +29,10 @@ dist/
 # Edge
 edge-gateway/*.db
 
+# Firmware — identifiants Wi-Fi du noeud. Le modele versionne est
+# config_secrets.h.example ; le fichier rempli ne part jamais sur GitHub.
+config_secrets.h
+
 # IDE / OS
 .vscode/
 .idea/

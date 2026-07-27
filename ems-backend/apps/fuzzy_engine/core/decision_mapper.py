@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .models import EnergyDecisionResult, EnergyFacts, FuzzyInferenceResult
+from .priorities import is_sheddable
 
 
 DECISION_LABELS = {
@@ -184,6 +185,39 @@ def _safety_floor_note(
     )
 
 
+def _shed_capability(facts: EnergyFacts) -> tuple[bool, list[int]]:
+    """Le micro-réseau a-t-il quelque chose à délester, et quoi ?
+
+    C'est LA question que la cascade doit poser avant de produire un délestage
+    — et ce n'était pas celle qu'elle posait. Elle exigeait
+    `load_priority == "NON_PRIORITY"`, c'est-à-dire « aucune charge de la
+    maison n'est prioritaire ». Sur le prototype, une seule lampe IMPORTANT
+    suffit à faire échouer ce test en permanence : le délestage automatique
+    était inatteignable, quel que soit le danger.
+
+    Une ligne est délestable ici si elle n'est pas critique et si elle est
+    effectivement alimentée — couper une ligne déjà ouverte ne rend rien.
+
+    `is_measured` n'entre PAS dans ce critère, volontairement : le moteur flou
+    tranche s'il FAUT délester, pas ce qu'il faut délester. L'absence de mesure
+    contraint le choix de la ligne (l'optimiseur a interdiction d'y toucher,
+    cf. core/optimizer.py), pas le constat que la situation le justifie. Les
+    confondre reviendrait à dire « tout va bien » parce qu'un capteur s'est tu.
+
+    Sans faits de ligne — appelants historiques, interface de test, tests
+    unitaires — on retombe sur l'ancien critère : leur comportement ne change
+    pas.
+    """
+    if not facts.lines:
+        return facts.load_priority == "NON_PRIORITY", []
+    candidates = [
+        line.line_number
+        for line in facts.lines
+        if is_sheddable(line.priority) and line.relay_closed
+    ]
+    return bool(candidates), candidates
+
+
 def map_decision(
     facts: EnergyFacts,
     inference_result: FuzzyInferenceResult,
@@ -206,6 +240,7 @@ def map_decision(
     # data_quality = BAD et charge critique. La piste d'audit affirmait donc
     # l'inverse de ce que le moteur avait conclu.
     quality_blocked = False
+    shed_capable, sheddable_lines = _shed_capability(facts)
 
     if facts.data_quality == "BAD" or blocked_score >= 60:
         decision_code = "BLOCK_AUTOMATIC_ACTION"
@@ -222,10 +257,12 @@ def map_decision(
     elif protect_score >= PROTECT_THRESHOLD:
         decision_code = "PROTECT_BATTERY"
         execution_mode = "AUTOMATIC"
-    elif shedding_level >= 60 and facts.load_priority == "NON_PRIORITY":
+    elif shedding_level >= 60 and shed_capable:
         decision_code = "SHED_NON_PRIORITY_LOAD"
         execution_mode = "AUTOMATIC"
-    elif shedding_level >= 60 and facts.load_priority != "NON_PRIORITY":
+    elif shedding_level >= 60:
+        # Le délestage est justifié mais rien n'est délestable : tout est
+        # critique, déjà coupé, ou hors de vue. Reste la recommandation.
         decision_code = "RECOMMEND_REDUCE_PRIORITY_LOAD"
         execution_mode = "RECOMMENDATION"
     # Actions d'OPPORTUNITÉ : elles ne passent qu'en dessous du seuil du mode
@@ -264,6 +301,7 @@ def map_decision(
     # devient pas exploitable parce que la charge est critique.
     if (
         facts.load_priority == "CRITICAL"
+        and not shed_capable
         and shedding_level >= 60
         and decision_code != "PROTECT_BATTERY"
         and not quality_blocked
@@ -297,5 +335,7 @@ def map_decision(
             "rule_scores": dict(inference_result.rule_scores),
             "safety_floors": dict(inference_result.safety_floors),
             "quality_blocked": quality_blocked,
+            "shed_capable": shed_capable,
+            "sheddable_lines": sheddable_lines,
         },
     )

@@ -86,10 +86,16 @@ def test_critical_line_is_never_shed_automatically(auth_client):
 
 
 def test_fallback_convention_without_mapping(auth_client):
-    """Sans équipement rattaché, on garde la convention firmware (L2 délestée)."""
+    """Sans équipement rattaché : convention du prototype, L2 délestée en DERNIER.
+
+    Arbitrage du 27/07/2026 (cf. core/priorities.py) : la ligne 2 porte la
+    lampe 20 W enregistrée IMPORTANT, elle est donc la plus prioritaire. La
+    convention inverse du firmware (« L2 délestée en premier ») datait d'avant
+    le rattachement charge -> ligne et a été alignée sur les données.
+    """
     _client, house = auth_client
     desired = desired_lines_for_decision(_Res("SHED_NON_PRIORITY_LOAD"), house=house)
-    assert desired == {"line1": True, "line2": False, "line3": True}
+    assert desired == {"line1": False, "line2": True, "line3": True}
 
 
 def test_protect_battery_keeps_critical_line(auth_client):
@@ -115,7 +121,8 @@ def test_assisted_mode_proposes_without_cutting(auth_client):
              format="json")
     state.refresh_from_db()
     # Proposition enregistrée, mais AUCUNE ligne coupée sans validation.
-    assert state.auto_pending_lines == {"line1": True, "line2": False, "line3": True}
+    # L1 est la ligne délestée : L2 porte la charge prioritaire du prototype.
+    assert state.auto_pending_lines == {"line1": False, "line2": True, "line3": True}
     assert state.line1 is True and state.line2 is True and state.line3 is True
 
 
@@ -133,7 +140,7 @@ def test_accepting_proposal_applies_it(auth_client):
                        format="json")
     assert resp.status_code == 200
     state.refresh_from_db()
-    assert state.line2 is False          # proposition appliquée
+    assert state.line1 is False          # proposition appliquée
     assert state.auto_pending_lines is None  # proposition consommée
 
 
@@ -151,7 +158,7 @@ def test_dismissing_proposal_changes_nothing(auth_client):
                        format="json")
     assert resp.status_code == 200
     state.refresh_from_db()
-    assert state.line2 is True               # rien coupé
+    assert state.line1 is True               # rien coupé
     assert state.auto_pending_lines is None  # proposition écartée
 
 
