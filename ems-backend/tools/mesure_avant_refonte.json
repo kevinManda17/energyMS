@@ -1,0 +1,468 @@
+{
+  "grid": {
+    "situations": 222750,
+    "decision_distribution": {
+      "BLOCK_AUTOMATIC_ACTION": 0.457297,
+      "CHARGE_BATTERY": 0.0204,
+      "DATA_QUALITY_ALERT": 0.077652,
+      "ECO_MODE": 0.029405,
+      "NORMAL_OPERATION": 0.056108,
+      "PROTECT_BATTERY": 0.115152,
+      "RECOMMEND_REDUCE_PRIORITY_LOAD": 0.204768,
+      "SHED_NON_PRIORITY_LOAD": 0.03437,
+      "USE_BATTERY": 0.004848
+    },
+    "execution_mode_distribution": {
+      "AUTOMATIC": 0.183443,
+      "BLOCKED": 0.457297,
+      "RECOMMENDATION": 0.359259
+    },
+    "risk_mean": 81.7975,
+    "risk_stddev": 24.6928,
+    "forecast_balance_inertia": 0.642182,
+    "forecast_balance_groups": 8250,
+    "bad_quality_not_blocked": 0.197576
+  },
+  "monotonicity": {
+    "inversions_total": 38,
+    "inversions_by_axis": {
+      "battery_soc": 15,
+      "battery_temperature_hot": 4,
+      "battery_temperature_cold": 0,
+      "current_load": 0,
+      "energy_balance": 9,
+      "pv_generation": 10
+    },
+    "samples": {
+      "battery_soc": [
+        {
+          "context": {
+            "balance": 0.2,
+            "load_kw": 0.5,
+            "priority": "NON_PRIORITY",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 24.0,
+          "to": 23.75,
+          "severity": [
+            4,
+            3
+          ],
+          "decision": "ECO_MODE"
+        },
+        {
+          "context": {
+            "balance": 0.2,
+            "load_kw": 0.5,
+            "priority": "NON_PRIORITY",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 23.0,
+          "to": 22.75,
+          "severity": [
+            3,
+            0
+          ],
+          "decision": "NORMAL_OPERATION"
+        },
+        {
+          "context": {
+            "balance": 0.8,
+            "load_kw": 0.5,
+            "priority": "CRITICAL",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 26.75,
+          "to": 26.5,
+          "severity": [
+            3,
+            0
+          ],
+          "decision": "NORMAL_OPERATION"
+        }
+      ],
+      "battery_temperature_hot": [
+        {
+          "context": {
+            "balance": 0.2,
+            "load_kw": 0.5,
+            "priority": "NON_PRIORITY",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 47.75,
+          "to": 48.0,
+          "severity": [
+            3,
+            0
+          ],
+          "decision": "NORMAL_OPERATION"
+        },
+        {
+          "context": {
+            "balance": 0.8,
+            "load_kw": 0.5,
+            "priority": "CRITICAL",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 47.75,
+          "to": 48.0,
+          "severity": [
+            3,
+            0
+          ],
+          "decision": "NORMAL_OPERATION"
+        },
+        {
+          "context": {
+            "balance": 0.8,
+            "load_kw": 0.5,
+            "priority": "PRIORITY",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 47.75,
+          "to": 48.0,
+          "severity": [
+            3,
+            0
+          ],
+          "decision": "NORMAL_OPERATION"
+        }
+      ],
+      "energy_balance": [
+        {
+          "context": {
+            "balance": 0.2,
+            "load_kw": 0.5,
+            "priority": "CRITICAL",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 1.5,
+          "to": 1.25,
+          "severity": [
+            1,
+            0
+          ],
+          "decision": "NORMAL_OPERATION"
+        },
+        {
+          "context": {
+            "balance": 0.2,
+            "load_kw": 0.5,
+            "priority": "PRIORITY",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 1.5,
+          "to": 1.25,
+          "severity": [
+            1,
+            0
+          ],
+          "decision": "NORMAL_OPERATION"
+        },
+        {
+          "context": {
+            "balance": 0.2,
+            "load_kw": 0.5,
+            "priority": "NON_PRIORITY",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 1.5,
+          "to": 1.25,
+          "severity": [
+            1,
+            0
+          ],
+          "decision": "NORMAL_OPERATION"
+        }
+      ],
+      "pv_generation": [
+        {
+          "context": {
+            "balance": 0.2,
+            "load_kw": 0.5,
+            "priority": "NON_PRIORITY",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 4.0,
+          "to": 3.75,
+          "severity": [
+            1,
+            0
+          ],
+          "decision": "NORMAL_OPERATION"
+        },
+        {
+          "context": {
+            "balance": 0.8,
+            "load_kw": 0.5,
+            "priority": "CRITICAL",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 4.0,
+          "to": 3.75,
+          "severity": [
+            1,
+            0
+          ],
+          "decision": "NORMAL_OPERATION"
+        },
+        {
+          "context": {
+            "balance": 0.8,
+            "load_kw": 0.5,
+            "priority": "PRIORITY",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 4.0,
+          "to": 3.75,
+          "severity": [
+            1,
+            0
+          ],
+          "decision": "NORMAL_OPERATION"
+        }
+      ]
+    }
+  },
+  "rule_base": {
+    "rules": 24,
+    "dead_effects": 11,
+    "dead_effects_detail": [
+      {
+        "rule": "R002_BATTERY_TEMPERATURE_HIGH",
+        "effect": "protect_battery_score",
+        "value": 45,
+        "threshold": 60.0
+      },
+      {
+        "rule": "R002_BATTERY_TEMPERATURE_HIGH",
+        "effect": "discharge_battery_score",
+        "value": 20,
+        "threshold": 55.0
+      },
+      {
+        "rule": "R004_BATTERY_SOC_LOW",
+        "effect": "protect_battery_score",
+        "value": 35,
+        "threshold": 60.0
+      },
+      {
+        "rule": "R004_BATTERY_SOC_LOW",
+        "effect": "shedding_level",
+        "value": 45,
+        "threshold": 60.0
+      },
+      {
+        "rule": "R006_CRITICAL_DEFICIT_PRIORITY",
+        "effect": "blocked_score",
+        "value": 35,
+        "threshold": 45.0
+      },
+      {
+        "rule": "R013_SURPLUS_CHARGE_BATTERY_MEDIUM",
+        "effect": "risk_score",
+        "value": 15,
+        "threshold": 20.0
+      },
+      {
+        "rule": "R014_SURPLUS_BATTERY_HIGH",
+        "effect": "risk_score",
+        "value": 10,
+        "threshold": 20.0
+      },
+      {
+        "rule": "R015_BALANCED_SYSTEM_NORMAL",
+        "effect": "risk_score",
+        "value": 10,
+        "threshold": 20.0
+      },
+      {
+        "rule": "R016_BALANCED_SYSTEM_LOW_SOC",
+        "effect": "shedding_level",
+        "value": 35,
+        "threshold": 60.0
+      },
+      {
+        "rule": "R020_PV_HIGH_LOAD_LOW",
+        "effect": "risk_score",
+        "value": 10,
+        "threshold": 20.0
+      },
+      {
+        "rule": "R023_CRITICAL_LOAD_PROTECTION",
+        "effect": "blocked_score",
+        "value": 35,
+        "threshold": 45.0
+      }
+    ],
+    "unread_indicator_effects": 23,
+    "unread_indicator_effects_detail": [
+      {
+        "rule": "R001_BATTERY_TEMPERATURE_DANGEROUS",
+        "effect": "recommendation_score",
+        "value": 50
+      },
+      {
+        "rule": "R002_BATTERY_TEMPERATURE_HIGH",
+        "effect": "recommendation_score",
+        "value": 80
+      },
+      {
+        "rule": "R003_BATTERY_SOC_CRITICAL",
+        "effect": "recommendation_score",
+        "value": 70
+      },
+      {
+        "rule": "R004_BATTERY_SOC_LOW",
+        "effect": "recommendation_score",
+        "value": 75
+      },
+      {
+        "rule": "R005_CRITICAL_DEFICIT_NON_PRIORITY",
+        "effect": "recommendation_score",
+        "value": 60
+      },
+      {
+        "rule": "R006_CRITICAL_DEFICIT_PRIORITY",
+        "effect": "recommendation_score",
+        "value": 95
+      },
+      {
+        "rule": "R007_CRITICAL_DEFICIT_CRITICAL_LOAD",
+        "effect": "recommendation_score",
+        "value": 100
+      },
+      {
+        "rule": "R008_DEFICIT_WITH_MEDIUM_BATTERY",
+        "effect": "recommendation_score",
+        "value": 45
+      },
+      {
+        "rule": "R009_DEFICIT_WITH_HIGH_BATTERY",
+        "effect": "recommendation_score",
+        "value": 35
+      },
+      {
+        "rule": "R010_DEFICIT_WITH_LOW_BATTERY",
+        "effect": "recommendation_score",
+        "value": 85
+      },
+      {
+        "rule": "R011_HIGH_CURRENT_LOAD_DEFICIT",
+        "effect": "recommendation_score",
+        "value": 90
+      },
+      {
+        "rule": "R012_SURPLUS_CHARGE_BATTERY_LOW",
+        "effect": "recommendation_score",
+        "value": 35
+      },
+      {
+        "rule": "R013_SURPLUS_CHARGE_BATTERY_MEDIUM",
+        "effect": "recommendation_score",
+        "value": 25
+      },
+      {
+        "rule": "R014_SURPLUS_BATTERY_HIGH",
+        "effect": "recommendation_score",
+        "value": 25
+      },
+      {
+        "rule": "R015_BALANCED_SYSTEM_NORMAL",
+        "effect": "recommendation_score",
+        "value": 20
+      },
+      {
+        "rule": "R016_BALANCED_SYSTEM_LOW_SOC",
+        "effect": "recommendation_score",
+        "value": 70
+      },
+      {
+        "rule": "R017_BAD_DATA_QUALITY",
+        "effect": "recommendation_score",
+        "value": 80
+      },
+      {
+        "rule": "R018_PARTIAL_DATA_QUALITY",
+        "effect": "recommendation_score",
+        "value": 85
+      },
+      {
+        "rule": "R019_PV_LOW_LOAD_HIGH",
+        "effect": "recommendation_score",
+        "value": 90
+      },
+      {
+        "rule": "R021_NON_PRIORITY_LOAD_ECO_MODE",
+        "effect": "recommendation_score",
+        "value": 60
+      },
+      {
+        "rule": "R022_PRIORITY_LOAD_ECO_MODE",
+        "effect": "recommendation_score",
+        "value": 95
+      },
+      {
+        "rule": "R023_CRITICAL_LOAD_PROTECTION",
+        "effect": "recommendation_score",
+        "value": 90
+      },
+      {
+        "rule": "R024_SENSOR_DATA_ANOMALY",
+        "effect": "recommendation_score",
+        "value": 95
+      }
+    ],
+    "rules_without_any_effective_effect": []
+  },
+  "fact_usage": {
+    "declared": [
+      "current_pv_power_kw",
+      "current_load_power_kw",
+      "forecast_pv_energy_kwh",
+      "forecast_load_energy_kwh",
+      "battery_soc_percent",
+      "battery_temperature_c",
+      "load_priority",
+      "data_quality",
+      "pv_nominal_power_kw",
+      "ambient_temperature_c",
+      "solar_irradiance_wm2",
+      "module_temperature_c",
+      "hour",
+      "day_of_week",
+      "operating_mode"
+    ],
+    "used_by_rules": [
+      "battery_soc_percent",
+      "battery_temperature_c",
+      "current_load_power_kw",
+      "current_pv_power_kw",
+      "data_quality",
+      "forecast_load_energy_kwh",
+      "forecast_pv_energy_kwh",
+      "load_priority",
+      "pv_nominal_power_kw"
+    ],
+    "unused": [
+      "ambient_temperature_c",
+      "day_of_week",
+      "hour",
+      "module_temperature_c",
+      "operating_mode",
+      "solar_irradiance_wm2"
+    ]
+  }
+}
