@@ -172,6 +172,10 @@ class ExpertEvaluation:
 
     def decision_payload(self) -> dict:
         data = self.result.to_dict()
+        # `trace` porte le raisonnement détaillé ; en base la colonne s'appelle
+        # `reasoning_trace` (JSONField), pour ne pas confondre avec les champs
+        # de scores qui, eux, sont interrogeables directement en SQL.
+        data["reasoning_trace"] = data.pop("trace", {})
         return {
             "action": self.action,
             "reason": self.reason,

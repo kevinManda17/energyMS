@@ -50,11 +50,25 @@ def fuzzify_battery_soc(value: float) -> dict[str, float]:
 
 
 def fuzzify_battery_temperature(value: float) -> dict[str, float]:
-    x = clamp(value, 0.0, 80.0)
+    """Le danger thermique d'une batterie est en U, pas monotone.
+
+    L'univers s'arrêtait à 0 °C : tout ce qui était en dessous était ramené à
+    0 °C et lu comme « normal ». Une batterie à −15 °C paraissait donc saine,
+    alors que la charger à cette température dépose du lithium métallique sur
+    l'anode — une perte de capacité IRRÉVERSIBLE, contrairement à un
+    échauffement dont on peut se remettre. L'univers va maintenant de −20 °C à
+    100 °C et l'ensemble `cold` couvre cette branche.
+
+    L'épaule gauche de `normal` part de 0 °C (et non plus de la borne de
+    l'univers) : entre 0 et 10 °C, la batterie n'est plus franchement normale
+    sans être encore franchement froide.
+    """
+    x = clamp(value, -20.0, 100.0)
     return {
-        "normal": trapezoidal(x, 0, 0, 30, 40),
+        "cold": trapezoidal(x, -20, -20, 0, 10),
+        "normal": trapezoidal(x, 0, 10, 30, 40),
         "high": triangular(x, 35, 45, 55),
-        "dangerous": trapezoidal(x, 50, 60, 80, 80),
+        "dangerous": trapezoidal(x, 50, 60, 100, 100),
     }
 
 
@@ -85,6 +99,41 @@ def fuzzify_pv_generation_ratio(value: float) -> dict[str, float]:
         "medium": triangular(x, 0.45, 0.65, 0.80),
         "high": trapezoidal(x, 0.70, 0.85, 1.0, 1.0),
     }
+
+
+# --- Prémisses cumulatives ---------------------------------------------------
+#
+# Une règle qui veut dire « la batterie est faible OU pire » écrivait
+# `fuzzy_or(low, critical)`. Ce n'est PAS ce que cela signifie : `low` est un
+# triangle qui culmine à 30 % puis REDESCEND quand le SOC continue de baisser.
+# La disjonction creuse donc un puits — mesuré à 0,40 vers 21 % de SOC, contre
+# 1,00 à 30 % et 0,70 à 18 %. Autrement dit : une batterie à 21 % était réputée
+# « moins faible » qu'une batterie à 30 %. Conséquence observée : entre 24,0 %
+# et 23,75 % de SOC, le moteur cessait de délester.
+#
+# Les fonctions ci-dessous donnent la lecture correcte : « au moins aussi
+# mauvais que ce terme ». Elles ne créent AUCUN paramètre nouveau — elles
+# reprennent le sommet et le pied du terme concerné, en saturant du côté du
+# danger. La monotonie est alors vraie par construction, pas par chance.
+
+def soc_at_most_low(value: float) -> float:
+    """« Le SOC est faible ou pire » — sommet et pied droit de `low`."""
+    return trapezoidal(clamp(value, 0.0, 100.0), 0, 0, 30, 45)
+
+
+def pv_at_most_low(value: float) -> float:
+    """« La production est faible ou pire » — sommet et pied droit de `low`."""
+    return trapezoidal(clamp(value, 0.0, 1.0), 0, 0, 0.35, 0.55)
+
+
+def balance_at_most_deficit(value: float) -> float:
+    """« Le bilan prévisionnel est déficitaire ou pire »."""
+    return trapezoidal(clamp(value, 0.0, 2.0), 0, 0, 0.70, 0.95)
+
+
+def temperature_at_least_high(value: float) -> float:
+    """« La batterie est chaude ou pire » — sommet et pied gauche de `high`."""
+    return trapezoidal(clamp(value, -20.0, 100.0), 35, 45, 100, 100)
 
 
 def fuzzify_data_quality(value: str) -> dict[str, float]:

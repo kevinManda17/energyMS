@@ -44,6 +44,21 @@ SEVERITY = {
     "PROTECT_BATTERY": 5,
 }
 
+# Le barème ci-dessus mélange deux natures de décision :
+#   - les RÉPONSES À UN DANGER (normal < éco < réduire/délester < protéger),
+#     qui doivent effectivement ne jamais se relâcher quand le danger croît ;
+#   - les ACTIONS D'OPPORTUNITÉ (charger, puiser dans la batterie), déclenchées
+#     par des conditions FAVORABLES.
+#
+# Passer de « charger la batterie » à « fonctionnement normal » parce que la
+# production baisse n'est pas un relâchement face au danger : c'est une
+# opportunité qui disparaît. Compté au barème strict, cela ressort pourtant
+# comme une inversion. On mesure donc les deux : le barème prescrit tel quel
+# (transparence), et l'échelle de DANGER, où les actions d'opportunité tombent
+# au même rang que le fonctionnement normal. C'est la seconde qui porte la
+# propriété de sûreté réellement exigible.
+DANGER_SEVERITY = {**SEVERITY, "CHARGE_BATTERY": 0, "USE_BATTERY": 0}
+
 # Seuil au-dessous duquel un conséquent de règle ne peut RIEN déclencher, même
 # à activation 1.0. Repris des conditions de `decision_mapper.map_decision` :
 # on retient pour chaque indicateur le seuil le PLUS BAS qui change quoi que ce
@@ -206,23 +221,43 @@ def measure_monotonicity(engine: FuzzyExpertEngine) -> dict:
     non-monotonie qui est physiquement correcte.
     """
     inversions: dict[str, list] = {}
+    danger_inversions: dict[str, list] = {}
+    risk_inversions: dict[str, list] = {}
 
     def sweep(axis_name: str, values: list, build) -> None:
-        found = []
+        found, danger_found, risk_found = [], [], []
         for ctx in _monotonicity_contexts():
             previous = None
             for value in values:
                 result = engine.evaluate(build(ctx, value))
                 severity = SEVERITY[result.decision_code]
-                if previous is not None and severity < previous[1]:
-                    found.append({
-                        "context": dict(ctx),
-                        "from": previous[0], "to": value,
-                        "severity": [previous[1], severity],
-                        "decision": result.decision_code,
-                    })
-                previous = (value, severity)
+                danger = DANGER_SEVERITY[result.decision_code]
+                risk = result.risk_score
+                if previous is not None:
+                    if severity < previous[1]:
+                        found.append({
+                            "context": dict(ctx),
+                            "from": previous[0], "to": value,
+                            "severity": [previous[1], severity],
+                            "decision": result.decision_code,
+                        })
+                    if danger < previous[2]:
+                        danger_found.append({
+                            "context": dict(ctx),
+                            "from": previous[0], "to": value,
+                            "severity": [previous[2], danger],
+                            "decision": result.decision_code,
+                        })
+                    if risk < previous[3] - 1e-6:
+                        risk_found.append({
+                            "context": dict(ctx),
+                            "from": previous[0], "to": value,
+                            "risk": [previous[3], risk],
+                        })
+                previous = (value, severity, danger, risk)
         inversions[axis_name] = found
+        danger_inversions[axis_name] = danger_found
+        risk_inversions[axis_name] = risk_found
 
     base = dict(soc=50, temp=25, balance=1.0, pv_kw=1.5, load_kw=1.0,
                 priority="PRIORITY", quality="GOOD")
@@ -254,11 +289,21 @@ def measure_monotonicity(engine: FuzzyExpertEngine) -> dict:
           lambda ctx, v: _facts(ctx, pv_kw=v))
 
     return {
+        # Barème prescrit, tel quel.
         "inversions_total": sum(len(v) for v in inversions.values()),
         "inversions_by_axis": {k: len(v) for k, v in inversions.items()},
-        "samples": {
-            k: v[:3] for k, v in inversions.items() if v
+        # Échelle de danger : la propriété de sûreté réellement exigible.
+        "danger_inversions_total": sum(len(v) for v in danger_inversions.values()),
+        "danger_inversions_by_axis": {
+            k: len(v) for k, v in danger_inversions.items()
         },
+        # Le score de risque lui-même, grandeur continue : propriété plus fine
+        # que la décision (qui, elle, est quantifiée par des seuils).
+        "risk_inversions_total": sum(len(v) for v in risk_inversions.values()),
+        "risk_inversions_by_axis": {k: len(v) for k, v in risk_inversions.items()},
+        "samples": {k: v[:3] for k, v in inversions.items() if v},
+        "danger_samples": {k: v[:3] for k, v in danger_inversions.items() if v},
+        "risk_samples": {k: v[:3] for k, v in risk_inversions.items() if v},
     }
 
 
@@ -392,10 +437,16 @@ def print_report(report: dict) -> None:
     print(f"Données BAD non bloquées      : {_percent(grid['bad_quality_not_blocked'])}")
 
     mono = report["monotonicity"]
-    print(f"\n=== Monotonie : {mono['inversions_total']} inversion(s) ===")
-    for axis, count in mono["inversions_by_axis"].items():
-        flag = "  " if count == 0 else "!!"
-        print(f"{flag} {axis:<30} {count}")
+    print(f"\n=== Monotonie ===")
+    print(f"{'axe':<30} {'barème':>8} {'danger':>8} {'risque':>8}")
+    for axis in mono["inversions_by_axis"]:
+        strict = mono["inversions_by_axis"][axis]
+        danger = mono["danger_inversions_by_axis"][axis]
+        risk = mono["risk_inversions_by_axis"][axis]
+        flag = "  " if danger == 0 and risk == 0 else "!!"
+        print(f"{flag}{axis:<28} {strict:>8} {danger:>8} {risk:>8}")
+    print(f"  {'TOTAL':<28} {mono['inversions_total']:>8} "
+          f"{mono['danger_inversions_total']:>8} {mono['risk_inversions_total']:>8}")
 
     base = report["rule_base"]
     print(f"\n=== Base de règles : {base['rules']} règles ===")

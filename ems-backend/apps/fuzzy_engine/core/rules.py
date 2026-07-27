@@ -23,18 +23,13 @@ def _priority(facts: EnergyFacts, value: str) -> float:
 
 
 def _risk_estimate(fuzzy_values: dict) -> float:
-    weak_battery = fuzzy_or(
-        fuzzy_values["battery_soc"]["critical"],
-        fuzzy_values["battery_soc"]["low"],
-    )
-    pv_low = fuzzy_or(
-        fuzzy_values["pv_generation"]["very_low"],
-        fuzzy_values["pv_generation"]["low"],
-    )
-    supply_stress = fuzzy_or(
-        fuzzy_values["energy_balance"]["critical_deficit"],
-        fuzzy_values["energy_balance"]["deficit"],
-    )
+    # Lectures CUMULATIVES (« faible ou pire »), et non des disjonctions de
+    # termes voisins : `fuzzy_or(low, critical)` creusait un puits vers 21 % de
+    # SOC, où une batterie plus vide paraissait moins faible. Cf. membership.py.
+    cumulative = fuzzy_values["cumulative"]
+    weak_battery = cumulative["soc_at_most_low"]
+    pv_low = cumulative["pv_at_most_low"]
+    supply_stress = cumulative["balance_at_most_deficit"]
     return fuzzy_or(
         fuzzy_and(supply_stress, fuzzy_or(weak_battery, fuzzy_values["current_load"]["high"])),
         fuzzy_and(fuzzy_values["current_load"]["high"], pv_low),
@@ -136,7 +131,7 @@ def get_default_rules() -> list[FuzzyRule]:
             "Deficit critique avec batterie faible et charge non prioritaire.",
             lambda f, v: fuzzy_and(
                 v["energy_balance"]["critical_deficit"],
-                fuzzy_or(v["battery_soc"]["low"], v["battery_soc"]["critical"]),
+                v["cumulative"]["soc_at_most_low"],
                 _priority(f, "NON_PRIORITY"),
             ),
             {
@@ -218,7 +213,7 @@ def get_default_rules() -> list[FuzzyRule]:
             "Charge actuelle elevee avec deficit actuel ou prevu.",
             lambda _f, v: fuzzy_and(
                 v["current_load"]["high"],
-                fuzzy_or(v["energy_balance"]["deficit"], v["energy_balance"]["critical_deficit"]),
+                v["cumulative"]["balance_at_most_deficit"],
             ),
             {
                 "risk_score": 90,
@@ -322,7 +317,7 @@ def get_default_rules() -> list[FuzzyRule]:
             "PV faible charge elevee",
             "Production actuelle faible et charge actuelle elevee.",
             lambda _f, v: fuzzy_and(
-                fuzzy_or(v["pv_generation"]["very_low"], v["pv_generation"]["low"]),
+                v["cumulative"]["pv_at_most_low"],
                 v["current_load"]["high"],
             ),
             {
@@ -396,5 +391,20 @@ def get_default_rules() -> list[FuzzyRule]:
                 "recommendation_score": 95,
             },
             "Les donnees sont incertaines pendant une situation risquee : l'automatisation doit etre bloquee.",
+        ),
+        _make_rule(
+            "R025_BATTERY_TEMPERATURE_COLD",
+            "Temperature batterie trop basse",
+            "Si la batterie est trop froide, interdire la recharge et la proteger.",
+            lambda _f, v: v["battery_temperature"]["cold"],
+            {
+                "risk_score": 90,
+                "protect_battery_score": 80,
+                "automatic_score": 85,
+                "recommendation_score": 85,
+            },
+            "La batterie est trop froide : la recharger maintenant deposerait du "
+            "lithium metallique sur l'anode et lui ferait perdre definitivement "
+            "de la capacite. Il faut attendre qu'elle se rechauffe.",
         ),
     ]
