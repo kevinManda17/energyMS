@@ -73,7 +73,9 @@ INDICATOR_THRESHOLDS = {
     "protect_battery_score": 60.0,  # PROTECT_BATTERY
     "blocked_score": 45.0,          # blocage en qualité PARTIAL
     "automatic_score": 60.0,        # NORMAL_OPERATION en mode AUTOMATIC
-    "recommendation_score": None,   # lu par aucune condition (cf. §6)
+    # Lu par `_alert_level`, qui décale la recommandation d'un cran sous le
+    # risque : 45 est donc la plus petite valeur qui change quelque chose.
+    "recommendation_score": 45.0,
 }
 
 PV_NOMINAL_KW = 5.0
@@ -474,11 +476,21 @@ def measure_rule_base(rules=None) -> dict:
 
 
 def measure_fact_usage(rules=None) -> dict:
-    """Quels faits déclarés sont réellement lus par au moins une règle.
+    """Quels faits déclarés INFLUENCENT réellement une décision.
 
-    Détection par exécution, pas par lecture du source : on évalue chaque règle
-    sur des faits instrumentés et on note les attributs consultés. Un fait
-    déclaré, transmis, tracé — mais lu par personne — est une promesse non
+    Deux lectures, complémentaires, parce qu'aucune ne suffit seule :
+
+      - STATIQUE : le fait est-il consulté par une règle ? Détecté par
+        exécution (faits instrumentés), pas par lecture du source. Aveugle aux
+        faits consommés par la fuzzification, qui atteignent les règles sous
+        forme d'ensembles flous et non d'attributs.
+      - INFLUENCE : faire varier ce fait, TOUT LE RESTE ÉGAL PAR AILLEURS,
+        change-t-il quelque chose à la sortie du moteur ? C'est la propriété
+        qui compte vraiment. Un fait peut être lu par une règle et n'avoir
+        aucun effet (règle dominée), comme il peut n'être lu par aucune règle
+        directement et peser lourd via la fuzzification.
+
+    Un fait déclaré, transmis, tracé — et sans influence — est une promesse non
     tenue vis-à-vis du lecteur du mémoire.
     """
     rules = rules if rules is not None else get_default_rules()
@@ -540,11 +552,166 @@ def measure_fact_usage(rules=None) -> dict:
         fuzzified |= {"batteries"}
 
     used = (read & set(declared)) | fuzzified
+    influential = _measure_fact_influence()
     return {
         "declared": declared,
         "used_by_rules": sorted(used),
-        "unused": sorted(set(declared) - used),
+        "influential": sorted(influential),
+        "unused": sorted(set(declared) - used - influential),
+        "without_influence": sorted(set(declared) - influential),
     }
+
+
+# Valeurs d'épreuve par fait : deux situations censées appeler des réponses
+# différentes. Le choix n'est pas arbitraire — chaque paire oppose un cas franc
+# à son contraire, pour que l'absence d'effet ne puisse pas s'expliquer par une
+# variation trop timide.
+_INFLUENCE_PROBES = {
+    "solar_irradiance_wm2": (0.0, 950.0),          # nuit noire / plein soleil
+    "module_temperature_c": (20.0, 70.0),          # module froid / brûlant
+    "ambient_temperature_c": (18.0, 42.0),         # local tempéré / caniculaire
+    "hour": (3, 19),                               # nuit creuse / soirée occupée
+    "day_of_week": (2, 6),                         # mercredi / dimanche
+    "operating_mode": ("MANUAL", "AUTOMATIC"),     # humain aux commandes / expert
+    "load_priority": ("NON_PRIORITY", "CRITICAL"),
+    "data_quality": ("GOOD", "BAD"),
+    # Un fait manquant sur trois contre deux sur trois : c'est exactement la
+    # nuance que l'appartenance « partielle » figée a 0,5 ne savait pas dire.
+    "data_completeness": (2 / 3, 1 / 3),
+    "battery_soc_percent": (90.0, 8.0),
+    "battery_temperature_c": (25.0, 70.0),
+    "current_pv_power_kw": (4.0, 0.0),
+    "current_load_power_kw": (0.2, 6.0),
+    "forecast_pv_energy_kwh": (20.0, 0.0),
+    "forecast_load_energy_kwh": (5.0, 40.0),
+    "pv_nominal_power_kw": (5.0, 1.0),
+    "autonomy_hours": (24.0, 0.5),
+}
+
+
+def _probe_battery(soc_percent):
+    from apps.fuzzy_engine.core import BatteryFacts
+
+    return BatteryFacts(
+        battery_id="probe", soc_percent=soc_percent, soc_method="BMS",
+        soc_uncertainty_percent=0.0, voltage_v=None, current_a=None,
+        power_w=None, direction="UNKNOWN", temperature_c=25.0,
+        capacity_wh=BENCH_BATTERY_CAPACITY_WH, energy_wh=None,
+    )
+
+
+def _probe_line_set(priority):
+    from apps.fuzzy_engine.core import LineFacts
+
+    return [
+        LineFacts(line_number=n, voltage_v=220.0, current_a=0.05, power_w=p,
+                  relay_closed=True, priority=priority, nominal_power_w=p,
+                  load_names=[f"charge {n}"], is_measured=True)
+        for n, p in ((1, 12.0), (2, 20.0), (3, 11.0))
+    ]
+
+
+def _fingerprint(result) -> tuple:
+    """Tout ce que le moteur produit d'observable : décision, scores, lignes.
+
+    Comparer les seuls codes de décision manquerait un fait qui déplace un
+    score sans franchir de seuil : il influence bel et bien le système, et le
+    franchira dans une autre situation.
+
+    L'évaluation par ligne en fait partie — c'est une sortie du moteur au même
+    titre que la décision maison, et c'est elle que lira l'optimiseur. Un fait
+    qui n'agit que sur le choix de la ligne à couper (le jour de la semaine,
+    par exemple, via la présence attendue) influence bel et bien le système.
+    """
+    lines = tuple(
+        (entry["line_number"], round(entry["shed_score"], 3),
+         round(entry["protect_score"], 3), entry["blocked"])
+        for entry in result.trace.get("lines", [])
+    )
+    return (lines,) + (
+        result.decision_code, result.execution_mode, result.alert_level,
+        result.battery_action,
+        round(result.risk_score, 3), round(result.shedding_level, 3),
+        round(result.charge_battery_score, 3),
+        round(result.discharge_battery_score, 3),
+        round(result.protect_battery_score, 3),
+        round(result.recommendation_score, 3),
+        round(result.automatic_score, 3), round(result.blocked_score, 3),
+    )
+
+
+def _influence_backgrounds():
+    """Situations de fond variées.
+
+    Un fait peut n'avoir d'effet que dans un contexte précis : l'irradiance ne
+    dit rien quand la batterie est pleine et la production forte ; la
+    température de module ne dit rien la nuit, faute de soleil à convertir ; le
+    jour de la semaine ne dit rien s'il n'y a pas de ligne à délester. Une
+    seule situation d'épreuve conclurait donc trop vite à l'inutilité.
+    """
+    from dataclasses import replace
+
+    base = [
+        make_facts(30, 25, 0.4, 0.3, 2.0, "PRIORITY", "GOOD"),
+        make_facts(70, 25, 1.2, 2.0, 1.0, "NON_PRIORITY", "GOOD"),
+        make_facts(45, 38, 0.8, 0.5, 3.0, "CRITICAL", "GOOD"),
+        make_facts(60, 25, 1.0, 1.0, 1.5, "PRIORITY", "GOOD",
+                   battery_capacity_wh=BENCH_BATTERY_CAPACITY_WH),
+    ]
+    # De jour, sous un vrai soleil : sans quoi les règles de production
+    # (irradiance, dérating des modules) ne peuvent rien dire.
+    base.append(replace(base[0], solar_irradiance_wm2=850.0,
+                        module_temperature_c=45.0, hour=13, day_of_week=2))
+    # Journée calme et ensoleillée : c'est le seul contexte où une règle de
+    # rendement peut se voir. Dans une situation déjà tendue, l'agrégation par
+    # maximum la ferait dominer par les règles de crise, et on conclurait à
+    # tort qu'elle ne sert à rien.
+    base.append(replace(base[1], solar_irradiance_wm2=880.0,
+                        module_temperature_c=30.0, hour=13, day_of_week=2))
+    # Avec des lignes délestables, à une heure qui distingue semaine et
+    # week-end : sans quoi le jour ne peut peser sur rien, puisqu'il n'agit que
+    # sur la présence attendue, donc sur le choix de couper.
+    # Bilan prévisionnel ÉQUILIBRÉ, mais tension immédiate : c'est le seul
+    # contexte où la règle de ligne sensible à la présence n'est pas dominée
+    # par celle du déficit critique, qui elle ignore l'heure.
+    base.append(replace(
+        make_facts(30, 25, 1.0, 0.3, 2.0, "PRIORITY", "GOOD"),
+        lines=_probe_line_set("NORMAL"), solar_irradiance_wm2=300.0,
+        hour=10, day_of_week=2,
+    ))
+    # Qualite PARTIELLE : la completude des donnees ne peut se lire que la.
+    base.append(replace(make_facts(55, 25, 1.0, 1.5, 1.5, "PRIORITY", "PARTIAL"),
+                        data_completeness=2 / 3))
+    return base
+
+
+def _measure_fact_influence(engine: FuzzyExpertEngine | None = None) -> set:
+    """Faits dont la variation change quelque chose à la sortie du moteur.
+
+    Plusieurs contextes de fond : un fait peut n'avoir d'effet que dans une
+    situation particulière (l'irradiance ne dit rien quand la batterie est
+    pleine et la production forte). Une seule situation d'épreuve conclurait
+    trop vite à l'inutilité.
+    """
+    from dataclasses import replace
+
+    engine = engine or FuzzyExpertEngine()
+    backgrounds = _influence_backgrounds()
+    probes = dict(_INFLUENCE_PROBES)
+    # `lines` et `batteries` sont des listes : leurs valeurs d'épreuve se
+    # construisent, elles ne s'écrivent pas dans une table de constantes.
+    probes["lines"] = (_probe_line_set("NORMAL"), _probe_line_set("CRITICAL"))
+    probes["batteries"] = ([], [_probe_battery(15.0)])
+
+    influential = set()
+    for name, (low, high) in probes.items():
+        for background in backgrounds:
+            a = engine.evaluate(replace(background, **{name: low}))
+            b = engine.evaluate(replace(background, **{name: high}))
+            if _fingerprint(a) != _fingerprint(b):
+                influential.add(name)
+                break
+    return influential
 
 
 def run(engine: FuzzyExpertEngine | None = None) -> dict:
@@ -612,8 +779,8 @@ def print_report(report: dict) -> None:
 
     usage = report["fact_usage"]
     print(f"\n=== Faits : {len(usage['declared'])} déclarés, "
-          f"{len(usage['unused'])} non lus ===")
-    for name in usage["unused"]:
+          f"{len(usage['without_influence'])} sans influence ===")
+    for name in usage["without_influence"]:
         print(f"  ! {name}")
     print()
 

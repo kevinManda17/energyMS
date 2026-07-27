@@ -1,7 +1,7 @@
 """Tests de la boucle fermée : décision du système expert -> relais.
 
 Vérifie que les règles floues sont *réellement appliquées* aux lignes, via
-l'interface de test (trigger apply) et via le sondage du nœud en mode AUTO.
+l'interface de test (trigger apply) et via le sondage du nœud en mode AUTOMATIC.
 """
 import pytest
 from django.contrib.auth import get_user_model
@@ -106,7 +106,7 @@ def test_auto_poll_waits_for_confirmation_window(auth_client):
     PAS tout de suite — il arme seulement la fenêtre de confirmation."""
     client, house = auth_client
     state = RelayState.objects.create(
-        house=house, control_mode=RelayState.ControlMode.AUTO
+        house=house, control_mode=RelayState.ControlMode.AUTOMATIC
     )
     _seed_deficit(house)
     esp = APIClient()
@@ -128,7 +128,7 @@ def test_auto_poll_applies_after_sustained_deficit(auth_client):
 
     client, house = auth_client
     state = RelayState.objects.create(
-        house=house, control_mode=RelayState.ControlMode.AUTO
+        house=house, control_mode=RelayState.ControlMode.AUTOMATIC
     )
     _seed_deficit(house)
     esp = APIClient()

@@ -189,12 +189,23 @@ def get_line_rules() -> list[LineRule]:
         ),
         _make_rule(
             "L002_SHEDDABLE_LINE_HIGH_RISK",
-            "Ligne delestable en situation risquee",
-            "Une ligne non critique alors que le risque du micro-reseau est eleve.",
-            lambda line, ctx: min(sheddability(line.priority), _house_risk(ctx)),
+            "Ligne delestable en situation risquee, hors heures de presence",
+            "Une ligne non critique, risque eleve, et personne n'est cense etre la.",
+            # La presence attendue au domicile ENTRE dans la premisse. Couper
+            # une ligne a 3 h du matin ne gene personne ; la couper au diner se
+            # remarque immediatement. Un risque simplement « eleve » ne suffit
+            # donc pas a justifier une coupure automatique quand la maison est
+            # occupee — il faut alors un deficit critique (L001), qui reste
+            # actif quelle que soit l'heure.
+            lambda line, ctx: min(
+                sheddability(line.priority),
+                _house_risk(ctx),
+                1.0 - _house(ctx, "context", "presence"),
+            ),
             {"shed_score": 70},
-            "La situation energetique se degrade et cette ligne n'alimente rien "
-            "d'essentiel : la couper soulagerait le systeme.",
+            "La situation energetique se degrade, cette ligne n'alimente rien "
+            "d'essentiel, et personne n'est cense en avoir besoin a cette heure : "
+            "la couper soulagerait le systeme sans gener quiconque.",
         ),
         _make_rule(
             "L003_CRITICAL_LINE_PROTECTED",

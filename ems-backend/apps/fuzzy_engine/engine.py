@@ -98,7 +98,7 @@ def _pv_nominal_power_kw(house, fallback: float = 5.0) -> float:
 
 
 def _operating_mode(house) -> str:
-    """Mode de pilotage courant des lignes : MANUAL | ASSISTED | AUTO.
+    """Mode de pilotage courant des lignes : MANUAL | ASSISTED | AUTOMATIC.
 
     C'est l'état réel de RelayState.control_mode (le même que celui qui régit
     l'application des décisions dans EmsDecisionView), transmis au moteur comme
@@ -325,13 +325,21 @@ def _park_temperature_c(batteries: list[BatteryFacts]) -> float | None:
     return max(known, key=lambda t: abs(t - comfort_c))
 
 
-def _data_quality(values: dict[str, float | None]) -> str:
+def _data_quality(values: dict[str, float | None]) -> tuple[str, float]:
+    """Libelle de qualite ET fraction de faits reellement presents.
+
+    La fraction est ce qui permet de graduer le doute : l'appartenance
+    « partielle » valait 0,5 en dur, si bien qu'un fait manquant sur trois et
+    deux faits manquants sur trois donnaient le meme degre. Il suffisait de
+    compter (cf. membership.fuzzify_data_quality).
+    """
     present = sum(value is not None for value in values.values())
+    completeness = present / len(values) if values else 0.0
     if present == len(values):
-        return "GOOD"
+        return "GOOD", completeness
     if present:
-        return "PARTIAL"
-    return "BAD"
+        return "PARTIAL", completeness
+    return "BAD", completeness
 
 
 def _confidence(result: EnergyDecisionResult) -> float:
@@ -495,13 +503,18 @@ def facts_from_house(house, overrides: dict | None = None) -> EnergyFacts:
     )
     # La qualité des données peut être forcée depuis l'interface de test
     # (pour démontrer le blocage automatique sur données BAD/PARTIAL).
-    data_quality = overrides.get("data_quality") or _data_quality(
+    measured_quality, completeness = _data_quality(
         {
             "production": raw["production"],
             "consumption": raw["consumption"],
             "battery_soc": raw["battery_soc"],
         }
     )
+    forced_quality = overrides.get("data_quality")
+    data_quality = forced_quality or measured_quality
+    # Une qualite FORCEE depuis l'interface de test n'a pas de completude
+    # mesuree : on ne lui en invente pas une.
+    data_completeness = None if forced_quality else completeness
 
     # Faits contextuels enrichis, tirés de mesures déjà collectées et de
     # l'horloge. `temperature` = température ambiante de l'API météo (jamais
@@ -536,6 +549,7 @@ def facts_from_house(house, overrides: dict | None = None) -> EnergyFacts:
         battery_temperature_c=battery_temp,
         load_priority=priority,
         data_quality=data_quality,
+        data_completeness=data_completeness,
         pv_nominal_power_kw=_pv_nominal_power_kw(house),
         ambient_temperature_c=_latest_value(house, "temperature"),
         solar_irradiance_wm2=_latest_value(house, "irradiance"),

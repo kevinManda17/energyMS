@@ -26,21 +26,16 @@ class Sensor(models.Model):
         LUMINOSITY = "luminosity", "Luminosity"
         IRRADIANCE = "irradiance", "Irradiance"
 
-    house = models.ForeignKey(
-        House, on_delete=models.CASCADE, related_name="sensors"
-    )
-    energy_asset = models.ForeignKey(
-        EnergyAsset,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="sensors",
-    )
     class CalibrationStatus(models.TextChoices):
         UNCALIBRATED = "uncalibrated", "Non calibré"
         CALIBRATED = "calibrated", "Calibré"
         SUSPECT = "suspect", "Suspect (à recalibrer)"
 
+    # `house` et `energy_asset` étaient déclarés DEUX FOIS, de part et d'autre
+    # de la classe CalibrationStatus insérée au milieu des champs. Django ne
+    # gardait que la seconde déclaration et ignorait silencieusement la
+    # première : sans effet en base, mais tout lecteur du modèle devait se
+    # demander laquelle faisait foi.
     house = models.ForeignKey(
         House, on_delete=models.CASCADE, related_name="sensors"
     )
@@ -169,8 +164,9 @@ class Equipment(models.Model):
     # Ligne physique (relais ESP32) qui alimente cet équipement. Sert au système
     # expert pour savoir QUOI il coupe quand il déleste une ligne : la priorité
     # de chaque ligne est déduite des équipements qui y sont rattachés. Laissé
-    # vide = non rattaché ; on retombe alors sur la convention du firmware
-    # (L3 prioritaire, L1 moyenne, L2 délestée en premier).
+    # vide = non rattaché ; on retombe alors sur la convention du prototype
+    # (L2 prioritaire, L1 et L3 délestables) — cf.
+    # apps/fuzzy_engine/core/priorities.py, source de vérité unique.
     relay_line = models.IntegerField(
         choices=RelayLine.choices, null=True, blank=True
     )
@@ -209,7 +205,11 @@ class RelayState(models.Model):
         # Le système expert flou applique lui-même ses décisions automatiques aux
         # lignes, une fois la condition confirmée sur la durée (jamais en mode
         # BLOCKED/RECOMMENDATION, jamais sur des données de mauvaise qualité).
-        AUTO = "AUTO", "Automatique (expert)"
+        # Libellé unifié : le backend, le web et le mobile disaient AUTO
+        # tandis que le moteur produisait execution_mode = "AUTOMATIC".
+        # Deux chaînes pour la même idée obligeaient à traduire mentalement
+        # à chaque lecture, et une comparaison distraite les confondait.
+        AUTOMATIC = "AUTOMATIC", "Automatique (expert)"
 
     house = models.OneToOneField(
         House, on_delete=models.CASCADE, related_name="relay_state"
@@ -220,7 +220,7 @@ class RelayState(models.Model):
     control_mode = models.CharField(
         max_length=10, choices=ControlMode.choices, default=ControlMode.MANUAL
     )
-    # Mode AUTO : fenêtre de confirmation. Une décision de coupure/rétablissement
+    # Mode AUTOMATIC : fenêtre de confirmation. Une décision de coupure/rétablissement
     # n'est appliquée aux relais que si elle reste stable pendant EMS_AUTO_
     # CONFIRM_SECONDS — on n'agit pas sur un déficit instantané (transitoire),
     # seulement sur une condition soutenue. `auto_pending_lines` mémorise l'état

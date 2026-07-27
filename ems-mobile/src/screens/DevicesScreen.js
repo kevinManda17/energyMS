@@ -35,7 +35,7 @@ const RELAY_LINES = [
 const MODES = [
   { key: "MANUAL",   label: "Manuel",   note: "Mode manuel activé." },
   { key: "ASSISTED", label: "Assisté",  note: "Mode assisté : l'expert propose, vous validez." },
-  { key: "AUTO",     label: "Auto",     note: "Mode automatique (expert) activé." },
+  { key: "AUTOMATIC", label: "Auto",   note: "Mode automatique (expert) activé." },
 ];
 
 const SENSOR_ICONS = {
@@ -372,7 +372,7 @@ function RelayControl({ houseId, t }) {
     ? Date.now() - new Date(state.last_contact_at).getTime() < 15000
     : false;
   const allOn = state ? RELAY_LINES.every((l) => state[l.key]) : false;
-  const isAuto = state?.control_mode === "AUTO";
+  const isAuto = state?.control_mode === "AUTOMATIC";
   const isAssisted = state?.control_mode === "ASSISTED";
   const pending = isAssisted ? state?.auto_pending_lines : null;
 

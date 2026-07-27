@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from .autonomy import autonomy_hours
 from .decision_mapper import map_decision
 from .facts import fuzzify_facts
 from .inference import run_inference
@@ -59,8 +60,23 @@ class FuzzyExpertEngine:
         # replace() (et non EnergyFacts(...)) pour PRESERVER les faits enrichis
         # optionnels : les recréer champ par champ les perdrait silencieusement
         # avant les règles et dans Decision.input_facts.
+        # L'autonomie se DÉDUIT du parc de batteries. La calculer ici plutôt
+        # que dans l'assembleur Django a deux effets : `batteries` cesse d'être
+        # un fait inerte à l'intérieur de `core/` (il y était transporté sans
+        # jamais y être lu), et le calcul reste mesurable sans base de données.
+        # Une valeur explicitement fournie n'est jamais écrasée : l'interface
+        # de test doit pouvoir imposer une autonomie.
+        autonomy = facts.autonomy_hours
+        if autonomy is None and facts.batteries:
+            autonomy = autonomy_hours(
+                facts.batteries,
+                facts.current_load_power_kw,
+                facts.current_pv_power_kw,
+            )
+
         return replace(
             facts,
+            autonomy_hours=autonomy,
             current_pv_power_kw=max(0.0, float(facts.current_pv_power_kw)),
             current_load_power_kw=max(0.0, float(facts.current_load_power_kw)),
             forecast_pv_energy_kwh=max(0.0, float(facts.forecast_pv_energy_kwh)),

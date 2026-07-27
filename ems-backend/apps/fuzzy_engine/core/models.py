@@ -75,6 +75,11 @@ class EnergyFacts:
     battery_temperature_c: float
     load_priority: str
     data_quality: str
+    # Fraction des faits attendus effectivement presents (0..1). Rend la
+    # qualite GRADUEE au lieu de la laisser a trois paliers : un fait manquant
+    # sur trois et deux faits manquants sur trois ne meritent pas le meme
+    # doute. None quand l'appelant ne la connait pas.
+    data_completeness: float | None = None
     pv_nominal_power_kw: float = 5.0
     # --- Faits contextuels enrichis --------------------------------------- #
     # Additifs et optionnels : transmis au moteur et tracés dans la Decision,
@@ -86,7 +91,7 @@ class EnergyFacts:
     module_temperature_c: float | None = None     # Measurement "module_temp"/"panel_temp"
     hour: int | None = None                       # 0..23
     day_of_week: int | None = None                # 0 = lundi … 6 = dimanche
-    operating_mode: str = "MANUAL"                # RelayState.control_mode : MANUAL|ASSISTED|AUTO
+    operating_mode: str = "MANUAL"                # RelayState.control_mode : MANUAL|ASSISTED|AUTOMATIC
 
     # --- Faits par ligne et par batterie ---------------------------------- #
     # Le moteur raisonnait uniquement sur des AGRÉGATS du micro-réseau : une

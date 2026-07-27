@@ -376,11 +376,11 @@ class EmsDecisionView(APIView):
         state.save(update_fields=fields)
 
         # Boucle fermée : le système expert évalue la maison à la cadence de
-        # stockage des mesures (30 s), pas à chaque sondage de 3 s. En AUTO il
+        # stockage des mesures (30 s), pas à chaque sondage de 3 s. En AUTOMATIC il
         # applique sa décision, en ASSISTED il la propose seulement. Toute
         # erreur est avalée : le nœud doit toujours recevoir une réponse valide.
         if due and state.control_mode in (
-            RelayState.ControlMode.AUTO,
+            RelayState.ControlMode.AUTOMATIC,
             RelayState.ControlMode.ASSISTED,
         ):
             self._run_expert_control(state)
@@ -406,7 +406,7 @@ class EmsDecisionView(APIView):
 
         - ASSISTED : mémorise la décision comme *proposition* en attente de
           validation humaine — rien n'est coupé sans accord ;
-        - AUTO : applique la décision, mais seulement si elle est *soutenue*
+        - AUTOMATIC : applique la décision, mais seulement si elle est *soutenue*
           (même état candidat pendant EMS_AUTO_CONFIRM_SECONDS), pour ne pas
           réagir à un déficit instantané.
 

@@ -90,7 +90,7 @@ class RelayStateSerializer(serializers.ModelSerializer):
             "line3",
             "control_mode",
             # Proposition du système expert en attente (mode ASSISTED) ou
-            # candidat en cours de confirmation (mode AUTO).
+            # candidat en cours de confirmation (mode AUTOMATIC).
             "auto_pending_lines",
             "auto_pending_since",
             "device_token",

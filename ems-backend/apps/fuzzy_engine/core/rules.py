@@ -110,6 +110,26 @@ def evaluate_rule(rule: FuzzyRule, facts: EnergyFacts, fuzzy_values: dict) -> Fu
 
 
 def get_default_rules() -> list[FuzzyRule]:
+    """Base de règles maison.
+
+    UN CONSÉQUENT RASSURANT EST TOUJOURS MORT — règle de lecture à garder en
+    tête avant d'ajouter un effet. L'agrégation retient le MAXIMUM pondéré par
+    indicateur (cf. aggregation.py) : écrire `risk_score: 10` sur une règle qui
+    constate que tout va bien ne peut RIEN abaisser, puisqu'une seule règle
+    plus engagée l'écrase. De même, un conséquent inférieur au seuil de son
+    indicateur ne peut rien déclencher, même à activation 1,0.
+
+    16 couples (règle, conséquent) étaient dans ce cas et ont été retirés : ils
+    donnaient l'illusion d'une base plus riche qu'elle ne l'était, et faussaient
+    toute lecture de la table des règles. Là où l'effet retiré exprimait une
+    intention réelle (protéger une batterie chaude, préserver un SOC faible),
+    cette intention est désormais portée par les planchers de sûreté, qui la
+    rendent CONTINUE au lieu de la laisser sous un seuil (cf. safety.py).
+
+    Pour exprimer « la situation est calme », il ne faut donc pas un score bas :
+    il faut ne rien ajouter, ou porter la prémisse de relâchement dans une règle
+    concurrente (cf. `_shortfall_is_covered`).
+    """
     return [
         _make_rule(
             "R001_BATTERY_TEMPERATURE_DANGEROUS",
@@ -131,9 +151,7 @@ def get_default_rules() -> list[FuzzyRule]:
             lambda _f, v: v["battery_temperature"]["high"],
             {
                 "risk_score": 70,
-                "protect_battery_score": 45,
                 "recommendation_score": 80,
-                "discharge_battery_score": 20,
             },
             "La temperature batterie est elevee : l'utilisation de la batterie doit etre limitee.",
         ),
@@ -158,8 +176,6 @@ def get_default_rules() -> list[FuzzyRule]:
             lambda _f, v: v["battery_soc"]["low"],
             {
                 "risk_score": 65,
-                "protect_battery_score": 35,
-                "shedding_level": 45,
                 "recommendation_score": 75,
             },
             "Le SOC est faible : il faut preserver la batterie et reduire les charges secondaires.",
@@ -193,7 +209,6 @@ def get_default_rules() -> list[FuzzyRule]:
                 "risk_score": 95,
                 "shedding_level": 75,
                 "recommendation_score": 95,
-                "blocked_score": 35,
             },
             "Le deficit est critique, mais la charge est prioritaire ou critique : aucune coupure automatique directe ne doit etre appliquee.",
         ),
@@ -230,7 +245,6 @@ def get_default_rules() -> list[FuzzyRule]:
                 "risk_score": 45,
                 "discharge_battery_score": 85,
                 "automatic_score": 65,
-                "recommendation_score": 35,
             },
             "Le systeme est en deficit mais la batterie est bien chargee : l'utilisation de la batterie est possible.",
         ),
@@ -271,7 +285,6 @@ def get_default_rules() -> list[FuzzyRule]:
                 "risk_score": 20,
                 "charge_battery_score": 95,
                 "automatic_score": 80,
-                "recommendation_score": 35,
             },
             "Un surplus est disponible et la batterie est faible : la recharge batterie est prioritaire.",
         ),
@@ -281,10 +294,8 @@ def get_default_rules() -> list[FuzzyRule]:
             "Surplus energetique avec SOC moyen.",
             lambda _f, v: fuzzy_and(v["energy_balance"]["surplus"], v["battery_soc"]["medium"]),
             {
-                "risk_score": 15,
                 "charge_battery_score": 80,
                 "automatic_score": 75,
-                "recommendation_score": 25,
             },
             "Un surplus est disponible et la batterie peut etre rechargee.",
         ),
@@ -294,9 +305,7 @@ def get_default_rules() -> list[FuzzyRule]:
             "Surplus energetique avec SOC eleve.",
             lambda _f, v: fuzzy_and(v["energy_balance"]["surplus"], v["battery_soc"]["high"]),
             {
-                "risk_score": 10,
                 "automatic_score": 65,
-                "recommendation_score": 25,
             },
             "Le systeme dispose d'un surplus et la batterie est elevee : fonctionnement normal et charges secondaires possibles.",
         ),
@@ -310,9 +319,7 @@ def get_default_rules() -> list[FuzzyRule]:
                 v["battery_temperature"]["normal"],
             ),
             {
-                "risk_score": 10,
                 "automatic_score": 70,
-                "recommendation_score": 20,
             },
             "Le systeme est equilibre, la batterie est disponible et la temperature est normale.",
         ),
@@ -323,7 +330,6 @@ def get_default_rules() -> list[FuzzyRule]:
             lambda _f, v: fuzzy_and(v["energy_balance"]["balanced"], v["battery_soc"]["low"]),
             {
                 "risk_score": 45,
-                "shedding_level": 35,
                 "recommendation_score": 70,
             },
             "Le systeme est equilibre mais le SOC est faible : il faut preserver la batterie.",
@@ -378,7 +384,6 @@ def get_default_rules() -> list[FuzzyRule]:
                 fuzzy_or(v["battery_soc"]["medium"], v["battery_soc"]["low"]),
             ),
             {
-                "risk_score": 10,
                 "charge_battery_score": 90,
                 "automatic_score": 80,
             },
@@ -417,7 +422,6 @@ def get_default_rules() -> list[FuzzyRule]:
             {
                 "risk_score": 30,
                 "recommendation_score": 90,
-                "blocked_score": 35,
             },
             "La charge est critique : le moteur interdit toute coupure automatique directe de cette charge.",
         ),
@@ -534,5 +538,130 @@ def get_default_rules() -> list[FuzzyRule]:
             "La production est faible en ce moment, mais la reserve d'energie "
             "couvre largement les besoins : puiser dans la batterie est la "
             "reponse normale, il n'y a rien a couper.",
+        ),
+        # ------------------------------------------------------------------ #
+        # Faits contextuels : meteo, sonde module, horloge, regime de pilotage.
+        # Ces six faits etaient calcules, transmis au moteur et enregistres
+        # dans chaque decision — et lus par AUCUNE regle. Les regles qui
+        # suivent leur donnent un role, chacune adossee a une raison physique
+        # ou d'usage, jamais a une correlation.
+        # ------------------------------------------------------------------ #
+        _make_rule(
+            "R031_NIGHTFALL_LOW_RESERVE",
+            "Tombee de la nuit avec reserve basse",
+            "Plus d'eclairement et batterie faible : rien ne rechargera avant demain.",
+            lambda _f, v: fuzzy_and(
+                v["irradiance"]["dark"], v["cumulative"]["soc_at_most_low"]
+            ),
+            {
+                "risk_score": 78,
+                "shedding_level": 65,
+                "recommendation_score": 90,
+            },
+            "La nuit commence et la reserve est basse : plus rien ne rechargera "
+            "la batterie avant demain matin. Mieux vaut economiser des maintenant.",
+        ),
+        _make_rule(
+            "R032_PV_ANOMALY",
+            "Anomalie de production photovoltaique",
+            "Fort eclairement mais production quasi nulle : defaut cote panneaux.",
+            lambda _f, v: fuzzy_and(
+                v["irradiance"]["strong"], v["pv_generation"]["very_low"]
+            ),
+            {
+                "risk_score": 65,
+                "blocked_score": 50,
+                "recommendation_score": 95,
+            },
+            "Le soleil est present mais les panneaux ne produisent presque rien. "
+            "Cette incoherence signale un probleme materiel : panneau sale, ombre "
+            "portee, ou onduleur en defaut. Une verification s'impose.",
+        ),
+        _make_rule(
+            "R033_HOT_MODULE_DERATING",
+            "Panneaux chauds, rendement reduit",
+            "Un module chaud produit nettement moins que sa puissance nominale.",
+            lambda _f, v: fuzzy_and(
+                v["context"]["module_derating"] / 0.20,   # 20 % de perte = plein effet
+                fuzzy_or(v["irradiance"]["strong"], v["irradiance"]["weak"]),
+            ),
+            {
+                "risk_score": 45,
+                "recommendation_score": 65,
+            },
+            "Les panneaux sont chauds : a cette temperature ils produisent "
+            "sensiblement moins qu'annonce. Il ne faut pas compter sur leur "
+            "plein rendement dans les heures qui viennent.",
+        ),
+        _make_rule(
+            "R034_BATTERY_PROBE_IMPLAUSIBLE",
+            "Sonde batterie invraisemblable",
+            "Batterie donnee bien plus froide que l'air ambiant : sonde suspecte.",
+            lambda _f, v: v["context"]["probe_implausibility"],
+            {
+                "risk_score": 55,
+                "blocked_score": 70,
+                "recommendation_score": 95,
+            },
+            "La sonde annonce une batterie beaucoup plus froide que l'air qui "
+            "l'entoure, ce qui est physiquement impossible : elle est "
+            "probablement debranchee ou en panne. Le systeme suspend ses "
+            "decisions automatiques le temps d'une verification.",
+        ),
+        _make_rule(
+            "R035_HOT_AMBIENT_BATTERY_DRIFT",
+            "Ambiance chaude, derive thermique attendue",
+            "Local chaud et batterie deja tiede : l'echauffement va se poursuivre.",
+            lambda _f, v: fuzzy_and(
+                v["context"]["hot_ambient"],
+                v["cumulative"]["temperature_at_least_high"],
+            ),
+            {
+                "risk_score": 72,
+                "protect_battery_score": 62,
+                "recommendation_score": 85,
+            },
+            "Le local est chaud et la batterie l'est deja : sa temperature va "
+            "continuer de monter. Il vaut mieux la menager avant qu'elle "
+            "n'atteigne un niveau dangereux.",
+        ),
+        _make_rule(
+            "R036_NIGHT_AHEAD_NOT_COVERED",
+            "La nuit restante n'est pas couverte",
+            "L'autonomie ne couvre pas les heures d'obscurite qui restent.",
+            lambda _f, v: v["context"]["night_coverage_gap"],
+            {
+                "risk_score": 80,
+                "shedding_level": 68,
+                "recommendation_score": 92,
+            },
+            "La reserve d'energie ne suffira pas a passer la nuit, et le solaire "
+            "ne produira rien avant le matin. Il faut economiser maintenant "
+            "plutot que de subir une coupure au milieu de la nuit.",
+        ),
+        _make_rule(
+            "R037_AUTOMATIC_MODE_NEEDS_SOUND_DATA",
+            "Mode automatique et donnees incertaines",
+            "En pilotage automatique, une donnee douteuse justifie de s'abstenir.",
+            lambda _f, v: fuzzy_and(
+                v["operating_mode"]["automatic"], _sensor_anomaly(v)
+            ),
+            {
+                "risk_score": 60,
+                "blocked_score": 75,
+                "recommendation_score": 90,
+            },
+            "Le systeme est en pilotage automatique : c'est lui qui couperait "
+            "les lignes. Avec des mesures incertaines, il prefere s'abstenir et "
+            "vous laisser decider.",
+        ),
+        _make_rule(
+            "R038_MANUAL_MODE_IS_ADVISORY",
+            "Pilotage manuel : le systeme conseille",
+            "En mode manuel, l'humain commande ; le moteur argumente.",
+            lambda _f, v: v["operating_mode"]["manual"],
+            {"recommendation_score": 80},
+            "Le pilotage est en mode manuel : le systeme n'agit pas de lui-meme, "
+            "il vous indique ce qu'il ferait.",
         ),
     ]

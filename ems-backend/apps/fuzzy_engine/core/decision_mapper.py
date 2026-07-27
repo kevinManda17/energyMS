@@ -21,16 +21,54 @@ def _score(scores: dict[str, float], key: str) -> float:
     return float(scores.get(key, 0.0))
 
 
-def _alert_level(risk_score: float, decision_code: str) -> str:
+def _alert_level(
+    risk_score: float, recommendation_score: float, decision_code: str
+) -> str:
+    """Niveau d'alerte présenté à l'utilisateur.
+
+    C'EST ICI QUE `recommendation_score` SERT (§6). 23 règles sur 30 le
+    renseignent et, jusqu'ici, AUCUNE condition ne le lisait : le score existait,
+    était calculé, était enregistré dans chaque décision — et ne pesait sur
+    rien. Il fallait trancher entre l'utiliser et cesser de le renseigner.
+
+    Ce qu'il mesure, c'est « à quel point le système veut que l'humain
+    intervienne ». Sa place naturelle est donc le niveau d'alerte, pas le mode
+    d'exécution — et l'alerte est bien consommée en aval (`views.py` crée un
+    `Alert` à partir de `alert_level`).
+
+    UNE PISTE ESSAYÉE ET ÉCARTÉE, car elle rouvrait le défaut central :
+    faire de `recommendation_score` un veto sur le mode d'exécution
+    (« automatique seulement si automatic_score >= recommendation_score »).
+    Mesuré sur les charges réelles du prototype : `automatic_score` n'est porté
+    que par des règles exigeant `load_priority == "NON_PRIORITY"` (R005, R021),
+    condition jamais satisfaite là-bas. Il y tombait donc à 25,5 contre une
+    recommandation à 95, et le délestage automatique redevenait inatteignable
+    — très exactement le défaut que cette refonte corrige. Le garde-fou du mode
+    assisté existe déjà, et au bon endroit : `EmsDecisionView._run_expert_control`
+    transforme la décision en proposition sans jamais toucher aux relais.
+
+    L'alerte retenue est la PLUS ÉLEVÉE des deux lectures : un système qui
+    conseille fortement d'agir doit se voir, même si le risque brut reste
+    modéré.
+    """
     if decision_code == "BLOCK_AUTOMATIC_ACTION" and risk_score >= 45:
         return "CRITICAL"
-    if risk_score >= 75:
-        return "CRITICAL"
-    if risk_score >= 45:
-        return "WARNING"
-    if risk_score >= 20:
-        return "INFO"
-    return "NONE"
+
+    def _from(score: float) -> int:
+        if score >= 75:
+            return 3
+        if score >= 45:
+            return 2
+        if score >= 20:
+            return 1
+        return 0
+
+    # La recommandation pèse un cran de moins que le risque : conseiller
+    # fermement n'est pas constater un danger. Sans ce décalage, les 23 règles
+    # qui portent une recommandation élevée feraient virer presque toute
+    # décision au rouge, et l'alerte cesserait d'informer.
+    level = max(_from(risk_score), max(_from(recommendation_score) - 1, 0))
+    return ("NONE", "INFO", "WARNING", "CRITICAL")[level]
 
 
 # Seuil du mode économie. Au-dessus, le moteur DOIT dire que la situation se
@@ -246,6 +284,7 @@ def map_decision(
     discharge_score = _score(scores, "discharge_battery_score")
     protect_score = _score(scores, "protect_battery_score")
     automatic_score = _score(scores, "automatic_score")
+    recommendation_score = _score(scores, "recommendation_score")
     blocked_score = _score(scores, "blocked_score")
 
     # Le blocage vient-il d'une donnée inexploitable ? Cette distinction est
@@ -325,7 +364,7 @@ def map_decision(
         decision_code = "RECOMMEND_REDUCE_PRIORITY_LOAD"
         execution_mode = "RECOMMENDATION"
 
-    alert_level = _alert_level(risk_score, decision_code)
+    alert_level = _alert_level(risk_score, recommendation_score, decision_code)
     battery_action = _battery_action(scores, facts)
     explanation = _build_explanation(facts, decision_code, execution_mode, scores, inference_result)
 
@@ -339,7 +378,7 @@ def map_decision(
         charge_battery_score=charge_score,
         discharge_battery_score=discharge_score,
         protect_battery_score=protect_score,
-        recommendation_score=_score(scores, "recommendation_score"),
+        recommendation_score=recommendation_score,
         automatic_score=automatic_score,
         blocked_score=blocked_score,
         battery_action=battery_action,
