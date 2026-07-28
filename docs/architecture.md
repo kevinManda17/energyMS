@@ -75,7 +75,7 @@ User -> DataExport
 ## Flux decision (sur donnees reelles)
 
 1. `/api/decisions/trigger/` lit les **dernieres mesures reelles**, les previsions et les equipements actifs du micro-reseau.
-2. Le moteur flou (`engine.py` -> `core/`) evalue les 24 regles et produit une `Decision` explicable (regles activees, scores, faits d'entree).
+2. Le moteur flou (`engine.py` -> `core/`) evalue les 38 regles maison et les 6 regles de ligne, puis produit une `Decision` explicable (regles activees, scores, faits d'entree, plan de l'optimiseur). Detail : `docs/SYSTEME_EXPERT.md`.
 3. La decision peut etre reliee a un `Forecast`.
 4. Une alerte est creee pour les situations critiques ou warning.
 

@@ -48,11 +48,12 @@ Décision → commande des relais (ESP32)
 
 ### 2.2 Système expert flou — [RÉALISÉ]
 
-- 24 règles floues, fonctions d'appartenance triangulaires/trapézoïdales.
+- 38 règles floues maison + 6 règles par ligne, fonctions d'appartenance
+  triangulaires/trapézoïdales, planchers de sûreté et optimiseur de délestage.
 - Entrées : production/consommation/SoC/température **réelles** + prévisions +
   priorité des charges + qualité des données.
 - Sorties : 1 décision parmi 9, mode d'exécution, niveau d'alerte, règles
-  activées (explicabilité). Voir `docs/architecture-systeme-expert.md`.
+  activées (explicabilité). Voir `docs/SYSTEME_EXPERT.md`.
 - **Rôle actuel : décideur principal.** (Différence avec le PDF, cf. §4.)
 
 ### 2.3 Chaîne temps réel — [RÉALISÉ]
