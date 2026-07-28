@@ -44,10 +44,10 @@
       "energy_balance": 0,
       "pv_generation": 0
     },
-    "risk_inversions_total": 263,
+    "risk_inversions_total": 108,
     "risk_inversions_by_axis": {
-      "battery_soc": 177,
-      "battery_temperature_hot": 77,
+      "battery_soc": 99,
+      "battery_temperature_hot": 0,
       "battery_temperature_cold": 0,
       "current_load": 0,
       "energy_balance": 9,
@@ -251,53 +251,6 @@
           "risk": [
             31.625,
             30.9375
-          ]
-        }
-      ],
-      "battery_temperature_hot": [
-        {
-          "context": {
-            "balance": 0.8,
-            "load_kw": 0.5,
-            "priority": "CRITICAL",
-            "quality": "GOOD",
-            "pv_kw": 1.5
-          },
-          "from": 45.0,
-          "to": 45.25,
-          "risk": [
-            70.0,
-            68.25
-          ]
-        },
-        {
-          "context": {
-            "balance": 0.8,
-            "load_kw": 0.5,
-            "priority": "CRITICAL",
-            "quality": "GOOD",
-            "pv_kw": 1.5
-          },
-          "from": 45.25,
-          "to": 45.5,
-          "risk": [
-            68.25,
-            66.5
-          ]
-        },
-        {
-          "context": {
-            "balance": 0.8,
-            "load_kw": 0.5,
-            "priority": "CRITICAL",
-            "quality": "GOOD",
-            "pv_kw": 1.5
-          },
-          "from": 45.5,
-          "to": 45.75,
-          "risk": [
-            66.5,
-            64.75
           ]
         }
       ],

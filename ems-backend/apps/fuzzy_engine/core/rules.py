@@ -148,7 +148,13 @@ def get_default_rules() -> list[FuzzyRule]:
             "R002_BATTERY_TEMPERATURE_HIGH",
             "Temperature batterie elevee",
             "Si la temperature batterie est elevee, limiter son utilisation.",
-            lambda _f, v: v["battery_temperature"]["high"],
+            # Lecture CUMULATIVE (« chaude ou pire ») et non le terme brut.
+            # `high` est un triangle (35, 45, 55) : il REDESCEND passe son
+            # sommet, alors que `dangerous` ne demarre qu'a 50 C. Entre les
+            # deux, une batterie qui continue de chauffer voyait donc son
+            # risque BAISSER — mesure : 70 a 45 C contre 52 a 48 C, soit
+            # 18 points perdus au moment ou la situation se degrade.
+            lambda _f, v: v["cumulative"]["temperature_at_least_high"],
             {
                 "risk_score": 70,
                 "recommendation_score": 80,
@@ -173,7 +179,12 @@ def get_default_rules() -> list[FuzzyRule]:
             "R004_BATTERY_SOC_LOW",
             "SOC faible",
             "Si le SOC est faible, eviter une decharge profonde.",
-            lambda _f, v: v["battery_soc"]["low"],
+            # Meme correction que R002, meme cause : `low` est un triangle
+            # (15, 30, 45) qui culmine a 30 % puis redescend. Une batterie qui
+            # continue de se vider en dessous de 30 % paraissait donc « moins
+            # faible ». La lecture cumulative dit ce que la regle veut dire :
+            # « faible OU PIRE ».
+            lambda _f, v: v["cumulative"]["soc_at_most_low"],
             {
                 "risk_score": 65,
                 "recommendation_score": 75,
