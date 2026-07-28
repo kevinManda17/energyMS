@@ -186,7 +186,8 @@ cd ems-mobile && npm test
 - `docs/architecture.md`
 - `docs/api-endpoints.md`
 - `docs/environment-variables.md`
-- `docs/fuzzy-system.md`
+- `docs/SYSTEME_EXPERT.md` — le systeme expert flou (source unique)
+- `docs/PROTOCOLE_ESP32.md` — protocole des noeuds IoT
 - `docs/deployment.md`
 - `docs/development-roadmap.md`
 

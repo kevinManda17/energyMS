@@ -9,7 +9,8 @@ source Mermaid éditable est repliée sous chaque image (« Source Mermaid »).
 Les SVG et sources vivent dans [diagrams/](diagrams/).
 
 Documents détaillés complémentaires :
-[architecture-systeme-expert.md](architecture-systeme-expert.md) ·
+[SYSTEME_EXPERT.md](SYSTEME_EXPERT.md) ·
+[PROTOCOLE_ESP32.md](PROTOCOLE_ESP32.md) ·
 [ia-architecture-et-roadmap.md](ia-architecture-et-roadmap.md) ·
 [api-endpoints.md](api-endpoints.md)
 
@@ -40,7 +41,7 @@ flowchart LR
         API[API REST<br/>DRF + JWT]
         DB[(PostgreSQL<br/>/ SQLite)]
         ML[Prévision ML<br/>GRU + Random Forest]
-        FUZ[Système expert flou<br/>24 règles]
+        FUZ[Système expert flou<br/>38 règles + 6 par ligne]
         API --> DB
         ML --> DB
         FUZ --> DB
@@ -87,8 +88,8 @@ flowchart TD
     B --> C[core/facts.py<br/>fuzzify_facts]
     C --> D[core/membership.py<br/>fonctions d'appartenance]
     B --> E[core/inference.py<br/>run_inference]
-    E --> F[core/rules.py<br/>24 règles]
-    E --> G[core/defuzzification.py<br/>agrégation max]
+    E --> F[core/rules.py<br/>38 règles]
+    E --> G[core/aggregation.py<br/>maximum pondéré]
     B --> H[core/decision_mapper.py<br/>map_decision]
 ```
 
@@ -105,7 +106,7 @@ flowchart TD
 flowchart LR
     F[EnergyFacts<br/>9 entrées] --> N[Normalisation<br/>clamp + validation]
     N --> FZ[1. Fuzzification<br/>6 variables floues]
-    FZ --> IN[2. Inférence<br/>24 règles → degrés]
+    FZ --> IN[2. Inférence<br/>38 règles → degrés]
     IN --> AG[3. Agrégation<br/>max activation×effet]
     AG --> MP[4. Mapping<br/>cascade de seuils]
     MP --> D[EnergyDecisionResult<br/>code + mode + alerte]
@@ -155,9 +156,15 @@ Fonctions triangulaires et trapézoïdales classiques.
 
 ### 1.5 Étape 2 — Inférence (`core/rules.py`, `core/inference.py`)
 
-**24 règles** `R001` → `R024`, opérateurs de Zadeh (`fuzzy_and` = min,
+**38 règles** `R001` → `R038`, opérateurs de Zadeh (`fuzzy_and` = min,
 `fuzzy_or` = max, `fuzzy_not` = 1−x). Une règle ne « tire » que si son degré
-d'activation dépasse **0,001**.
+d'activation dépasse **0,001**. S'y ajoutent **6 règles par ligne**
+(`L001` → `L006`), évaluées une fois par ligne commutable.
+
+> Le tableau ci-dessous ne couvre que les familles R001–R024 d'origine.
+> La base complète, les règles ajoutées (autonomie, faits contextuels, régime
+> de pilotage) et les règles de ligne sont décrites dans
+> **[SYSTEME_EXPERT.md](SYSTEME_EXPERT.md)**, qui fait foi.
 
 | Famille | Règles | Objet |
 |---------|--------|-------|

@@ -26,7 +26,7 @@ def _alert_level(
 ) -> str:
     """Niveau d'alerte présenté à l'utilisateur.
 
-    C'EST ICI QUE `recommendation_score` SERT (§6). 23 règles sur 30 le
+    C'EST ICI QUE `recommendation_score` SERT (§6). 30 règles sur 38 le
     renseignent et, jusqu'ici, AUCUNE condition ne le lisait : le score existait,
     était calculé, était enregistré dans chaque décision — et ne pesait sur
     rien. Il fallait trancher entre l'utiliser et cesser de le renseigner.
@@ -64,7 +64,7 @@ def _alert_level(
         return 0
 
     # La recommandation pèse un cran de moins que le risque : conseiller
-    # fermement n'est pas constater un danger. Sans ce décalage, les 23 règles
+    # fermement n'est pas constater un danger. Sans ce décalage, les 30 règles
     # qui portent une recommandation élevée feraient virer presque toute
     # décision au rouge, et l'alerte cesserait d'informer.
     level = max(_from(risk_score), max(_from(recommendation_score) - 1, 0))
