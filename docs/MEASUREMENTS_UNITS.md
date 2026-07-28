@@ -3,7 +3,7 @@
 > Toute modification des unités doit être répercutée ici.
 > Vérification : `python scripts/audit_config.py --strict`
 
-Dernière mise à jour : **19/07/2026**
+Dernière mise à jour : **27/07/2026**
 
 ---
 
@@ -124,13 +124,59 @@ Puissance de ligne — **calculée**, pas mesurée :
 | `panel_temp` | sonde dédiée — **non installée** | température panneau |
 | `module_temp` | jeu de données PV | modèle de prévision |
 
-Le système expert lit **`battery_temp` uniquement**. Sans sonde, il retient
-25 °C (valeur neutre) : les règles thermiques batterie restent inactives, ce qui
-est voulu. Auparavant il lisait la météo comme température de batterie.
+Le système expert lit **`battery_temp` uniquement**.
+
+> **Corrigé le 27/07/2026 — plus de valeur par défaut.** Sans sonde, le moteur
+> retenait 25 °C. Cette « valeur neutre » ne l'était pas : elle faisait
+> affirmer à R015 que « la température est normale », ce que le système n'avait
+> aucun moyen de savoir. La température vaut désormais `None`, elle
+> n'appartient à **aucun** terme flou, et l'absence devient visible au lieu
+> d'être masquée. Même correction pour le SOC, qui valait 50 %.
 
 ---
 
-## 6. Pagination et filtres
+## 6. Grandeurs continues (bloc DC)
+
+Produites par le nœud secondaire (**non monté à ce jour** ; le backend les
+accepte déjà — voir [PROTOCOLE_ESP32.md](PROTOCOLE_ESP32.md)).
+
+| Type | Unité | Nature |
+|------|-------|--------|
+| `battery_voltage` | V | mesurée |
+| `battery_current` | A | mesurée, **SIGNÉE : positif = charge** |
+| `battery_power` | W | calculée `V × I` |
+| `pv_voltage` / `pv_current` | V / A | mesurées |
+| `pv_power` | W | calculée `V × I` |
+| `production` | kW | `pv_power / 1000` |
+
+> ⚠ **Le signe du courant batterie n'est pas négociable.** Sans lui, impossible
+> de distinguer une batterie qui se remplit d'une batterie qui se vide — donc
+> impossible de compter les coulombs, donc impossible d'estimer un SOC
+> autrement qu'au repos.
+
+### Le SOC n'est pas une mesure
+
+Aucun capteur ne lit « 62 % ». Le SOC est **estimé**, et stocké dans
+`BatteryState` — jamais dans `Measurement`, qui porte ce qu'un capteur a lu.
+Chaque estimation porte sa méthode (`OCV` / `COULOMB` / `BMS` / `UNKNOWN`) et
+son incertitude : une estimation par tension au repos à ±10 % et une lecture de
+BMS à ±2 % ne se ressemblent que si l'on tait la méthode.
+
+**Une tension lue sous charge ne donne jamais un SOC** : la chute ohmique la
+fausse de 15 à 20 points, toujours dans le sens qui inquiète. Détail :
+`apps/fuzzy_engine/core/soc.py`.
+
+### Unités des champs neufs
+
+Tout ce qui est écrit depuis la refonte porte **son unité dans le nom**
+(`power_w`, `energy_wh`, `capacity_wh`, `soc_percent`, `temperature_celsius`),
+stocke en **W** et **Wh**, et ne convertit qu'à l'affichage. Les champs
+existants en kW restent en kW : la frontière passe entre `EnergyFacts`
+(historique, kW) et `LineFacts` / `BatteryFacts` (neufs, W et Wh).
+
+---
+
+## 7. Pagination et filtres
 
 `GET /api/measurements/`
 
@@ -150,7 +196,7 @@ tout**. Le mobile demande de petites pages, le web des pages plus larges.
 
 ---
 
-## 7. Limites actuelles
+## 8. Limites actuelles
 
 - **Capteurs non calibrés** : les valeurs affichées ne sont pas encore des
   volts/ampères réels (voir `SENSORS_AND_CALIBRATION.md`).

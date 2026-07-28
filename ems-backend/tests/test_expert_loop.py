@@ -1,7 +1,7 @@
 """Tests de la boucle fermée : décision du système expert -> relais.
 
 Vérifie que les règles floues sont *réellement appliquées* aux lignes, via
-l'interface de test (trigger apply) et via le sondage du nœud en mode AUTO.
+l'interface de test (trigger apply) et via le sondage du nœud en mode AUTOMATIC.
 """
 import pytest
 from django.contrib.auth import get_user_model
@@ -41,11 +41,12 @@ def test_trigger_apply_sheds_non_priority_line(auth_client):
     )
     assert resp.status_code == 201
     assert resp.data["decision_code"] == "SHED_NON_PRIORITY_LOAD"
-    # La ligne non prioritaire (line2) est coupée, les autres restent alimentées.
-    assert resp.data["applied_lines"] == {"line1": True, "line2": False, "line3": True}
+    # La ligne la moins prioritaire (line1) est coupée ; L2 porte la charge
+    # prioritaire du prototype et reste alimentée (cf. core/priorities.py).
+    assert resp.data["applied_lines"] == {"line1": False, "line2": True, "line3": True}
     state = RelayState.objects.get(house=house)
-    assert state.line2 is False
-    assert state.line1 is True and state.line3 is True
+    assert state.line1 is False
+    assert state.line2 is True and state.line3 is True
 
 
 def test_trigger_without_apply_leaves_relays_untouched(auth_client):
@@ -105,7 +106,7 @@ def test_auto_poll_waits_for_confirmation_window(auth_client):
     PAS tout de suite — il arme seulement la fenêtre de confirmation."""
     client, house = auth_client
     state = RelayState.objects.create(
-        house=house, control_mode=RelayState.ControlMode.AUTO
+        house=house, control_mode=RelayState.ControlMode.AUTOMATIC
     )
     _seed_deficit(house)
     esp = APIClient()
@@ -113,9 +114,10 @@ def test_auto_poll_waits_for_confirmation_window(auth_client):
                     DEFICIT_REPORT, format="json")
     assert resp.status_code == 200
     state.refresh_from_db()
-    # Rien coupé, mais un candidat est en attente (L2 à couper).
+    # Rien coupé, mais un candidat est en attente (L1 à couper : L2 porte la
+    # charge prioritaire du prototype, cf. core/priorities.py).
     assert state.line1 is True and state.line2 is True and state.line3 is True
-    assert state.auto_pending_lines == {"line1": True, "line2": False, "line3": True}
+    assert state.auto_pending_lines == {"line1": False, "line2": True, "line3": True}
     assert state.auto_pending_since is not None
 
 
@@ -126,7 +128,7 @@ def test_auto_poll_applies_after_sustained_deficit(auth_client):
 
     client, house = auth_client
     state = RelayState.objects.create(
-        house=house, control_mode=RelayState.ControlMode.AUTO
+        house=house, control_mode=RelayState.ControlMode.AUTOMATIC
     )
     _seed_deficit(house)
     esp = APIClient()
@@ -142,8 +144,8 @@ def test_auto_poll_applies_after_sustained_deficit(auth_client):
     esp.post(f"/api/ems/decision/?token={state.device_token}", DEFICIT_REPORT,
              format="json")
     state.refresh_from_db()
-    assert state.line2 is False  # ligne non prioritaire délestée
-    assert state.line1 is True and state.line3 is True
+    assert state.line1 is False  # ligne la moins prioritaire délestée
+    assert state.line2 is True and state.line3 is True
     assert state.auto_pending_since is None  # candidat consommé
 
 

@@ -29,13 +29,17 @@
  * Passer à 1 quand le backend expert est joignable. */
 #define USE_WIFI 1
 
-/* Ce fichier est versionne et pousse sur GitHub : ne jamais y ecrire un mot de
- * passe reel, meme en commentaire. Un mot de passe pousse ici est publie, et le
- * retirer ensuite ne l'efface pas de l'historique — il faut le CHANGER sur la
- * box / le telephone. Reseau ouvert (hotspot sans mot de passe) : chaine vide. */
-// constexpr const char* WIFI_SSID     = "iphone de IRON MANDA";
-constexpr const char* WIFI_SSID     = "itel A50C";
-constexpr const char* WIFI_PASSWORD = "";
+/* Identifiants Wi-Fi — dans config_secrets.h, qui n'est PAS versionne.
+ *
+ * Ce fichier-ci part sur GitHub. Un identifiant ecrit ici est publie, et le
+ * retirer ensuite ne l'efface pas de l'historique : il faut le CHANGER sur la
+ * box ou le telephone. Le nom du reseau est deja une donnee sensible — il
+ * localise le montage.
+ *
+ * Premiere compilation : copier config_secrets.h.example en config_secrets.h
+ * (meme dossier que ce croquis) et y mettre ses identifiants. Reseau ouvert
+ * (hotspot sans mot de passe) : laisser WIFI_PASSWORD a la chaine vide.      */
+#include "config_secrets.h"
 
 
 
@@ -71,9 +75,17 @@ constexpr const char* BACKEND_DECISION_URL =
 
 constexpr uint16_t HTTP_TIMEOUT_MS = 3000;
 
-/* Après ce nombre d'échecs backend consécutifs en mode auto, la ligne
- * non prioritaire (L2) est coupée par précaution ; L1/L3 gardent leur
- * dernier état connu. */
+/* Après ce nombre d'échecs backend consécutifs en mode auto, la ligne la
+ * moins prioritaire (L1) est coupée par précaution ; L2/L3 gardent leur
+ * dernier état connu.
+ *
+ * PRIORITÉ DES LIGNES — L2 est la ligne PRIORITAIRE du prototype : elle porte
+ * la lampe 20 W enregistrée IMPORTANT en base. L1 et L3 portent chacune une
+ * lampe normale et une prise secondaire, et se délestent donc avant elle.
+ * Ce fichier affirmait l'inverse jusqu'au 27/07/2026 (« L2 délestée en
+ * premier »), par une convention antérieure au rattachement charge -> ligne.
+ * Source de vérité unique et arbitrage documenté :
+ *   ems-backend/apps/fuzzy_engine/core/priorities.py                        */
 constexpr uint8_t BACKEND_MAX_FAILURES = 3;
 
 /* ==================== RELAIS ==================== */

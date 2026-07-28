@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .models import EnergyDecisionResult, EnergyFacts, FuzzyInferenceResult
+from .priorities import is_sheddable
 
 
 DECISION_LABELS = {
@@ -20,26 +21,90 @@ def _score(scores: dict[str, float], key: str) -> float:
     return float(scores.get(key, 0.0))
 
 
-def _alert_level(risk_score: float, decision_code: str) -> str:
+def _alert_level(
+    risk_score: float, recommendation_score: float, decision_code: str
+) -> str:
+    """Niveau d'alerte présenté à l'utilisateur.
+
+    C'EST ICI QUE `recommendation_score` SERT (§6). 23 règles sur 30 le
+    renseignent et, jusqu'ici, AUCUNE condition ne le lisait : le score existait,
+    était calculé, était enregistré dans chaque décision — et ne pesait sur
+    rien. Il fallait trancher entre l'utiliser et cesser de le renseigner.
+
+    Ce qu'il mesure, c'est « à quel point le système veut que l'humain
+    intervienne ». Sa place naturelle est donc le niveau d'alerte, pas le mode
+    d'exécution — et l'alerte est bien consommée en aval (`views.py` crée un
+    `Alert` à partir de `alert_level`).
+
+    UNE PISTE ESSAYÉE ET ÉCARTÉE, car elle rouvrait le défaut central :
+    faire de `recommendation_score` un veto sur le mode d'exécution
+    (« automatique seulement si automatic_score >= recommendation_score »).
+    Mesuré sur les charges réelles du prototype : `automatic_score` n'est porté
+    que par des règles exigeant `load_priority == "NON_PRIORITY"` (R005, R021),
+    condition jamais satisfaite là-bas. Il y tombait donc à 25,5 contre une
+    recommandation à 95, et le délestage automatique redevenait inatteignable
+    — très exactement le défaut que cette refonte corrige. Le garde-fou du mode
+    assisté existe déjà, et au bon endroit : `EmsDecisionView._run_expert_control`
+    transforme la décision en proposition sans jamais toucher aux relais.
+
+    L'alerte retenue est la PLUS ÉLEVÉE des deux lectures : un système qui
+    conseille fortement d'agir doit se voir, même si le risque brut reste
+    modéré.
+    """
     if decision_code == "BLOCK_AUTOMATIC_ACTION" and risk_score >= 45:
         return "CRITICAL"
-    if risk_score >= 75:
-        return "CRITICAL"
-    if risk_score >= 45:
-        return "WARNING"
-    if risk_score >= 20:
-        return "INFO"
-    return "NONE"
+
+    def _from(score: float) -> int:
+        if score >= 75:
+            return 3
+        if score >= 45:
+            return 2
+        if score >= 20:
+            return 1
+        return 0
+
+    # La recommandation pèse un cran de moins que le risque : conseiller
+    # fermement n'est pas constater un danger. Sans ce décalage, les 23 règles
+    # qui portent une recommandation élevée feraient virer presque toute
+    # décision au rouge, et l'alerte cesserait d'informer.
+    level = max(_from(risk_score), max(_from(recommendation_score) - 1, 0))
+    return ("NONE", "INFO", "WARNING", "CRITICAL")[level]
 
 
-def _battery_action(decision_code: str, scores: dict[str, float], facts: EnergyFacts) -> str:
-    if decision_code == "PROTECT_BATTERY" or _score(scores, "protect_battery_score") >= 60:
+# Seuil du mode économie. Au-dessus, le moteur DOIT dire que la situation se
+# dégrade : une action d'opportunité ne peut pas prendre sa place dans le code
+# de décision (cf. `map_decision`).
+ECO_RISK_THRESHOLD = 50.0
+CHARGE_THRESHOLD = 55.0
+DISCHARGE_THRESHOLD = 55.0
+PROTECT_THRESHOLD = 60.0
+
+
+def _battery_action(scores: dict[str, float], facts: EnergyFacts) -> str:
+    """Commande adressée à la batterie — canal DISTINCT du code de décision.
+
+    Les deux ne répondent pas à la même question :
+      - `decision_code` dit ce que le système fait FACE AU DANGER (normal,
+        économie, réduire, délester, protéger, bloquer) ;
+      - `battery_action` dit ce qu'il faut faire DE LA BATTERIE (charger,
+        décharger, préserver, protéger).
+
+    Les confondre obligeait à choisir : soit annoncer « je charge la batterie »
+    en taisant un risque à 90, soit taire la recharge. Séparés, les deux
+    informations coexistent — et `battery_action` cesse d'être un champ calculé
+    que personne ne lit : c'est lui qui porte la consigne batterie, y compris
+    quand la décision affichée est « mode économie ».
+    """
+    if _score(scores, "protect_battery_score") >= PROTECT_THRESHOLD:
         return "PROTECT"
-    if decision_code == "CHARGE_BATTERY":
+    if _score(scores, "charge_battery_score") >= CHARGE_THRESHOLD:
         return "CHARGE"
-    if decision_code == "USE_BATTERY":
+    soc = facts.battery_soc_percent
+    if _score(scores, "discharge_battery_score") >= DISCHARGE_THRESHOLD and (
+        soc is not None and soc >= 30
+    ):
         return "DISCHARGE"
-    if facts.battery_soc_percent < 35 or _score(scores, "risk_score") >= 50:
+    if (soc is not None and soc < 35) or _score(scores, "risk_score") >= ECO_RISK_THRESHOLD:
         return "PRESERVE"
     return "NONE"
 
@@ -99,14 +164,118 @@ def _build_explanation(
     rule_notes = _top_rule_explanations(inference_result)
     if rule_notes:
         pieces.append("Regles principales activees : " + " | ".join(rule_notes))
+
+    # Quand c'est un plancher de sûreté qui fixe la gravité, il faut le dire :
+    # sans cette phrase, l'utilisateur lirait un score que plus aucune règle
+    # affichée ne justifie, et l'explication cesserait d'être vérifiable.
+    floor_note = _safety_floor_note(scores, inference_result)
+    if floor_note:
+        pieces.append(floor_note)
+
     pieces.append(f"Mode d'execution : {execution_mode}.")
     return " ".join(pieces)
+
+
+# Rampe -> phrase en français. La formulation vise l'utilisateur final : elle
+# nomme la grandeur physique, pas le mécanisme interne.
+_FLOOR_REASONS = {
+    "risk_from_soc": "la reserve de batterie qui s'epuise",
+    "risk_from_heat": "l'echauffement de la batterie",
+    "risk_from_cold": "le refroidissement de la batterie",
+    "protect_from_soc": "la reserve de batterie qui s'epuise",
+    "protect_from_heat": "l'echauffement de la batterie",
+    "protect_from_cold": "le refroidissement de la batterie",
+}
+
+
+def _safety_floor_note(
+    scores: dict[str, float], inference_result: FuzzyInferenceResult
+) -> str:
+    """Signale les indicateurs dont la valeur vient du plancher, pas des règles."""
+    rule_scores = inference_result.rule_scores
+    floors = inference_result.safety_floors
+    if not rule_scores or not floors:
+        return ""
+
+    raised = []
+    if _score(scores, "risk_score") > _score(rule_scores, "risk_score") + 1e-6:
+        raised.append(("risque", ("risk_from_soc", "risk_from_heat", "risk_from_cold")))
+    if (
+        _score(scores, "protect_battery_score")
+        > _score(rule_scores, "protect_battery_score") + 1e-6
+    ):
+        raised.append(
+            ("besoin de protection",
+             ("protect_from_soc", "protect_from_heat", "protect_from_cold"))
+        )
+    if not raised:
+        return ""
+
+    notes = []
+    for label, keys in raised:
+        dominant = max(keys, key=lambda key: floors.get(key, 0.0))
+        notes.append(f"{label} ({_FLOOR_REASONS[dominant]})")
+    return (
+        "Un garde-fou de securite releve le niveau de "
+        + " et de ".join(notes)
+        + " : aucune regle ne couvrait cette zone, mais la situation physique y "
+          "reste au moins aussi grave qu'a l'etape precedente."
+    )
+
+
+def _shed_capability(
+    facts: EnergyFacts, line_evaluations=None
+) -> tuple[bool, list[int]]:
+    """Le micro-réseau a-t-il quelque chose à délester, et quoi ?
+
+    C'est LA question que la cascade doit poser avant de produire un délestage
+    — et ce n'était pas celle qu'elle posait. Elle exigeait
+    `load_priority == "NON_PRIORITY"`, c'est-à-dire « aucune charge de la
+    maison n'est prioritaire ». Sur le prototype, une seule lampe IMPORTANT
+    suffit à faire échouer ce test en permanence : le délestage automatique
+    était inatteignable, quel que soit le danger.
+
+    Une ligne est délestable ici si elle n'est pas critique et si elle est
+    effectivement alimentée — couper une ligne déjà ouverte ne rend rien.
+
+    `is_measured` n'entre PAS dans ce critère, volontairement : le moteur flou
+    tranche s'il FAUT délester, pas ce qu'il faut délester. L'absence de mesure
+    contraint le choix de la ligne (l'optimiseur a interdiction d'y toucher,
+    cf. core/optimizer.py), pas le constat que la situation le justifie. Les
+    confondre reviendrait à dire « tout va bien » parce qu'un capteur s'est tu.
+
+    Sans faits de ligne — appelants historiques, interface de test, tests
+    unitaires — on retombe sur l'ancien critère : leur comportement ne change
+    pas.
+    """
+    if not facts.lines:
+        return facts.load_priority == "NON_PRIORITY", []
+
+    # Quand les règles de ligne ont tourné, ce sont ELLES qui font foi : leurs
+    # vetos couvrent les trois cas d'interdiction (charge critique, ligne déjà
+    # ouverte, capteur muet) et restent explicables un par un. Le repli
+    # ci-dessous ne sert qu'aux appels qui n'évaluent pas les lignes.
+    if line_evaluations:
+        candidates = [
+            evaluation.line_number
+            for evaluation in line_evaluations
+            if not evaluation.blocked
+        ]
+        return bool(candidates), candidates
+
+    candidates = [
+        line.line_number
+        for line in facts.lines
+        if is_sheddable(line.priority) and line.relay_closed
+    ]
+    return bool(candidates), candidates
 
 
 def map_decision(
     facts: EnergyFacts,
     inference_result: FuzzyInferenceResult,
     fuzzy_values: dict,
+    line_evaluations=None,
 ) -> EnergyDecisionResult:
     scores = inference_result.aggregated_scores
     risk_score = _score(scores, "risk_score")
@@ -115,50 +284,88 @@ def map_decision(
     discharge_score = _score(scores, "discharge_battery_score")
     protect_score = _score(scores, "protect_battery_score")
     automatic_score = _score(scores, "automatic_score")
+    recommendation_score = _score(scores, "recommendation_score")
     blocked_score = _score(scores, "blocked_score")
+
+    # Le blocage vient-il d'une donnée inexploitable ? Cette distinction est
+    # capitale : un blocage motivé par la qualité des données ne doit JAMAIS
+    # être requalifié plus bas. Sans elle, le garde-fou « charge critique »
+    # écrasait un BLOCK_AUTOMATIC_ACTION en RECOMMENDATION alors que
+    # blocked_score valait 100 — mesuré sur 46,1 % des situations combinant
+    # data_quality = BAD et charge critique. La piste d'audit affirmait donc
+    # l'inverse de ce que le moteur avait conclu.
+    quality_blocked = False
+    shed_capable, sheddable_lines = _shed_capability(facts, line_evaluations)
 
     if facts.data_quality == "BAD" or blocked_score >= 60:
         decision_code = "BLOCK_AUTOMATIC_ACTION"
         execution_mode = "BLOCKED"
+        quality_blocked = True
     elif facts.data_quality == "PARTIAL":
         if risk_score >= 70 or blocked_score >= 45:
             decision_code = "BLOCK_AUTOMATIC_ACTION"
             execution_mode = "BLOCKED"
+            quality_blocked = True
         else:
             decision_code = "DATA_QUALITY_ALERT"
             execution_mode = "RECOMMENDATION"
-    elif protect_score >= 60:
+    elif protect_score >= PROTECT_THRESHOLD:
         decision_code = "PROTECT_BATTERY"
         execution_mode = "AUTOMATIC"
-    elif shedding_level >= 60 and facts.load_priority == "NON_PRIORITY":
+    elif shedding_level >= 60 and shed_capable:
         decision_code = "SHED_NON_PRIORITY_LOAD"
         execution_mode = "AUTOMATIC"
-    elif shedding_level >= 60 and facts.load_priority != "NON_PRIORITY":
+    elif shedding_level >= 60:
+        # Le délestage est justifié mais rien n'est délestable : tout est
+        # critique, déjà coupé, ou hors de vue. Reste la recommandation.
         decision_code = "RECOMMEND_REDUCE_PRIORITY_LOAD"
         execution_mode = "RECOMMENDATION"
-    elif charge_score >= 55:
+    # Actions d'OPPORTUNITÉ : elles ne passent qu'en dessous du seuil du mode
+    # économie. Au-dessus, annoncer « je charge la batterie » alors que le
+    # risque vaut 90 dirait à l'utilisateur que tout va bien au moment précis
+    # où le système constate le contraire. La consigne de recharge n'est pas
+    # perdue pour autant : elle part par `battery_action`.
+    elif risk_score < ECO_RISK_THRESHOLD and charge_score >= CHARGE_THRESHOLD:
         decision_code = "CHARGE_BATTERY"
         execution_mode = "AUTOMATIC"
-    elif discharge_score >= 55 and facts.battery_soc_percent >= 30:
+    elif (
+        risk_score < ECO_RISK_THRESHOLD
+        and discharge_score >= DISCHARGE_THRESHOLD
+        and facts.battery_soc_percent is not None
+        and facts.battery_soc_percent >= 30
+    ):
         decision_code = "USE_BATTERY"
         execution_mode = "AUTOMATIC"
-    elif risk_score >= 50:
+    elif risk_score >= ECO_RISK_THRESHOLD:
         decision_code = "ECO_MODE"
         execution_mode = "RECOMMENDATION"
     else:
         decision_code = "NORMAL_OPERATION"
         execution_mode = "AUTOMATIC" if automatic_score >= 60 else "RECOMMENDATION"
 
-    if facts.load_priority == "CRITICAL" and decision_code == "SHED_NON_PRIORITY_LOAD":
+    # Garde-fou « charge critique » : un délestage soutenu par les scores ne
+    # doit pas couper une charge critique — il redevient une recommandation.
+    #
+    # Deux conditions ont été retirées de ce garde-fou :
+    #   - `decision_code == "SHED_NON_PRIORITY_LOAD"` était morte : cette
+    #     décision exige `load_priority == "NON_PRIORITY"` plus haut dans la
+    #     cascade, elle ne peut donc pas coexister avec une charge critique ;
+    #   - `decision_code != "PROTECT_BATTERY"` était trop étroite : elle
+    #     laissait requalifier un blocage pour données inexploitables.
+    # Un blocage qualité ne se requalifie jamais : la donnée manquante ne
+    # devient pas exploitable parce que la charge est critique.
+    if (
+        facts.load_priority == "CRITICAL"
+        and not shed_capable
+        and shedding_level >= 60
+        and decision_code != "PROTECT_BATTERY"
+        and not quality_blocked
+    ):
         decision_code = "RECOMMEND_REDUCE_PRIORITY_LOAD"
         execution_mode = "RECOMMENDATION"
 
-    if facts.load_priority == "CRITICAL" and shedding_level >= 60 and decision_code != "PROTECT_BATTERY":
-        decision_code = "RECOMMEND_REDUCE_PRIORITY_LOAD"
-        execution_mode = "RECOMMENDATION"
-
-    alert_level = _alert_level(risk_score, decision_code)
-    battery_action = _battery_action(decision_code, scores, facts)
+    alert_level = _alert_level(risk_score, recommendation_score, decision_code)
+    battery_action = _battery_action(scores, facts)
     explanation = _build_explanation(facts, decision_code, execution_mode, scores, inference_result)
 
     return EnergyDecisionResult(
@@ -171,7 +378,7 @@ def map_decision(
         charge_battery_score=charge_score,
         discharge_battery_score=discharge_score,
         protect_battery_score=protect_score,
-        recommendation_score=_score(scores, "recommendation_score"),
+        recommendation_score=recommendation_score,
         automatic_score=automatic_score,
         blocked_score=blocked_score,
         battery_action=battery_action,
@@ -179,4 +386,14 @@ def map_decision(
         fired_rules=[rule.to_dict() for rule in inference_result.fired_rules],
         input_facts=facts.to_dict(),
         fuzzy_values=fuzzy_values,
+        trace={
+            "rule_scores": dict(inference_result.rule_scores),
+            "safety_floors": dict(inference_result.safety_floors),
+            "quality_blocked": quality_blocked,
+            "shed_capable": shed_capable,
+            "sheddable_lines": sheddable_lines,
+            "lines": [
+                evaluation.to_dict() for evaluation in (line_evaluations or [])
+            ],
+        },
     )

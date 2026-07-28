@@ -30,7 +30,7 @@ const RELAY_LINES = [
 const MODES = [
   { key: "MANUAL",   label: "Manuel",   hint: "Vous seul commandez les lignes." },
   { key: "ASSISTED", label: "Assisté",  hint: "Le système expert propose, vous validez." },
-  { key: "AUTO",     label: "Auto",     hint: "Le système expert applique lui-même, sur condition soutenue." },
+  { key: "AUTOMATIC", label: "Auto",   hint: "Le système expert applique lui-même, sur condition soutenue." },
 ];
 
 /* ── Icônes et couleurs par type ── */
@@ -206,7 +206,7 @@ function RelayControl({ houseId }) {
     ? Date.now() - new Date(state.last_contact_at).getTime() < 15000
     : false;
   const allOn = state ? RELAY_LINES.every((l) => state[l.key]) : false;
-  const isAuto = state?.control_mode === "AUTO";
+  const isAuto = state?.control_mode === "AUTOMATIC";
   const isAssisted = state?.control_mode === "ASSISTED";
   const pending = isAssisted ? state?.auto_pending_lines : null;
 

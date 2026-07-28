@@ -9,12 +9,50 @@ from apps.energy_assets.models import EnergyAsset
 from apps.forecasting.models import Forecast
 from apps.measurements.models import Measurement
 
-from .core import EnergyDecisionResult, EnergyFacts, FuzzyExpertEngine
+from .core import (
+    BatteryFacts,
+    EnergyDecisionResult,
+    EnergyFacts,
+    FuzzyExpertEngine,
+    LineFacts,
+)
+from .core import priorities as prio
+from .core.autonomy import autonomy_hours
 
 
-# Température batterie retenue quand aucune sonde ne la mesure. Neutre : elle
-# ne déclenche ni la règle "température élevée" ni "dangereuse".
-BATTERY_TEMP_DEFAULT_C = 25.0
+# Il n'y a PLUS de valeur par défaut pour le SOC ni pour la température
+# batterie. Le moteur substituait 50 % et 25 °C en silence quand aucune source
+# ne répondait : le résultat avait l'air d'une batterie à moitié pleine et
+# tempérée, alors que c'était l'absence de mesure. Onze règles raisonnaient sur
+# ces chiffres inventés, et R015 allait jusqu'à affirmer « la température est
+# normale » — une assertion que le système n'avait aucun moyen de faire.
+#
+# Désormais l'absence vaut None, elle dégrade la qualité des données, et la
+# décision se bloque. C'est un changement de comportement VOULU : rendre
+# l'absence visible plutôt que de la masquer.
+
+WATTS_PER_KILOWATT = 1000.0
+WH_PER_KWH = 1000.0
+
+# Les trois lignes commutables du prototype (relais ESP32).
+LINE_NUMBERS = (1, 2, 3)
+
+# Au-delà de cet âge, le dernier relevé du nœud ne vaut plus comme mesure : le
+# nœud est muet. Les lignes passent alors `is_measured = False`, ce qui INTERDIT
+# à l'optimiseur d'y toucher. Un relevé vieux de dix minutes décrit une maison
+# qui n'existe plus ; agir dessus serait agir à l'aveugle. La cadence de sondage
+# est de 3 s, celle de stockage de 30 s : 120 s laissent passer quatre sondages
+# manqués avant de déclarer la ligne inconnue.
+LINE_REPORT_MAX_AGE_S = 120
+
+# Même principe pour l'état estimé d'une batterie : au-delà d'un quart d'heure,
+# il décrit un état qui n'existe plus. Plus tolérant que pour les lignes, car un
+# SOC bouge lentement — mais borné, car un SOC périmé lu comme actuel est
+# exactement le genre de valeur fausse qui a l'air juste.
+BATTERY_STATE_MAX_AGE_S = 900
+
+# Le calcul d'autonomie lui-même vit dans core/autonomy.py : c'est de la
+# physique, pas de l'accès aux données, et il doit rester mesurable sans Django.
 
 
 def _latest_value(house, measurement_type: str, default: float | None = None):
@@ -73,7 +111,7 @@ def _pv_nominal_power_kw(house, fallback: float = 5.0) -> float:
 
 
 def _operating_mode(house) -> str:
-    """Mode de pilotage courant des lignes : MANUAL | ASSISTED | AUTO.
+    """Mode de pilotage courant des lignes : MANUAL | ASSISTED | AUTOMATIC.
 
     C'est l'état réel de RelayState.control_mode (le même que celui qui régit
     l'application des décisions dans EmsDecisionView), transmis au moteur comme
@@ -85,32 +123,262 @@ def _operating_mode(house) -> str:
 
 
 def _load_priority(house) -> str:
-    active = Equipment.objects.filter(house=house, status=Equipment.Status.ACTIVE)
-    priorities = set(active.values_list("priority", flat=True))
-    # Les 5 niveaux du modèle Equipment sont regroupés en 3 catégories pour la
-    # DÉCISION : le moteur flou n'a besoin que de savoir s'il doit protéger,
-    # recommander, ou peut délester. Les 5 niveaux restent visibles côté
-    # données et interfaces ; seule la décision les regroupe.
-    #   CRITICAL              -> CRITICAL     (jamais coupée automatiquement)
-    #   IMPORTANT, NORMAL     -> PRIORITY     (recommandation seulement)
-    #   LOW, NON_CRITICAL     -> NON_PRIORITY (délestable)
-    if Equipment.Priority.CRITICAL in priorities:
-        return "CRITICAL"
-    if (
-        Equipment.Priority.IMPORTANT in priorities
-        or Equipment.Priority.NORMAL in priorities
-    ):
-        return "PRIORITY"
-    return "NON_PRIORITY"
+    """Priorité AGRÉGÉE des charges actives — celle de la plus prioritaire.
+
+    Ce fait répond à « qu'ai-je de plus précieux à protéger ? », et sert aux
+    règles maison de protection (R007, R023). Il ne répond PAS à « puis-je
+    délester quelque chose ? » : sur le prototype, une seule lampe IMPORTANT
+    suffit à le porter à PRIORITY en permanence, et le délestage automatique —
+    qui exigeait NON_PRIORITY — devenait mathématiquement inatteignable. Cette
+    seconde question est désormais tranchée ligne par ligne (`EnergyFacts.lines`),
+    là où elle a un sens physique : c'est une ligne qu'on coupe, pas une charge.
+
+    Les 5 niveaux du modèle Equipment sont regroupés en 3 classes de décision
+    (cf. core/priorities.py) ; les 5 restent visibles côté données, interfaces
+    et optimiseur.
+    """
+    priorities = set(
+        Equipment.objects.filter(
+            house=house, status=Equipment.Status.ACTIVE
+        ).values_list("priority", flat=True)
+    )
+    dominant = prio.line_priority(priorities)
+    return prio.DECISION_CLASS.get(dominant, "NON_PRIORITY")
 
 
-def _data_quality(values: dict[str, float | None]) -> str:
+def _line_report(house):
+    """Dernier relevé par ligne remonté par le nœud, s'il est encore frais.
+
+    Renvoie ``(payload, relay_state)`` ou ``(None, relay_state)``. Le relevé du
+    nœud est la SEULE source par ligne : les `Measurement` agrégés (`power`,
+    `consumption`) additionnent les trois lignes et ne permettent plus de
+    savoir laquelle tire quoi.
+    """
+    from apps.devices.models import RelayState
+
+    state = RelayState.objects.filter(house=house).first()
+    if state is None:
+        return None, None
+    report = state.last_report if isinstance(state.last_report, dict) else None
+    if report is None or state.last_contact_at is None:
+        return None, state
+    age_s = (timezone.now() - state.last_contact_at).total_seconds()
+    if age_s > LINE_REPORT_MAX_AGE_S:
+        return None, state
+    return report, state
+
+
+def _line_facts(house) -> list[LineFacts]:
+    """Assemble l'état des trois lignes commutables.
+
+    Trois sources se rejoignent ici :
+      - les charges rattachées (`Equipment.relay_line`) donnent la priorité,
+        la puissance nominale et les noms lisibles ;
+      - le relevé du nœud donne tension, courant et puissance mesurées ;
+      - `RelayState` donne l'état commandé du relais.
+
+    Une ligne sans mesure n'est pas une ligne à 0 W : `is_measured` reste faux
+    et `power_w` reste None. La différence est capitale — un 0 W inventé ferait
+    croire à l'optimiseur qu'il ne gagne rien à couper cette ligne, alors qu'il
+    n'en sait rien.
+
+    Renvoie une liste VIDE quand le micro-réseau n'a pas de `RelayState`,
+    c'est-à-dire quand aucun nœud ne lui a jamais été rattaché. Il faut
+    distinguer deux absences que l'on confond facilement :
+
+      - « j'ai trois lignes pilotables et je ne les vois pas » (nœud muet) :
+        les lignes existent, elles sont non mesurées, et le moteur s'interdit
+        d'y toucher ;
+      - « je n'ai aucun canal de télémétrie par ligne » (pas de nœud, cas de
+        l'interface de test) : le raisonnement par ligne ne s'applique pas, et
+        le moteur retombe sur le raisonnement maison.
+
+    Fabriquer trois lignes fantômes dans le second cas aurait bloqué toute
+    décision automatique sur un micro-réseau qui n'a jamais prétendu en
+    fournir.
+    """
+    report, state = _line_report(house)
+    if state is None:
+        return []
+
+    loads: dict[int, list] = {n: [] for n in LINE_NUMBERS}
+    rows = Equipment.objects.filter(
+        house=house,
+        status=Equipment.Status.ACTIVE,
+        relay_line__in=LINE_NUMBERS,
+    ).values_list("relay_line", "priority", "rated_power_kw", "name")
+    for line_no, priority, rated_kw, name in rows:
+        loads[line_no].append((priority, rated_kw, name))
+
+    facts = []
+    for number in LINE_NUMBERS:
+        attached = loads[number]
+        priority = prio.line_priority([p for p, _kw, _n in attached])
+        if priority is None:
+            # Aucune charge rattachée : convention du prototype (cf.
+            # core/priorities.py), pas un rang arbitraire.
+            priority = prio.FALLBACK_LINE_PRIORITY[number]
+
+        measured = report.get(f"line{number}") if report else None
+        measured = measured if isinstance(measured, dict) else None
+        voltage = _to_float(measured, "voltage") if measured else None
+        current = _to_float(measured, "current") if measured else None
+        power = _to_float(measured, "power") if measured else None
+        # Le firmware envoie déjà P = U x I x cos(phi) ; on ne le recalcule que
+        # s'il ne l'a pas fait, pour ne pas fabriquer une valeur là où le nœud
+        # en a une (et pour rester cohérent avec sa calibration).
+        if power is None and voltage is not None and current is not None:
+            power = voltage * current
+
+        facts.append(
+            LineFacts(
+                line_number=number,
+                voltage_v=voltage,
+                current_a=current,
+                power_w=power,
+                relay_closed=(
+                    bool(getattr(state, f"line{number}")) if state else True
+                ),
+                priority=priority,
+                nominal_power_w=sum(
+                    float(kw or 0) * WATTS_PER_KILOWATT for _p, kw, _n in attached
+                ),
+                load_names=[name for _p, _kw, name in attached],
+                is_measured=power is not None,
+            )
+        )
+    return facts
+
+
+def _to_float(mapping, key):
+    try:
+        value = mapping.get(key)
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _battery_facts(house) -> list[BatteryFacts]:
+    """Assemble l'état de chaque batterie du parc.
+
+    L'état vient du dernier `BatteryState`, c'est-à-dire d'une ESTIMATION
+    horodatée, avec sa méthode et son incertitude. Un `BatteryState` absent ou
+    périmé ne se remplace pas par une valeur plausible : `soc_percent` reste
+    None et `soc_method` vaut UNKNOWN. C'est la vérité sur le prototype
+    d'aujourd'hui, qui ne mesure aucune grandeur continue — et le moteur doit
+    pouvoir la dire plutôt que de la masquer.
+    """
+    from apps.energy_assets.models import BatteryState, EnergyAsset
+
+    rows = EnergyAsset.objects.filter(
+        house=house,
+        asset_type=EnergyAsset.AssetType.BATTERY,
+        status=EnergyAsset.Status.ACTIVE,
+    ).order_by("id")
+
+    # Sonde partagée : tant qu'une seule sonde équipe le parc, sa lecture vaut
+    # pour toutes les batteries. Une sonde par batterie la remplacera dès que
+    # `BatteryState.temperature_celsius` sera alimenté individuellement.
+    shared_temperature = _latest_value(house, "battery_temp")
+    now = timezone.now()
+
+    facts = []
+    for asset in rows:
+        capacity_wh = (
+            float(asset.capacity_kwh) * WH_PER_KWH
+            if asset.capacity_kwh is not None
+            else None
+        )
+        state = (
+            BatteryState.objects.filter(battery=asset).order_by("-timestamp").first()
+        )
+        if state is not None and (
+            now - state.timestamp
+        ).total_seconds() > BATTERY_STATE_MAX_AGE_S:
+            # Un état périmé décrit une batterie qui n'existe plus. On préfère
+            # ne rien savoir que savoir faux.
+            state = None
+
+        facts.append(
+            BatteryFacts(
+                battery_id=str(asset.pk),
+                soc_percent=state.soc_percent if state else None,
+                soc_method=state.estimation_method if state else "UNKNOWN",
+                soc_uncertainty_percent=(
+                    state.uncertainty_percent if state else None
+                ),
+                voltage_v=state.voltage_v if state else None,
+                current_a=state.current_a if state else None,
+                power_w=(
+                    state.voltage_v * state.current_a
+                    if state and state.voltage_v is not None
+                    and state.current_a is not None
+                    else None
+                ),
+                direction=state.direction if state else "UNKNOWN",
+                temperature_c=(
+                    state.temperature_celsius
+                    if state and state.temperature_celsius is not None
+                    else shared_temperature
+                ),
+                capacity_wh=capacity_wh,
+                energy_wh=state.energy_wh if state else None,
+            )
+        )
+    return facts
+
+
+def _park_soc_percent(batteries: list[BatteryFacts]) -> float | None:
+    """SOC du micro-réseau : moyenne des batteries PONDÉRÉE PAR LA CAPACITÉ.
+
+    Une moyenne simple ferait peser autant une batterie de 50 Wh qu'une de
+    500 Wh, alors que la seconde porte dix fois plus d'énergie. Une batterie
+    dont le SOC est inconnu est exclue du calcul : elle ne doit ni tirer la
+    moyenne vers le haut ni vers le bas.
+    """
+    known = [
+        b for b in batteries
+        if b.soc_percent is not None and b.capacity_wh not in (None, 0)
+    ]
+    if not known:
+        # Faute de capacité connue, on retombe sur une moyenne simple des SOC
+        # connus — moins juste, mais toujours mieux que rien. None si aucun.
+        socs = [b.soc_percent for b in batteries if b.soc_percent is not None]
+        return sum(socs) / len(socs) if socs else None
+    total_capacity = sum(b.capacity_wh for b in known)
+    return sum(b.soc_percent * b.capacity_wh for b in known) / total_capacity
+
+
+def _park_temperature_c(batteries: list[BatteryFacts]) -> float | None:
+    """Température retenue pour le parc : la PLUS DÉFAVORABLE.
+
+    Ni la moyenne ni la première venue : une seule batterie en surchauffe (ou
+    gelée) suffit à justifier la protection, et une moyenne la diluerait
+    derrière ses voisines saines. « Défavorable » se mesure par l'écart au
+    point de confort, dans les deux sens — le danger thermique est en U.
+    """
+    known = [b.temperature_c for b in batteries if b.temperature_c is not None]
+    if not known:
+        return None
+    comfort_c = 25.0
+    return max(known, key=lambda t: abs(t - comfort_c))
+
+
+def _data_quality(values: dict[str, float | None]) -> tuple[str, float]:
+    """Libelle de qualite ET fraction de faits reellement presents.
+
+    La fraction est ce qui permet de graduer le doute : l'appartenance
+    « partielle » valait 0,5 en dur, si bien qu'un fait manquant sur trois et
+    deux faits manquants sur trois donnaient le meme degre. Il suffisait de
+    compter (cf. membership.fuzzify_data_quality).
+    """
     present = sum(value is not None for value in values.values())
+    completeness = present / len(values) if values else 0.0
     if present == len(values):
-        return "GOOD"
+        return "GOOD", completeness
     if present:
-        return "PARTIAL"
-    return "BAD"
+        return "PARTIAL", completeness
+    return "BAD", completeness
 
 
 def _confidence(result: EnergyDecisionResult) -> float:
@@ -172,6 +440,10 @@ class ExpertEvaluation:
 
     def decision_payload(self) -> dict:
         data = self.result.to_dict()
+        # `trace` porte le raisonnement détaillé ; en base la colonne s'appelle
+        # `reasoning_trace` (JSONField), pour ne pas confondre avec les champs
+        # de scores qui, eux, sont interrogeables directement en SQL.
+        data["reasoning_trace"] = data.pop("trace", {})
         return {
             "action": self.action,
             "reason": self.reason,
@@ -250,18 +522,13 @@ def facts_from_house(house, overrides: dict | None = None) -> EnergyFacts:
 
     production = raw["production"] if raw["production"] is not None else 0.0
     consumption = raw["consumption"] if raw["consumption"] is not None else 0.0
-    battery_soc = raw["battery_soc"] if raw["battery_soc"] is not None else 50.0
-    # Aucune sonde batterie installée à ce jour : sans mesure, on retient une
-    # valeur neutre (25 °C) plutôt que de substituer la température ambiante.
-    # Les règles thermiques batterie restent alors inactives — c'est voulu.
+    # Aucune substitution : None traverse jusqu'aux règles, qui ne se
+    # déclenchent alors ni dans le sens de l'alarme ni dans celui du calme.
+    battery_soc = raw["battery_soc"]
     battery_temp = (
         overrides["battery_temperature"]
         if overrides.get("battery_temperature") is not None
-        else (
-            raw["battery_temperature"]
-            if raw["battery_temperature"] is not None
-            else BATTERY_TEMP_DEFAULT_C
-        )
+        else raw["battery_temperature"]
     )
     priority = (
         "NON_PRIORITY"
@@ -270,13 +537,18 @@ def facts_from_house(house, overrides: dict | None = None) -> EnergyFacts:
     )
     # La qualité des données peut être forcée depuis l'interface de test
     # (pour démontrer le blocage automatique sur données BAD/PARTIAL).
-    data_quality = overrides.get("data_quality") or _data_quality(
+    measured_quality, completeness = _data_quality(
         {
             "production": raw["production"],
             "consumption": raw["consumption"],
             "battery_soc": raw["battery_soc"],
         }
     )
+    forced_quality = overrides.get("data_quality")
+    data_quality = forced_quality or measured_quality
+    # Une qualite FORCEE depuis l'interface de test n'a pas de completude
+    # mesuree : on ne lui en invente pas une.
+    data_completeness = None if forced_quality else completeness
 
     # Faits contextuels enrichis, tirés de mesures déjà collectées et de
     # l'horloge. `temperature` = température ambiante de l'API météo (jamais
@@ -287,6 +559,21 @@ def facts_from_house(house, overrides: dict | None = None) -> EnergyFacts:
     if module_temp is None:
         module_temp = _latest_value(house, "panel_temp")
 
+    # Faits par ligne et par batterie. Les agrégats maison restent calculés
+    # (les 25 règles maison les lisent), mais ils sont désormais DÉRIVÉS du
+    # parc quand celui-ci est connu : SOC pondéré par la capacité, température
+    # la plus défavorable. Un agrégat saisi à la main et un agrégat calculé
+    # depuis les éléments ne peuvent plus diverger.
+    lines = _line_facts(house)
+    batteries = _battery_facts(house)
+
+    park_soc = _park_soc_percent(batteries)
+    if park_soc is not None:
+        battery_soc = park_soc
+    park_temp = _park_temperature_c(batteries)
+    if park_temp is not None and overrides.get("battery_temperature") is None:
+        battery_temp = park_temp
+
     return EnergyFacts(
         current_pv_power_kw=production,
         current_load_power_kw=consumption,
@@ -296,6 +583,7 @@ def facts_from_house(house, overrides: dict | None = None) -> EnergyFacts:
         battery_temperature_c=battery_temp,
         load_priority=priority,
         data_quality=data_quality,
+        data_completeness=data_completeness,
         pv_nominal_power_kw=_pv_nominal_power_kw(house),
         ambient_temperature_c=_latest_value(house, "temperature"),
         solar_irradiance_wm2=_latest_value(house, "irradiance"),
@@ -303,6 +591,9 @@ def facts_from_house(house, overrides: dict | None = None) -> EnergyFacts:
         hour=now.hour,
         day_of_week=now.weekday(),
         operating_mode=_operating_mode(house),
+        lines=lines,
+        batteries=batteries,
+        autonomy_hours=autonomy_hours(batteries, consumption, production),
     )
 
 

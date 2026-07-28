@@ -1,0 +1,428 @@
+{
+  "grid": {
+    "situations": 222750,
+    "decision_distribution": {
+      "BLOCK_AUTOMATIC_ACTION": 0.626694,
+      "CHARGE_BATTERY": 0.012714,
+      "DATA_QUALITY_ALERT": 0.039973,
+      "ECO_MODE": 0.039668,
+      "NORMAL_OPERATION": 0.025733,
+      "PROTECT_BATTERY": 0.169697,
+      "RECOMMEND_REDUCE_PRIORITY_LOAD": 0.054465,
+      "SHED_NON_PRIORITY_LOAD": 0.027771,
+      "USE_BATTERY": 0.003286
+    },
+    "execution_mode_distribution": {
+      "AUTOMATIC": 0.216485,
+      "BLOCKED": 0.626694,
+      "RECOMMENDATION": 0.156822
+    },
+    "risk_mean": 87.735,
+    "risk_stddev": 19.6006,
+    "forecast_balance_inertia": 0.691152,
+    "forecast_balance_groups": 8250,
+    "forecast_balance_inertia_nominal": 0.293333,
+    "forecast_balance_groups_nominal": 1350,
+    "bad_quality_not_blocked": 0.0
+  },
+  "monotonicity": {
+    "inversions_total": 19,
+    "inversions_by_axis": {
+      "battery_soc": 4,
+      "battery_temperature_hot": 0,
+      "battery_temperature_cold": 0,
+      "current_load": 0,
+      "energy_balance": 12,
+      "pv_generation": 3
+    },
+    "danger_inversions_total": 0,
+    "danger_inversions_by_axis": {
+      "battery_soc": 0,
+      "battery_temperature_hot": 0,
+      "battery_temperature_cold": 0,
+      "current_load": 0,
+      "energy_balance": 0,
+      "pv_generation": 0
+    },
+    "risk_inversions_total": 263,
+    "risk_inversions_by_axis": {
+      "battery_soc": 177,
+      "battery_temperature_hot": 77,
+      "battery_temperature_cold": 0,
+      "current_load": 0,
+      "energy_balance": 9,
+      "pv_generation": 0
+    },
+    "samples": {
+      "battery_soc": [
+        {
+          "context": {
+            "balance": 1.4,
+            "load_kw": 0.5,
+            "priority": "CRITICAL",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 43.75,
+          "to": 43.5,
+          "severity": [
+            1,
+            0
+          ],
+          "decision": "NORMAL_OPERATION"
+        },
+        {
+          "context": {
+            "balance": 1.4,
+            "load_kw": 0.5,
+            "priority": "PRIORITY",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 43.75,
+          "to": 43.5,
+          "severity": [
+            1,
+            0
+          ],
+          "decision": "NORMAL_OPERATION"
+        },
+        {
+          "context": {
+            "balance": 1.4,
+            "load_kw": 0.5,
+            "priority": "NON_PRIORITY",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 43.75,
+          "to": 43.5,
+          "severity": [
+            1,
+            0
+          ],
+          "decision": "NORMAL_OPERATION"
+        }
+      ],
+      "energy_balance": [
+        {
+          "context": {
+            "balance": 0.2,
+            "load_kw": 0.5,
+            "priority": "CRITICAL",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 1.5,
+          "to": 1.25,
+          "severity": [
+            1,
+            0
+          ],
+          "decision": "NORMAL_OPERATION"
+        },
+        {
+          "context": {
+            "balance": 0.2,
+            "load_kw": 0.5,
+            "priority": "PRIORITY",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 1.5,
+          "to": 1.25,
+          "severity": [
+            1,
+            0
+          ],
+          "decision": "NORMAL_OPERATION"
+        },
+        {
+          "context": {
+            "balance": 0.2,
+            "load_kw": 0.5,
+            "priority": "NON_PRIORITY",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 1.5,
+          "to": 1.25,
+          "severity": [
+            1,
+            0
+          ],
+          "decision": "NORMAL_OPERATION"
+        }
+      ],
+      "pv_generation": [
+        {
+          "context": {
+            "balance": 0.8,
+            "load_kw": 0.5,
+            "priority": "CRITICAL",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 4.0,
+          "to": 3.75,
+          "severity": [
+            1,
+            0
+          ],
+          "decision": "NORMAL_OPERATION"
+        },
+        {
+          "context": {
+            "balance": 0.8,
+            "load_kw": 0.5,
+            "priority": "PRIORITY",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 4.0,
+          "to": 3.75,
+          "severity": [
+            1,
+            0
+          ],
+          "decision": "NORMAL_OPERATION"
+        },
+        {
+          "context": {
+            "balance": 0.8,
+            "load_kw": 0.5,
+            "priority": "NON_PRIORITY",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 4.0,
+          "to": 3.75,
+          "severity": [
+            1,
+            0
+          ],
+          "decision": "NORMAL_OPERATION"
+        }
+      ]
+    },
+    "danger_samples": {},
+    "risk_samples": {
+      "battery_soc": [
+        {
+          "context": {
+            "balance": 0.8,
+            "load_kw": 0.5,
+            "priority": "CRITICAL",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 47.0,
+          "to": 46.75,
+          "risk": [
+            33.0,
+            32.3125
+          ]
+        },
+        {
+          "context": {
+            "balance": 0.8,
+            "load_kw": 0.5,
+            "priority": "CRITICAL",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 46.75,
+          "to": 46.5,
+          "risk": [
+            32.3125,
+            31.625
+          ]
+        },
+        {
+          "context": {
+            "balance": 0.8,
+            "load_kw": 0.5,
+            "priority": "CRITICAL",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 46.5,
+          "to": 46.25,
+          "risk": [
+            31.625,
+            30.9375
+          ]
+        }
+      ],
+      "battery_temperature_hot": [
+        {
+          "context": {
+            "balance": 0.8,
+            "load_kw": 0.5,
+            "priority": "CRITICAL",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 45.0,
+          "to": 45.25,
+          "risk": [
+            70.0,
+            68.25
+          ]
+        },
+        {
+          "context": {
+            "balance": 0.8,
+            "load_kw": 0.5,
+            "priority": "CRITICAL",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 45.25,
+          "to": 45.5,
+          "risk": [
+            68.25,
+            66.5
+          ]
+        },
+        {
+          "context": {
+            "balance": 0.8,
+            "load_kw": 0.5,
+            "priority": "CRITICAL",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 45.5,
+          "to": 45.75,
+          "risk": [
+            66.5,
+            64.75
+          ]
+        }
+      ],
+      "energy_balance": [
+        {
+          "context": {
+            "balance": 0.2,
+            "load_kw": 0.5,
+            "priority": "CRITICAL",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 0.75,
+          "to": 0.5,
+          "risk": [
+            41.25,
+            40.0
+          ]
+        },
+        {
+          "context": {
+            "balance": 0.2,
+            "load_kw": 0.5,
+            "priority": "PRIORITY",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 0.75,
+          "to": 0.5,
+          "risk": [
+            41.25,
+            38.0
+          ]
+        },
+        {
+          "context": {
+            "balance": 0.2,
+            "load_kw": 0.5,
+            "priority": "NON_PRIORITY",
+            "quality": "GOOD",
+            "pv_kw": 1.5
+          },
+          "from": 0.75,
+          "to": 0.5,
+          "risk": [
+            41.25,
+            30.0
+          ]
+        }
+      ]
+    }
+  },
+  "autonomy": {
+    "danger_inversions": 0,
+    "inert_groups": 0,
+    "groups": 9,
+    "autonomy_inertia": 0.0,
+    "samples": []
+  },
+  "rule_base": {
+    "rules": 38,
+    "dead_effects": 0,
+    "dead_effects_detail": [],
+    "unread_indicator_effects": 0,
+    "unread_indicator_effects_detail": [],
+    "rules_without_any_effective_effect": []
+  },
+  "fact_usage": {
+    "declared": [
+      "current_pv_power_kw",
+      "current_load_power_kw",
+      "forecast_pv_energy_kwh",
+      "forecast_load_energy_kwh",
+      "battery_soc_percent",
+      "battery_temperature_c",
+      "load_priority",
+      "data_quality",
+      "data_completeness",
+      "pv_nominal_power_kw",
+      "ambient_temperature_c",
+      "solar_irradiance_wm2",
+      "module_temperature_c",
+      "hour",
+      "day_of_week",
+      "operating_mode",
+      "lines",
+      "batteries",
+      "autonomy_hours"
+    ],
+    "used_by_rules": [
+      "autonomy_hours",
+      "batteries",
+      "battery_soc_percent",
+      "battery_temperature_c",
+      "current_load_power_kw",
+      "current_pv_power_kw",
+      "data_quality",
+      "forecast_load_energy_kwh",
+      "forecast_pv_energy_kwh",
+      "lines",
+      "load_priority",
+      "pv_nominal_power_kw"
+    ],
+    "influential": [
+      "ambient_temperature_c",
+      "autonomy_hours",
+      "batteries",
+      "battery_soc_percent",
+      "battery_temperature_c",
+      "current_load_power_kw",
+      "current_pv_power_kw",
+      "data_completeness",
+      "data_quality",
+      "day_of_week",
+      "forecast_load_energy_kwh",
+      "forecast_pv_energy_kwh",
+      "hour",
+      "lines",
+      "load_priority",
+      "module_temperature_c",
+      "operating_mode",
+      "pv_nominal_power_kw",
+      "solar_irradiance_wm2"
+    ],
+    "unused": [],
+    "without_influence": []
+  }
+}

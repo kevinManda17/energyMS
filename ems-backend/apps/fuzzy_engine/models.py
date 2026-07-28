@@ -38,6 +38,11 @@ class Decision(models.Model):
     fired_rules = models.JSONField(default=list)
     input_facts = models.JSONField(default=dict)
     fuzzy_values = models.JSONField(default=dict)
+    # Piste d'audit du raisonnement : scores avant planchers de sûreté, détail
+    # des rampes, évaluation par ligne, plan de l'optimiseur. Un seul champ JSON
+    # plutôt qu'une colonne par étape — le moteur gagne des étapes, le schéma ne
+    # doit pas gagner une migration à chaque fois.
+    reasoning_trace = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
