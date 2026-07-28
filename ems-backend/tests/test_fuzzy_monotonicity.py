@@ -452,3 +452,101 @@ def test_the_trace_is_complete_enough_to_replay_the_reasoning():
     for rule in result.fired_rules:
         assert rule["explanation"]
         assert 0.0 <= rule["activation_degree"] <= 1.0
+
+
+# --------------------------------------------------------------------------- #
+# Monotonie du SCORE DE RISQUE — propriété plus fine que celle de la décision
+# --------------------------------------------------------------------------- #
+#
+# La décision, elle, est déjà verrouillée plus haut : zéro inversion sur
+# l'échelle de danger. Ce qui suit porte sur le NOMBRE affiché à l'utilisateur.
+#
+# Les deux ne se confondent pas. Un score qui redescend pendant que le danger
+# monte reste explicable règle par règle — il n'en est pas moins indéfendable
+# devant quiconque regarde l'interface : le systeme dit « ça va mieux » au
+# moment où la batterie continue de chauffer.
+
+# Chute maximale toléree entre deux pas consécutifs sur l'axe du SOC.
+# Mesurée à 0,6875 point : c'est le croisement des termes `medium` (35, 55, 75)
+# et `high` (65, 85, 100), qui ne se recouvrent pas complètement. La borne est
+# fixée juste au-dessus de la valeur observée pour que toute AGGRAVATION du
+# défaut fasse échouer le test, sans exiger une monotonie stricte que le moteur
+# n'a pas et dont l'obtention coûterait un recalibrage (cf. SYSTEME_EXPERT.md).
+MAX_SOC_RISK_DIP = 0.7
+
+
+def test_risk_score_never_falls_as_the_battery_heats_up():
+    """Sur la branche thermique chaude, le risque est STRICTEMENT non décroissant.
+
+    C'est la propriété corrigée, verrouillée à sa source plutôt qu'à son
+    symptôme. Le défaut ne venait pas d'un seuil : R002 lisait le terme brut
+    `high`, un triangle (35, 45, 55) qui redescend passé son sommet alors que
+    `dangerous` ne démarre qu'à 50 °C. Entre les deux, une batterie qui
+    continuait de chauffer perdait jusqu'à 18 points de risque.
+    """
+    failures = []
+    for ctx in contexts():
+        previous = None
+        for temp in frange(25.0, 100.0):
+            risk = ENGINE.evaluate(make_facts(temp=temp, **ctx)).risk_score
+            if previous is not None and risk < previous[1] - 1e-9:
+                failures.append(
+                    f"{previous[0]} -> {temp} C dans {ctx} : "
+                    f"risque {previous[1]} -> {risk}"
+                )
+            previous = (temp, risk)
+    assert not failures, (
+        f"{len(failures)} creux sur la branche thermique chaude :\n"
+        + "\n".join(failures[:10])
+    )
+
+
+def test_risk_score_dips_on_the_soc_axis_stay_within_tolerance():
+    """Sur l'axe du SOC, des creux résiduels subsistent — bornés et mesurés.
+
+    Ils viennent du croisement `medium` / `high`, deux termes dont les supports
+    ne se recouvrent pas complètement. Les annuler exigerait d'étendre le pied
+    droit de `soc_at_most_low`, ce qui déplace la distribution des décisions :
+    ce serait un recalibrage, pas un correctif.
+
+    Le test borne donc la chute PAR PAS. Il ne prétend pas à une monotonie que
+    le moteur n'a pas — mais il empêche le défaut de s'aggraver sans être vu.
+    """
+    worst = None
+    for ctx in contexts():
+        previous = None
+        for soc in frange(100.0, 0.0):
+            risk = ENGINE.evaluate(make_facts(soc=soc, **ctx)).risk_score
+            if previous is not None and risk < previous[1] - 1e-9:
+                dip = previous[1] - risk
+                if worst is None or dip > worst[0]:
+                    worst = (dip, previous[0], soc, previous[1], risk, dict(ctx))
+            previous = (soc, risk)
+
+    if worst is not None:
+        dip, a, b, va, vb, ctx = worst
+        assert dip <= MAX_SOC_RISK_DIP, (
+            f"creux de {dip:.4f} point (tolerance {MAX_SOC_RISK_DIP}) : "
+            f"SOC {a} -> {b}, risque {va} -> {vb}, contexte {ctx}"
+        )
+
+
+def test_soc_risk_dips_never_change_the_decision():
+    """Le garde-fou qui rend les creux résiduels acceptables.
+
+    Un creux de score n'a d'importance que s'il fait relâcher le système. Tant
+    que la gravité de la décision ne bouge pas, le creux reste un défaut
+    d'affichage — désagréable, mais sans effet sur ce que le moteur FAIT. Si
+    cette propriété tombe un jour, les creux cessent d'être tolérables.
+    """
+    for ctx in contexts():
+        previous = None
+        for soc in frange(100.0, 0.0):
+            result = ENGINE.evaluate(make_facts(soc=soc, **ctx))
+            danger = DANGER_SEVERITY[result.decision_code]
+            if previous is not None:
+                assert danger >= previous[1], (
+                    f"la gravite retombe : SOC {previous[0]} -> {soc} dans "
+                    f"{ctx}, {previous[2]} -> {result.decision_code}"
+                )
+            previous = (soc, danger, result.decision_code)

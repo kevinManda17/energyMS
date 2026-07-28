@@ -4,7 +4,7 @@
 > linguistiques, des règles, des seuils ou de la cascade doit être répercutée
 > ici **et** mesurée par `python -m tools.fuzzy_bench`.
 
-Dernière mise à jour : **27/07/2026**
+Dernière mise à jour : **28/07/2026**
 
 ---
 
@@ -15,7 +15,7 @@ confond jamais** :
 
 ```mermaid
 flowchart TD
-    F["Faits<br/>maison · lignes · batteries"] --> H["Règles MAISON<br/>30 règles"]
+    F["Faits<br/>maison · lignes · batteries"] --> H["Règles MAISON<br/>38 règles"]
     H --> S["Planchers de sûreté"]
     S --> C["Cascade de décision"]
     F --> L["Règles LIGNE<br/>6 règles, une fois par ligne"]
@@ -145,13 +145,27 @@ observée : entre 24,00 % et 23,75 % de SOC, le moteur **cessait de délester**.
 Même puits sur la production (0,33 à 20 % de ratio contre 1,00 à 35 %).
 
 Les lectures cumulatives (`soc_at_most_low`, `pv_at_most_low`,
-`balance_at_most_deficit`, `autonomy_at_most_short`) reprennent le **sommet et
-le pied** du terme concerné en saturant du côté du danger. Aucun paramètre
-nouveau : la monotonie devient vraie par construction, pas par chance.
+`balance_at_most_deficit`, `autonomy_at_most_short`,
+`temperature_at_least_high`) reprennent le **sommet et le pied** du terme
+concerné en saturant du côté du danger. Aucun paramètre nouveau : la monotonie
+devient vraie par construction, pas par chance.
+
+Les fonctions d'appartenance, elles, **ne sont pas modifiées** : les termes
+linguistiques du tableau ci-dessus doivent continuer de décrire une partition.
+Ce sont les *lectures* qui changent, pas les termes.
+
+> **Correction du 28/07/2026.** R002 (température élevée) et R004 (SOC faible)
+> lisaient encore les termes bruts. Conséquence sur le score affiché : une
+> batterie qui chauffait de 45 à 48 °C voyait son risque **descendre de 18
+> points** (70,0 → 52,0), parce que `high` redescend passé son sommet à 45 °C
+> alors que `dangerous` ne démarre qu'à 50 °C. Le plancher de sûreté bornait la
+> chute sans l'annuler. Les deux règles ont été reroutées vers les lectures
+> cumulatives qui existaient déjà : **77 creux thermiques → 0**, sans qu'aucune
+> autre métrique du banc ne bouge.
 
 ---
 
-## 4. Base de règles maison — 30 règles
+## 4. Base de règles maison — 38 règles
 
 | Codes | Objet |
 |---|---|
@@ -293,7 +307,7 @@ plus au-dessus du seuil du mode économie ; la consigne batterie part par
 
 ### `recommendation_score` sert au niveau d'alerte
 
-23 règles le renseignaient, aucune condition ne le lisait. Ce qu'il mesure,
+30 règles sur 38 le renseignaient, aucune condition ne le lisait. Ce qu'il mesure,
 c'est « à quel point je veux que l'humain intervienne » : sa place est le
 niveau d'alerte, qui est bien consommé en aval. Il pèse **un cran de moins**
 que le risque — conseiller fermement n'est pas constater un danger.
@@ -405,7 +419,7 @@ Grille fixe et déterministe de **222 750 situations**
 | Conséquents sur indicateur non lu | 23 | **0** |
 | Faits déclarés sans influence | 6 | **0** (sur 19) |
 | Inertie de l'autonomie | — | **0,00 %** |
-| Règles maison | 24 | 30 |
+| Règles maison | 24 | 38 |
 | Règles de ligne | 0 | 6 |
 
 ### Écarts assumés
@@ -422,10 +436,25 @@ Grille fixe et déterministe de **222 750 situations**
   fait que la production reprenne demain ne change rien à ce qu'il faut faire
   maintenant — l'inertie y est le comportement **correct**. C'est pourquoi la
   mesure hors plancher est reportée à côté.
-- **263 creux du score de risque**, tous ≤ 1,1 point et sous tout seuil de
-  décision. Propriété plus stricte que celle exigée (qui porte sur la gravité
-  de la décision), mesurée et documentée plutôt que corrigée en retouchant une
-  calibration prescrite.
+- **Le score de risque est monotone sur la branche thermique et sur la
+  charge.** Il conserve **108 creux** au total sur les 16 920 transitions du
+  balayage de monotonie — **99 sur l'axe du SOC** (7 200 transitions) et 9 sur
+  le bilan prévisionnel. Chacun reste sous **0,7 point par pas** ; mais ils
+  s'enchaînent, et la plus longue descente continue cumule **14,6 points**,
+  entre 77 % et 70,5 % de SOC.
+
+  Ce cumul est sans effet sur ce que le moteur *fait* : sur toute cette bande,
+  la décision reste `NORMAL_OPERATION` et le niveau d'alerte ne bouge pas.
+  L'échelle de danger ne présente aucune inversion. C'est ce qui les rend
+  tolérables — et c'est exactement ce que verrouille
+  `test_soc_risk_dips_never_change_the_decision`.
+
+  La cause est le croisement des termes `medium` (35, 55, 75) et `high`
+  (65, 85, 100), dont les supports ne se recouvrent pas complètement. Les
+  annuler exigerait d'étendre le pied droit de `soc_at_most_low`, ce qui
+  déplace la distribution des décisions (`NORMAL_OPERATION` 2,57 % → 2,19 %
+  puis 1,98 % selon l'étendue) : ce serait un **recalibrage, pas un
+  correctif**.
 
 ### Les 19 inversions au barème prescrit
 
@@ -452,7 +481,7 @@ une ligne critique n'est jamais coupée ; un SOC inconnu ne produit aucune
 décision assurée.
 
 **Atteignabilité** — le délestage est atteignable avec les lignes réelles du
-prototype ; les 9 codes de décision sont atteints ; les 36 règles s'activent ;
+prototype ; les 9 codes de décision sont atteints ; les 44 règles (38 maison, 6 ligne) s'activent ;
 les 19 faits influencent la sortie ; la trace suffit à rejouer le raisonnement.
 
 **Optimiseur** (`tests/test_optimizer.py`) — balayage exhaustif des
@@ -476,8 +505,11 @@ un SOC juste, et rien en aval ne peut le rattraper.
 - **`cos φ` n'est pas mesuré** : la puissance calculée est apparente (VA),
   assimilée à de l'actif. Correct pour des lampes, optimiste pour un chargeur à
   découpage.
-- **Le score de risque n'est pas strictement monotone** (263 creux ≤ 1,1
-  point). Corriger exigerait de retoucher les partitions et de recalibrer les
-  seuils conjointement.
+- **Le score de risque n'est pas strictement monotone sur l'axe du SOC** :
+  99 creux résiduels sur cet axe (108 tous axes confondus), bornés à 0,7 point
+  par pas et cumulant jusqu'à 14,6 points sur la bande 77–70,5 %, sans effet
+  sur la décision ni sur l'alerte (cf. §9). Les annuler serait un recalibrage de la distribution des
+  décisions, pas un correctif. Les branches thermique et de charge, elles, sont
+  monotones — c'était le défaut corrigé le 28/07/2026.
 - **Les champs existants en kW restent en kW.** Tout ce qui est neuf porte son
   unité dans le nom et stocke en W / Wh.
