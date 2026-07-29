@@ -12,6 +12,7 @@ from apps.houses.models import House
 from apps.measurements.models import Measurement
 
 from . import calibration
+from .provisioning import ensure_lines
 from .models import Equipment, RelayState, Sensor
 from .serializers import EquipmentSerializer, RelayStateSerializer, SensorSerializer
 
@@ -85,6 +86,73 @@ def _store_line_measurements(house, payload, ts):
             house=house, measurement_type=mtype,
             value=round(value, 4), unit=unit, timestamp=ts,
         )
+
+    # ÉCRITURE DOUBLE : le détail par ligne rejoint `LineReading`, en plus des
+    # agrégats ci-dessus. Les deux chemins coexistent le temps de la bascule ;
+    # l'ancien reste intact, donc aucune régression n'est possible à ce stade.
+    _store_line_readings(house, payload, ts)
+
+
+def _store_line_readings(house, payload, ts):
+    """Écrit un `LineReading` par ligne — le détail que le système jetait.
+
+    Le nœud envoie trois lignes distinctes ; `_store_line_measurements` n'en
+    gardait que la somme. Le détail ne survivait que dans
+    `RelayState.last_report`, écrasé toutes les trois secondes. Le système
+    mesurait donc chaque ligne, le moteur raisonnait sur chaque ligne, et
+    l'historique n'en gardait rien.
+
+    `is_measured` vaut faux — et non « 0 W » — quand la ligne n'a pas de
+    télémétrie exploitable. C'est la distinction qu'exige la règle L006 : une
+    ligne dont les capteurs se taisent n'est pas une ligne qui ne consomme
+    rien, et un 0 W inventé ferait croire à l'optimiseur qu'il n'a rien à
+    gagner à la couper.
+    """
+    from apps.measurements.models import LineReading
+
+    from .models import Line, LineState
+
+    lignes = {l.number: l for l in Line.objects.filter(house=house)}
+    if not lignes:
+        return
+
+    etats = {
+        s.line_id: s.is_closed
+        for s in LineState.objects.filter(line__house=house)
+    }
+
+    releves = []
+    for numero, ligne in lignes.items():
+        bloc = payload.get(f"line{numero}")
+        bloc = bloc if isinstance(bloc, dict) else {}
+
+        voltage = _to_float(bloc, "voltage")
+        current = _to_float(bloc, "current")
+        power = _to_float(bloc, "power")
+        # Le firmware envoie déjà P = U x I x cos(phi) ; on ne le recalcule que
+        # s'il ne l'a pas fait, pour rester cohérent avec sa calibration.
+        if power is None and voltage is not None and current is not None:
+            power = voltage * current
+
+        releves.append(
+            LineReading(
+                line=ligne,
+                timestamp=ts,
+                voltage_v=voltage,
+                current_a=current,
+                power_w=power,
+                relay_closed=etats.get(ligne.id, True),
+                is_measured=power is not None,
+                raw_voltage=_to_float(bloc, "vSensorRms"),
+                raw_current=_to_float(bloc, "iSensorRms"),
+            )
+        )
+
+    # `ignore_conflicts` plutôt qu'une erreur : deux sondages qui tombent sur
+    # la même seconde décrivent le même instant, et le second n'apporte rien.
+    # La contrainte d'unicité (ligne, instant) reste la garantie ; on choisit
+    # seulement de ne pas faire échouer le sondage du nœud pour autant.
+    LineReading.objects.bulk_create(releves, ignore_conflicts=True)
 
 
 def _store_dc_measurements(house, payload, ts):
@@ -230,6 +298,10 @@ class HouseRelayView(APIView):
     def _get_relay_state(self):
         house = _get_house_or_403(self.request.user, self.kwargs["house_id"])
         state, _ = RelayState.objects.get_or_create(house=house)
+        # Un micro-reseau dont on lit les relais est pilotable : ses lignes
+        # doivent exister. Idempotent, et sans effet sur un reseau deja
+        # provisionne (cf. provisioning.ensure_lines).
+        ensure_lines(house)
         return state
 
     def get(self, request, house_id):
@@ -438,6 +510,10 @@ class EmsDecisionView(APIView):
                 "journaux Nginx.",
                 state.house_id,
             )
+
+        # Un noeud qui sonde decrit un micro-reseau pilotable : ses lignes
+        # doivent exister avant qu'on tente d'y rattacher un releve.
+        ensure_lines(state.house)
 
         # Mémorise le dernier relevé remonté par le nœud (best-effort) et le
         # persiste comme mesures réelles (throttle) pour le moteur expert.

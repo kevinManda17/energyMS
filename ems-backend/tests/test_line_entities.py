@@ -190,3 +190,120 @@ def test_the_data_migration_is_idempotent(house):
     assert Line.objects.filter(house=house).count() == 3
     assert LineState.objects.filter(line__house=house).count() == 3
     assert IoTNode.objects.filter(house=house).count() == 1
+
+
+# --------------------------------------------------------------------------- #
+# §2.2 — LineReading : le détail que le système jetait
+# --------------------------------------------------------------------------- #
+
+RELEVE_TROIS_LIGNES = {
+    "line1": {"vSensorRms": 1.84, "iSensorRms": 0.055,
+              "voltage": 220.4, "current": 0.055, "power": 12.1},
+    "line2": {"vSensorRms": 1.86, "iSensorRms": 0.090,
+              "voltage": 221.2, "current": 0.090, "power": 19.9},
+    "line3": {"vSensorRms": 1.83, "iSensorRms": 0.050,
+              "voltage": 219.6, "current": 0.050, "power": 11.0},
+}
+
+
+def _sonder(house, payload):
+    """Fait sonder un nœud, comme le firmware le ferait."""
+    from rest_framework.test import APIClient
+
+    from apps.devices.models import RelayState
+
+    state, _ = RelayState.objects.get_or_create(house=house)
+    APIClient().post("/api/ems/decision/", payload, format="json",
+                     HTTP_X_DEVICE_TOKEN=state.device_token)
+    return state
+
+
+def test_a_line_reading_is_written_for_every_line(house):
+    """Le détail par ligne survit désormais au sondage suivant.
+
+    Avant : `_store_line_measurements` n'écrivait que la SOMME des trois
+    lignes ; le détail ne vivait que dans `RelayState.last_report`, écrasé
+    toutes les trois secondes.
+    """
+    from apps.measurements.models import LineReading
+
+    _sonder(house, RELEVE_TROIS_LIGNES)
+
+    releves = {r.line.number: r for r in LineReading.objects.filter(line__house=house)}
+    assert set(releves) == {1, 2, 3}
+    assert releves[2].power_w == pytest.approx(19.9)
+    assert releves[2].voltage_v == pytest.approx(221.2)
+    # Les valeurs BRUTES sont conservées : elles permettent de recalculer un
+    # historique après recalibration sans le fausser deux fois.
+    assert releves[2].raw_voltage == pytest.approx(1.86)
+    assert releves[2].raw_current == pytest.approx(0.090)
+    assert all(r.is_measured for r in releves.values())
+
+
+def test_the_aggregates_are_still_written(house):
+    """Écriture DOUBLE : l'ancien chemin reste intact pendant la bascule."""
+    from apps.measurements.models import Measurement
+
+    _sonder(house, RELEVE_TROIS_LIGNES)
+
+    types = set(
+        Measurement.objects.filter(house=house).values_list(
+            "measurement_type", flat=True
+        )
+    )
+    assert {"power", "consumption", "voltage", "current"} <= types
+
+
+def test_a_silent_line_is_unmeasured_not_zero(house):
+    """LA distinction qu'exige la règle L006 du moteur.
+
+    Une ligne dont les capteurs se taisent n'est pas une ligne qui ne consomme
+    rien. Un 0 W inventé ferait croire à l'optimiseur qu'il n'a rien à gagner à
+    la couper — alors qu'il n'en sait rien.
+    """
+    from apps.measurements.models import LineReading
+
+    partiel = {k: v for k, v in RELEVE_TROIS_LIGNES.items() if k != "line3"}
+    _sonder(house, partiel)
+
+    muette = LineReading.objects.get(line__house=house, line__number=3)
+    assert muette.is_measured is False
+    assert muette.power_w is None      # et surtout PAS 0.0
+    assert muette.voltage_v is None
+
+    vue = LineReading.objects.get(line__house=house, line__number=1)
+    assert vue.is_measured is True
+
+
+def test_two_readings_cannot_describe_the_same_line_and_instant(house):
+    """La contrainte d'unicité (ligne, instant) tient."""
+    from django.utils import timezone
+
+    from apps.devices.provisioning import ensure_lines
+    from apps.measurements.models import LineReading
+
+    ligne = ensure_lines(house)[0]
+    instant = timezone.now()
+    LineReading.objects.create(line=ligne, timestamp=instant, relay_closed=True,
+                               is_measured=True, power_w=10.0)
+    with pytest.raises(IntegrityError):
+        LineReading.objects.create(line=ligne, timestamp=instant,
+                                   relay_closed=True, is_measured=True,
+                                   power_w=11.0)
+
+
+def test_provisioning_is_idempotent_and_preserves_customisation(house):
+    """Rappelée, elle ne réécrit pas ce que l'utilisateur a personnalisé."""
+    from apps.devices.provisioning import ensure_lines
+
+    ensure_lines(house)
+    ligne = Line.objects.get(house=house, number=2)
+    ligne.name = "Cuisine"
+    ligne.priority_override = Priority.CRITICAL
+    ligne.save()
+
+    ensure_lines(house)
+    ligne.refresh_from_db()
+    assert ligne.name == "Cuisine"
+    assert ligne.priority_override == Priority.CRITICAL
+    assert Line.objects.filter(house=house).count() == 3

@@ -97,3 +97,59 @@ class Measurement(models.Model):
 
     def __str__(self) -> str:
         return f"{self.measurement_type}={self.value}{self.unit} @ {self.timestamp:%Y-%m-%d %H:%M}"
+
+
+class LineReading(models.Model):
+    """Un relevé électrique, ligne par ligne — la table qui manquait.
+
+    LE DÉFAUT QU'ELLE CORRIGE
+
+    `_store_line_measurements` recevait trois lignes détaillées du nœud et n'en
+    gardait que des AGRÉGATS : la somme des puissances, la moyenne des
+    tensions, la somme des courants. Le détail par ligne ne survivait que dans
+    `RelayState.last_report`, un JSON écrasé toutes les trois secondes.
+
+    Autrement dit : le système mesurait chaque ligne, le moteur raisonnait sur
+    chaque ligne, et l'historique n'en gardait aucune trace. On ne pouvait ni
+    tracer la courbe d'une ligne, ni calculer son énergie, ni expliquer après
+    coup pourquoi l'optimiseur l'avait choisie.
+
+    `is_measured` DISTINGUE « ligne à 0 W » DE « ligne dont on ne sait rien »
+
+    C'est la distinction qu'exige la règle L006 du moteur : une ligne dont les
+    capteurs se taisent n'est pas une ligne qui ne consomme rien. Un 0 W
+    inventé ferait croire à l'optimiseur qu'il n'a rien à gagner à la couper.
+
+    Les valeurs BRUTES (`raw_voltage`, `raw_current`) et les coefficients
+    appliqués sont conservés : ils permettent de recalculer un historique après
+    une recalibration sans le fausser — un historique recalibré à partir de
+    valeurs déjà calibrées serait faux deux fois.
+    """
+
+    line = models.ForeignKey(
+        "devices.Line", on_delete=models.CASCADE, related_name="readings"
+    )
+    timestamp = models.DateTimeField(db_index=True)
+    voltage_v = models.FloatField(null=True, blank=True)
+    current_a = models.FloatField(null=True, blank=True)
+    power_w = models.FloatField(null=True, blank=True)
+    relay_closed = models.BooleanField()
+    is_measured = models.BooleanField()
+    raw_voltage = models.FloatField(null=True, blank=True)
+    raw_current = models.FloatField(null=True, blank=True)
+    calibration_v = models.FloatField(null=True, blank=True)
+    calibration_i = models.FloatField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-timestamp"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["line", "timestamp"],
+                name="un_releve_par_ligne_et_instant",
+            )
+        ]
+        indexes = [models.Index(fields=["line", "-timestamp"])]
+
+    def __str__(self) -> str:
+        puissance = "?" if self.power_w is None else f"{self.power_w:.1f} W"
+        return f"{self.line} {puissance} @ {self.timestamp:%Y-%m-%d %H:%M}"
