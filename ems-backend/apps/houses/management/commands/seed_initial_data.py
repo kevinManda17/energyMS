@@ -102,7 +102,7 @@ class Command(BaseCommand):
             asset_type=EnergyAsset.AssetType.PV_PANEL,
             name="Panneaux photovoltaiques",
             defaults=dict(
-                nominal_power_kw=pv_capacity,
+                nominal_power_w=pv_capacity,
                 status=EnergyAsset.Status.ACTIVE,
                 metadata={"source": "seed", "description": "Champ solaire PV"},
             ),
@@ -112,7 +112,7 @@ class Command(BaseCommand):
             asset_type=EnergyAsset.AssetType.BATTERY,
             name="Batterie principale",
             defaults=dict(
-                capacity_kwh=battery_capacity,
+                capacity_wh=battery_capacity,
                 status=EnergyAsset.Status.ACTIVE,
                 metadata={"source": "seed", "chemistry": "LiFePO4"},
             ),
@@ -122,7 +122,7 @@ class Command(BaseCommand):
             asset_type=EnergyAsset.AssetType.INVERTER,
             name="Onduleur principal",
             defaults=dict(
-                nominal_power_kw=max(pv_capacity, 3.0),
+                nominal_power_w=max(pv_capacity, 3.0),
                 efficiency=0.93,
                 status=EnergyAsset.Status.ACTIVE,
                 metadata={"source": "seed"},

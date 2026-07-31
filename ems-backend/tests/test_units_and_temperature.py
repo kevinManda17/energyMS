@@ -23,8 +23,16 @@ def house():
 # Unités : le firmware envoie des WATTS, le backend stocke la conso en kW
 # --------------------------------------------------------------------------- #
 
-def test_esp32_watts_are_stored_as_kilowatts(house):
-    """40 W envoyés par le nœud doivent donner 0,04 kW — pas 40 kW."""
+def test_esp32_watts_are_stored_as_watts(house):
+    """40 W envoyés par le nœud restent 40 W — et il n'y a plus de doublon kW.
+
+    L'invariant a CHANGE DE NATURE (§2.4). Le test verifiait que la conversion
+    W -> kW etait bien appliquee ; il n'y a plus de conversion, donc plus
+    d'occasion de se tromper. La puissance appelee est UNE grandeur, en watts,
+    dont l'unite est portee par le nom (`load_power_w`). Le facteur 1000 de
+    l'historique venait precisement de ce doublon : la meme puissance ecrite
+    dans deux unites, ou il suffisait qu'un ecrivain se trompe de colonne.
+    """
     state = RelayState.objects.create(house=house)
     esp = APIClient()
     resp = esp.post(
@@ -38,18 +46,22 @@ def test_esp32_watts_are_stored_as_kilowatts(house):
     )
     assert resp.status_code == 200
 
-    consumption = Measurement.objects.filter(
-        house=house, measurement_type="consumption"
-    ).first()
-    assert consumption is not None
-    assert consumption.unit == "kW"
-    # 10 + 10 + 20 = 40 W  ->  0,04 kW
-    assert consumption.value == pytest.approx(0.04, abs=1e-6)
+    from apps.measurements.models import Quantity
 
-    # La puissance brute reste disponible en W pour la traçabilité.
-    power = Measurement.objects.filter(house=house, measurement_type="power").first()
-    assert power is not None and power.unit == "W"
-    assert power.value == pytest.approx(40.0, abs=1e-6)
+    puissance = Measurement.objects.filter(
+        house=house, quantity=Quantity.LOAD_POWER_W
+    ).first()
+    assert puissance is not None
+    # 10 + 10 + 20 = 40 W, et cela reste 40 W.
+    assert puissance.value == pytest.approx(40.0, abs=1e-6)
+    # L'unite est DEDUITE du nom, plus stockee : elle ne peut plus diverger.
+    assert puissance.unit_symbol == "W"
+
+    # Il n'existe plus de seconde ligne pour la meme puissance dans une autre
+    # unite : c'est la disparition de ce doublon qui rend le bug impossible.
+    assert Measurement.objects.filter(
+        house=house, measurement_type="consumption"
+    ).count() == 0
 
 
 def test_voltage_is_not_clamped_to_a_fixed_band(house):
@@ -65,7 +77,10 @@ def test_voltage_is_not_clamped_to_a_fixed_band(house):
         },
         format="json",
     )
-    v = Measurement.objects.filter(house=house, measurement_type="voltage").first()
+    from apps.measurements.models import Quantity
+    v = Measurement.objects.filter(
+        house=house, quantity=Quantity.GRID_VOLTAGE_V
+    ).first()
     # Moyenne réelle des 3 lignes = 219,67 V ; surtout pas ramenée à 224.
     assert v.value == pytest.approx((217.0 + 210.0 + 232.0) / 3, abs=1e-3)
 
@@ -83,7 +98,10 @@ def test_lines_without_mains_are_excluded_from_network_voltage(house):
         },
         format="json",
     )
-    v = Measurement.objects.filter(house=house, measurement_type="voltage").first()
+    from apps.measurements.models import Quantity
+    v = Measurement.objects.filter(
+        house=house, quantity=Quantity.GRID_VOLTAGE_V
+    ).first()
     assert v.value == pytest.approx(219.0, abs=1e-3)  # (218 + 220) / 2
 
 
@@ -93,10 +111,9 @@ def test_lines_without_mains_are_excluded_from_network_voltage(house):
 
 def test_weather_temperature_is_not_used_as_battery_temperature(house):
     """Une canicule à 38 °C ne doit pas être lue comme température batterie."""
-    Measurement.objects.create(
-        house=house, measurement_type="temperature", value=38.0, unit="°C",
-        timestamp=timezone.now(),
-    )
+    from apps.measurements.models import Quantity, Source, record
+    record(house, Quantity.AMBIENT_TEMP_C, 38.0, timezone.now(),
+           source=Source.WEATHER_API)
     facts = facts_from_house(house)
     # Sans sonde dediee, la temperature batterie est INCONNUE, pas « 25 C par
     # defaut ». La valeur neutre d'autrefois faisait affirmer a R015 que « la
@@ -107,9 +124,7 @@ def test_weather_temperature_is_not_used_as_battery_temperature(house):
 
 
 def test_battery_probe_is_used_when_present(house):
-    Measurement.objects.create(
-        house=house, measurement_type="battery_temp", value=47.5, unit="°C",
-        timestamp=timezone.now(),
-    )
+    from apps.measurements.models import Quantity, record
+    record(house, Quantity.BATTERY_TEMP_C, 47.5, timezone.now())
     facts = facts_from_house(house)
     assert facts.battery_temperature_c == pytest.approx(47.5)

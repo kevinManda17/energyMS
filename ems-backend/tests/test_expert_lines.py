@@ -31,14 +31,42 @@ PROTOTYPE_REPORT = {
 
 @pytest.fixture
 def prototype_house():
-    """Le prototype tel que `seed_prototype` l'enregistre, nœud en ligne."""
+    """Le prototype tel que `seed_prototype` l'enregistre, nœud en ligne.
+
+    La télémétrie passe par `LineReading` depuis §2.3 de la refonte de la base :
+    le fixture provisionne donc les lignes et écrit un relevé par ligne, comme
+    le fait le sondage réel du nœud. Poser un `last_report` ne suffit plus — et
+    c'est le but : ce JSON écrasé toutes les trois secondes n'était pas un
+    historique.
+    """
     user = User.objects.create_user("proto", "proto@x.com", "pass12345")
     house = House.objects.create(owner=user, name="Prototype")
     call_command("seed_prototype", "--house", str(house.id))
     state = RelayState.objects.create(
         house=house, last_report=PROTOTYPE_REPORT, last_contact_at=timezone.now()
     )
+    _write_line_readings(house, PROTOTYPE_REPORT, timezone.now())
     return house, state
+
+
+def _write_line_readings(house, report, ts):
+    """Provisionne les lignes et écrit un relevé par ligne."""
+    from apps.devices.provisioning import ensure_lines
+    from apps.measurements.models import LineReading
+
+    for ligne in ensure_lines(house):
+        bloc = report.get(f"line{ligne.number}") or {}
+        power = bloc.get("power")
+        LineReading.objects.update_or_create(
+            line=ligne, timestamp=ts,
+            defaults={
+                "voltage_v": bloc.get("voltage"),
+                "current_a": bloc.get("current"),
+                "power_w": power,
+                "relay_closed": True,
+                "is_measured": power is not None,
+            },
+        )
 
 
 def _seed_deficit(house, soc_percent=22.0):
@@ -51,14 +79,16 @@ def _seed_deficit(house, soc_percent=22.0):
     lampe allumée.
     """
     now = timezone.now()
-    for mtype, value, unit in [
-        ("production", 0.0, "kW"),
-        ("consumption", 3.0, "kW"),
-        ("battery_soc", soc_percent, "%"),
+    # Les grandeurs sont TYPEES et en WATTS depuis §2.4 : 3 kW s'ecrivent
+    # 3000 W dans `load_power_w`, et l'unite n'est plus une colonne a part.
+    from apps.measurements.models import Quantity, record
+
+    for quantity, value in [
+        (Quantity.PV_POWER_W, 0.0),
+        (Quantity.LOAD_POWER_W, 3000.0),
+        (Quantity.BATTERY_SOC_PCT, soc_percent),
     ]:
-        Measurement.objects.create(
-            house=house, measurement_type=mtype, value=value, unit=unit, timestamp=now
-        )
+        record(house, quantity, value, now)
 
 
 def test_prototype_loads_are_the_ones_documented(prototype_house):
@@ -151,6 +181,12 @@ def test_silent_node_marks_lines_unmeasured(prototype_house):
     house, state = prototype_house
     state.last_contact_at = timezone.now() - timedelta(hours=2)
     state.save(update_fields=["last_contact_at"])
+    # Le relevé lui-même est antidaté : c'est SA fraîcheur qui compte
+    # désormais, ligne par ligne, et non celle du nœud dans son ensemble.
+    from apps.measurements.models import LineReading
+    LineReading.objects.filter(line__house=house).update(
+        timestamp=timezone.now() - timedelta(hours=2)
+    )
 
     facts = facts_from_house(house)
     assert all(not line.is_measured for line in facts.lines)

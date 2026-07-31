@@ -160,14 +160,17 @@ def test_ems_decision_stores_real_measurements(auth_client):
     resp = APIClient().post(f"/api/ems/decision/?token={token}", payload, format="json")
     assert resp.status_code == 200
 
-    # Le nœud envoie des WATTS (110+66+44 = 220 W) ; la consommation est
-    # stockée en kW, donc 0,220 kW — et non 220 kW.
-    cons = Measurement.objects.filter(house=house, measurement_type="consumption").first()
-    assert cons is not None and cons.unit == "kW"
-    assert cons.value == pytest.approx(0.220)
-    power = Measurement.objects.filter(house=house, measurement_type="power").first()
-    assert power is not None and power.unit == "W"
-    assert power.value == pytest.approx(220.0)
+    # Le noeud envoie des WATTS (110+66+44 = 220 W), et cela reste 220 W.
+    # Il n'y a plus de seconde ligne en kW pour la meme puissance : c'est ce
+    # doublon qui avait produit le facteur 1000 de l'historique.
+    from apps.measurements.models import Quantity
+
+    puissance = Measurement.objects.get(house=house, quantity=Quantity.LOAD_POWER_W)
+    assert puissance.value == pytest.approx(220.0)
+    assert puissance.unit_symbol == "W"
+    assert Measurement.objects.filter(
+        house=house, measurement_type="consumption"
+    ).count() == 0
     amp = Measurement.objects.filter(house=house, measurement_type="current").first()
     assert amp.value == pytest.approx(1.0)  # 0.5+0.3+0.2
     volt = Measurement.objects.filter(house=house, measurement_type="voltage").first()
@@ -220,17 +223,24 @@ def test_enriched_payload_feeds_the_three_sourceless_facts(auth_client):
                             format="json", HTTP_X_DEVICE_TOKEN=token)
     assert resp.status_code == 200
 
+    from apps.measurements.models import Quantity, Source
+
     stored = {
-        m.measurement_type: m.value
-        for m in Measurement.objects.filter(house=house)
+        m.quantity: m for m in Measurement.objects.filter(house=house)
     }
-    assert stored["battery_voltage"] == pytest.approx(12.66)
-    assert stored["battery_current"] == pytest.approx(0.10)
-    assert stored["battery_temp"] == pytest.approx(27.5)
-    # Puissances CALCULEES a partir des deux mesures conservees.
-    assert stored["pv_power"] == pytest.approx(18.2 * 1.4, abs=1e-3)
-    # Tolerance 1e-4 : les mesures sont stockees arrondies a 4 decimales.
-    assert stored["production"] == pytest.approx(18.2 * 1.4 / 1000, abs=1e-4)
+    assert stored[Quantity.BATTERY_VOLTAGE_V].value == pytest.approx(12.66)
+    assert stored[Quantity.BATTERY_CURRENT_A].value == pytest.approx(0.10)
+    assert stored[Quantity.BATTERY_TEMP_C].value == pytest.approx(27.5)
+    # Puissance PV CALCULEE a partir des deux mesures conservees. Une seule
+    # grandeur, en watts : plus de doublon `production` en kW.
+    assert stored[Quantity.PV_POWER_W].value == pytest.approx(18.2 * 1.4, abs=1e-3)
+    assert stored[Quantity.PV_POWER_W].source == Source.DERIVED
+
+    # Une mesure de capteur NOMME son capteur — c'est ce qui la distingue
+    # d'une estimation, et ce que la contrainte impose.
+    assert stored[Quantity.BATTERY_VOLTAGE_V].source == Source.SENSOR
+    assert stored[Quantity.BATTERY_VOLTAGE_V].sensor is not None
+    assert stored[Quantity.BATTERY_VOLTAGE_V].sensor.code == "VB1"
 
 
 def test_enriched_payload_produces_a_battery_state(auth_client):
@@ -242,7 +252,7 @@ def test_enriched_payload_produces_a_battery_state(auth_client):
     client.get(f"/api/houses/{house.id}/relays/")
     EnergyAsset.objects.create(
         house=house, name="Batterie 1",
-        asset_type=EnergyAsset.AssetType.BATTERY, capacity_kwh=1.2, voltage=12.0,
+        asset_type=EnergyAsset.AssetType.BATTERY, capacity_wh=1200.0, voltage=12.0,
     )
     token = RelayState.objects.get(house=house).device_token
 
@@ -268,11 +278,15 @@ def test_the_legacy_three_line_payload_still_works(auth_client):
                             HTTP_X_DEVICE_TOKEN=token)
     assert resp.status_code == 200
 
-    types = set(
-        Measurement.objects.filter(house=house).values_list(
-            "measurement_type", flat=True
-        )
+    from apps.measurements.models import Quantity
+
+    grandeurs = set(
+        Measurement.objects.filter(house=house).values_list("quantity", flat=True)
     )
-    assert {"power", "consumption", "voltage", "current"} <= types
+    assert {
+        Quantity.LOAD_POWER_W, Quantity.GRID_VOLTAGE_V, Quantity.GRID_CURRENT_A
+    } <= grandeurs
     # Aucune grandeur continue inventee faute de bloc `dc`.
-    assert not types & {"battery_voltage", "battery_current", "pv_power"}
+    assert not grandeurs & {
+        Quantity.BATTERY_VOLTAGE_V, Quantity.BATTERY_CURRENT_A, Quantity.PV_POWER_W
+    }

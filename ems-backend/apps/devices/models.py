@@ -4,12 +4,162 @@ from django.conf import settings
 from django.db import models
 
 from apps.energy_assets.models import EnergyAsset
+from apps.fuzzy_engine.core import priorities as core_priorities
 from apps.houses.models import House
 
 
 def _generate_device_token() -> str:
-    """Jeton partagé ESP32 <-> backend (transmis en clair dans l'URL du nœud)."""
+    """Jeton partagé ESP32 <-> backend (transmis dans l'en-tête X-Device-Token)."""
     return secrets.token_urlsafe(24)
+
+
+class Priority(models.TextChoices):
+    """Priorité d'une charge ou d'une ligne — définie UNE SEULE FOIS.
+
+    Elle était écrite trois fois : dans `Equipment.Priority`, dans
+    `core/priorities.py`, et en clair dans les interfaces web et mobile. Les
+    trois listes ne coïncidaient pas exactement, ce qui explique le défaut
+    d'affichage des priorités : l'interface montrait « prioritaire » là où la
+    base disait `IMPORTANT`, et une valeur inconnue tombait dans le vide.
+
+    L'ORDRE suit `core/priorities.PRIORITY_RANK`, du plus délestable au plus
+    protégé. Le test `test_priority_enum_matches_the_engine` verrouille cette
+    correspondance : le moteur et la base ne peuvent plus diverger sans qu'on
+    le voie. Le moteur, lui, reste sans Django — c'est la base qui s'aligne sur
+    lui, jamais l'inverse.
+    """
+
+    NON_CRITICAL = "NON_CRITICAL", "Non critique"
+    LOW = "LOW", "Faible"
+    NORMAL = "NORMAL", "Normale"
+    IMPORTANT = "IMPORTANT", "Importante"
+    CRITICAL = "CRITICAL", "Critique"
+
+    @classmethod
+    def ordered(cls) -> list["Priority"]:
+        """Du plus délestable au plus protégé, selon le rang du moteur."""
+        return sorted(cls, key=lambda p: core_priorities.rank(p.value))
+
+
+class Line(models.Model):
+    """Une ligne électrique commutable — l'entité qui manquait.
+
+    Le moteur expert raisonne LIGNE PAR LIGNE depuis la refonte du système
+    expert : il évalue six règles par ligne, et l'optimiseur choisit quelle
+    combinaison couper. Mais la ligne n'existait nulle part comme entité. Elle
+    était trois colonnes booléennes de `RelayState` (`line1`, `line2`,
+    `line3`), un entier sur `Equipment.relay_line`, un autre sur
+    `Sensor.line_number`, et une convention dans le firmware.
+
+    Conséquence : rien de ce qui concerne une ligne ne pouvait être ni nommé,
+    ni historisé, ni relié. Impossible d'écrire « la ligne 2 a consommé 340 Wh
+    hier » — la donnée n'avait pas de sujet à qui appartenir.
+
+    `priority_override` permet de forcer la priorité d'une ligne
+    indépendamment des charges qui y sont rattachées. Vide = la priorité se
+    déduit des charges, ce qui reste le cas normal.
+    """
+
+    house = models.ForeignKey(House, on_delete=models.CASCADE, related_name="lines")
+    number = models.PositiveSmallIntegerField()
+    name = models.CharField(max_length=80)
+    # Broche du relais côté ESP32 (25, 26, 27 sur le prototype). Null quand la
+    # ligne n'est pas commutable ou que le câblage n'est pas renseigné.
+    relay_gpio = models.PositiveSmallIntegerField(null=True, blank=True)
+    is_switchable = models.BooleanField(default=True)
+    max_power_w = models.FloatField(null=True, blank=True)
+    priority_override = models.CharField(
+        max_length=16, choices=Priority.choices, blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["house", "number"], name="ligne_unique_par_maison"
+            )
+        ]
+        ordering = ["house", "number"]
+
+    def __str__(self) -> str:
+        return f"{self.name} (L{self.number})"
+
+
+class LineState(models.Model):
+    """État commandé d'une ligne — remplace les trois booléens de `RelayState`.
+
+    `is_closed` est l'état constaté, `desired_closed` l'état voulu par le
+    système expert. Les séparer permet à la fenêtre de confirmation du mode
+    automatique de vivre sur la ligne concernée plutôt que dans un JSON global
+    (`RelayState.auto_pending_lines`), où l'on ne pouvait pas dire depuis quand
+    CETTE ligne-là attendait.
+    """
+
+    line = models.OneToOneField(Line, on_delete=models.CASCADE, related_name="state")
+    is_closed = models.BooleanField(default=True)
+    desired_closed = models.BooleanField(default=True)
+    # Depuis quand l'état voulu diffère de l'état constaté. C'est le chrono de
+    # la fenêtre de confirmation : on n'agit pas sur un déficit instantané.
+    pending_since = models.DateTimeField(null=True, blank=True)
+    last_commanded_at = models.DateTimeField(null=True, blank=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="line_updates",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"{self.line}: {'fermée' if self.is_closed else 'ouverte'}"
+
+
+class IoTNode(models.Model):
+    """Un nœud IoT rattaché à un micro-réseau.
+
+    CLÉ ÉTRANGÈRE et non `OneToOne`, délibérément : `RelayState` était en
+    `OneToOne` avec `House`, ce qui interdisait structurellement le second nœud
+    ESP32 (bloc continu) déjà prévu au protocole, et la passerelle Edge. Un
+    micro-réseau a plusieurs interlocuteurs ; le schéma doit le permettre avant
+    qu'on en ait besoin, pas après.
+
+    Chaque nœud porte SON jeton : révoquer un nœud compromis n'oblige plus à
+    reflasher les autres.
+    """
+
+    class NodeType(models.TextChoices):
+        ESP32_MAIN = "ESP32_MAIN", "ESP32 principal (lignes AC, relais)"
+        ESP32_DC = "ESP32_DC", "ESP32 secondaire (bloc continu)"
+        EDGE_GATEWAY = "EDGE_GATEWAY", "Passerelle Edge"
+
+    class ControlMode(models.TextChoices):
+        MANUAL = "MANUAL", "Manuel"
+        ASSISTED = "ASSISTED", "Assisté (l'expert propose)"
+        AUTOMATIC = "AUTOMATIC", "Automatique (expert)"
+
+    house = models.ForeignKey(House, on_delete=models.CASCADE, related_name="nodes")
+    name = models.CharField(max_length=80, default="ESP32 principal")
+    node_type = models.CharField(
+        max_length=20, choices=NodeType.choices, default=NodeType.ESP32_MAIN
+    )
+    device_token = models.CharField(
+        max_length=64, unique=True, default=_generate_device_token
+    )
+    control_mode = models.CharField(
+        max_length=16, choices=ControlMode.choices, default=ControlMode.MANUAL
+    )
+    firmware_version = models.CharField(max_length=30, blank=True)
+    last_contact_at = models.DateTimeField(null=True, blank=True)
+    last_measurement_at = models.DateTimeField(null=True, blank=True)
+    last_report = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["house", "node_type", "name"]
+
+    def __str__(self) -> str:
+        return f"{self.name} [{self.node_type}]"
 
 
 class Sensor(models.Model):
@@ -122,12 +272,12 @@ class Equipment(models.Model):
     à la fois la lampe et la prise 1.
     """
 
-    class Priority(models.TextChoices):
-        CRITICAL = "CRITICAL", "Critique (à préserver au maximum)"
-        IMPORTANT = "IMPORTANT", "Prioritaire"
-        NORMAL = "NORMAL", "Normale"
-        LOW = "LOW", "Secondaire"
-        NON_CRITICAL = "NON_CRITICAL", "Non prioritaire (délestée en premier)"
+    # Alias vers l'énumération unique du module (cf. `Priority` plus haut).
+    # Les libellés d'origine (« Critique (à préserver au maximum) »,
+    # « Non prioritaire (délestée en premier) ») décrivaient l'EFFET plutôt que
+    # le niveau, et divergeaient de ceux affichés par les interfaces. Les
+    # libellés vivent désormais en un seul endroit et sont servis par l'API.
+    Priority = Priority
 
     class LoadType(models.TextChoices):
         LAMP = "lamp", "Lampe"
