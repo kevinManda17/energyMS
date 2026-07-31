@@ -40,7 +40,7 @@ from __future__ import annotations
 import logging
 import os
 import warnings
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 
 import joblib
 import numpy as np
@@ -306,7 +306,71 @@ def _weather_forecast_lookup(house, hours: int) -> dict[datetime, dict]:
             continue
         lookup[ts] = row
     _WEATHER_LOOKUP_CACHE[cache_key] = (now_ts, lookup)
+
+    # La prévision rejoint la BASE, en plus du cache. Le cache reste, mais
+    # comme accélérateur de lecture : il évite un aller-retour de ~12 s à
+    # chaque requête. Ce qu'il ne peut pas faire, c'est survivre à un
+    # redémarrage — et donc permettre de vérifier plus tard si la météo
+    # annoncée s'est réalisée.
+    _persist_weather_forecast(house, lookup)
     return lookup
+
+
+def _persist_weather_forecast(house, lookup: dict[datetime, dict]) -> int:
+    """Enregistre la prévision horaire, une ligne par grandeur et par échéance.
+
+    L'instant d'ÉMISSION est commun à toute la salve : c'est ce qui permettra
+    de mesurer comment l'erreur croît avec l'horizon (une prévision émise à 6 h
+    pour 18 h ne vaut pas celle émise à 17 h pour la même heure).
+
+    Toute erreur est avalée : la persistance est un enregistrement, pas une
+    condition de la prévision. Échouer à archiver ne doit pas empêcher de
+    prédire.
+    """
+    from django.utils import timezone as dj_timezone
+
+    from apps.measurements.models import Quantity, WeatherForecast
+
+    if house is None or not lookup:
+        return 0
+
+    # Même vocabulaire que la collecte instantanée : l'API météo n'est pas
+    # modifiée, c'est ici qu'on traduit ses noms vers les grandeurs typées.
+    grandeur_par_cle = {
+        cle: quantity for quantity, cle in WEATHER_KEY_FOR_QUANTITY.items()
+    }
+
+    emis_a = dj_timezone.now()
+    lignes = []
+    for echeance, row in lookup.items():
+        # Open-Meteo renvoie des heures naives ; Django tourne en UTC
+        # (TIME_ZONE=UTC), donc l'echeance est bien de l'UTC sans etiquette.
+        valid_at = (
+            echeance if dj_timezone.is_aware(echeance)
+            else echeance.replace(tzinfo=dt_timezone.utc)
+        )
+        for cle, valeur in row.items():
+            quantity = grandeur_par_cle.get(cle)
+            if quantity is None or valeur is None:
+                continue
+            try:
+                lignes.append(
+                    WeatherForecast(
+                        house=house, fetched_at=emis_a, valid_at=valid_at,
+                        quantity=quantity, value=float(valeur),
+                    )
+                )
+            except (TypeError, ValueError):
+                continue
+
+    if not lignes:
+        return 0
+    try:
+        WeatherForecast.objects.bulk_create(lignes, ignore_conflicts=True)
+    except Exception as exc:
+        logger.warning("Persistance de la prevision meteo impossible : %s", exc)
+        return 0
+    return len(lignes)
 
 
 def _weather_row_for_horizon(weather_lookup: dict[datetime, dict], horizon: datetime) -> dict | None:

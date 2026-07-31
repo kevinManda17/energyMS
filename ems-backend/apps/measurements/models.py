@@ -369,3 +369,55 @@ def latest_value(house, quantity, default=None, max_age_seconds=None):
         qs = qs.filter(timestamp__gte=limite)
     row = qs.order_by("-timestamp").first()
     return row.value if row else default
+
+
+class WeatherForecast(models.Model):
+    """Prévision météo horaire — persistée, et non plus seulement en cache.
+
+    LE DÉFAUT CORRIGÉ : `fetch_hourly_solar_forecast` alimentait
+    `_WEATHER_LOOKUP_CACHE`, un dictionnaire en mémoire avec dix minutes de
+    durée de vie, qui disparaissait à chaque redémarrage du serveur. La
+    prévision météo — celle qui nourrit le modèle de production pour chaque
+    horizon — n'existait donc nulle part de façon durable.
+
+    Conséquence : impossible d'évaluer *a posteriori* si la météo annoncée
+    s'était réalisée. On ne pouvait pas répondre à « la prévision d'hier
+    était-elle bonne ? », faute d'avoir gardé ce qui avait été annoncé.
+
+    DEUX HORODATAGES, ET C'EST LE POINT ESSENTIEL :
+
+      `fetched_at` — quand la prévision a été ÉMISE ;
+      `valid_at`   — l'heure qu'elle DÉCRIT.
+
+    Les confondre rendrait l'évaluation impossible : une prévision émise à 6 h
+    pour 18 h et une émise à 17 h pour 18 h décrivent la même heure sans avoir
+    la même valeur de preuve. Garder les deux permet de mesurer comment
+    l'erreur croît avec l'horizon.
+    """
+
+    house = models.ForeignKey(
+        House, on_delete=models.CASCADE, related_name="weather_forecasts"
+    )
+    fetched_at = models.DateTimeField(db_index=True)
+    valid_at = models.DateTimeField(db_index=True)
+    quantity = models.CharField(max_length=28, choices=Quantity.choices)
+    value = models.FloatField()
+
+    class Meta:
+        ordering = ["-fetched_at", "valid_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["house", "quantity", "fetched_at", "valid_at"],
+                name="une_prevision_meteo_par_emission_et_echeance",
+            )
+        ]
+        indexes = [models.Index(fields=["house", "valid_at", "quantity"])]
+
+    @property
+    def horizon_hours(self) -> float:
+        """Combien d'heures séparent l'émission de l'échéance décrite."""
+        return (self.valid_at - self.fetched_at).total_seconds() / 3600.0
+
+    def __str__(self) -> str:
+        return (f"{self.quantity}={self.value}{unit_for(self.quantity)} "
+                f"pour {self.valid_at:%Y-%m-%d %H:%M}")

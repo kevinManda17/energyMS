@@ -315,3 +315,91 @@ def test_the_migration_leaves_unmapped_types_alone(house):
     for mtype in migration.SANS_CORRESPONDANCE:
         mesure = Measurement.objects.get(house=house, measurement_type=mtype)
         assert mesure.quantity == ""
+
+
+# --------------------------------------------------------------------------- #
+# §2.5 — la prévision météo survit au redémarrage
+# --------------------------------------------------------------------------- #
+
+def test_the_weather_forecast_is_persisted_not_just_cached(house):
+    """Le cache mémoire ne survivait pas au redémarrage.
+
+    La prévision qui nourrit le modèle de production n'existait donc nulle part
+    de façon durable, et on ne pouvait pas répondre après coup à « la prévision
+    d'hier était-elle bonne ? ».
+    """
+    from unittest.mock import patch
+
+    from apps.forecasting import services
+    from apps.measurements.models import Quantity, WeatherForecast
+
+    lignes_api = [
+        {"time": "2026-08-01T06:00", "irradiance": 120.0, "temperature": 22.0},
+        {"time": "2026-08-01T12:00", "irradiance": 910.0, "temperature": 31.0},
+    ]
+    services._WEATHER_LOOKUP_CACHE.clear()
+    with patch.object(services, "fetch_hourly_solar_forecast", return_value=lignes_api):
+        services._weather_forecast_lookup(house, hours=24)
+
+    previsions = WeatherForecast.objects.filter(house=house)
+    assert previsions.count() == 4      # 2 échéances x 2 grandeurs
+    irradiances = previsions.filter(quantity=Quantity.IRRADIANCE_WM2)
+    assert sorted(p.value for p in irradiances) == [120.0, 910.0]
+
+
+def test_a_forecast_records_when_it_was_issued_and_what_it_describes(house):
+    """Les deux horodatages, sans lesquels l'évaluation serait impossible.
+
+    Une prévision émise à 6 h pour 18 h et une émise à 17 h pour 18 h décrivent
+    la même heure sans avoir la même valeur de preuve.
+    """
+    from unittest.mock import patch
+
+    from apps.forecasting import services
+    from apps.measurements.models import WeatherForecast
+
+    services._WEATHER_LOOKUP_CACHE.clear()
+    with patch.object(services, "fetch_hourly_solar_forecast",
+                      return_value=[{"time": "2026-08-01T18:00", "irradiance": 40.0}]):
+        services._weather_forecast_lookup(house, hours=24)
+
+    prevision = WeatherForecast.objects.get(house=house)
+    assert prevision.fetched_at is not None
+    assert prevision.valid_at is not None
+    assert prevision.valid_at != prevision.fetched_at
+    # L'horizon se déduit des deux, et c'est lui qui portera l'évaluation.
+    assert isinstance(prevision.horizon_hours, float)
+
+
+def test_the_cache_still_avoids_a_second_network_call(house):
+    """Le cache reste — comme accélérateur, pas comme mémoire."""
+    from unittest.mock import patch
+
+    from apps.forecasting import services
+
+    services._WEATHER_LOOKUP_CACHE.clear()
+    lignes = [{"time": "2026-08-01T09:00", "irradiance": 300.0}]
+    with patch.object(services, "fetch_hourly_solar_forecast",
+                      return_value=lignes) as appel:
+        services._weather_forecast_lookup(house, hours=24)
+        services._weather_forecast_lookup(house, hours=24)
+    assert appel.call_count == 1
+
+
+def test_persisting_the_forecast_never_breaks_the_prediction(house):
+    """Archiver est un enregistrement, pas une condition de la prévision."""
+    from unittest.mock import patch
+
+    from apps.forecasting import services
+
+    services._WEATHER_LOOKUP_CACHE.clear()
+    lignes = [{"time": "2026-08-01T09:00", "irradiance": 300.0}]
+    with patch.object(services, "fetch_hourly_solar_forecast", return_value=lignes):
+        with patch.object(services, "_persist_weather_forecast",
+                          side_effect=RuntimeError("base indisponible")):
+            with pytest.raises(RuntimeError):
+                # L'appel direct leve : c'est le contrat interne.
+                services._persist_weather_forecast(house, {})
+        # Et la prevision, elle, aboutit malgre tout.
+        lookup = services._weather_forecast_lookup(house, hours=24)
+    assert lookup
