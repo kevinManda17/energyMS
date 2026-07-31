@@ -83,16 +83,29 @@ DEFAULT_STEP_MINUTES = 10
 MAX_STEPS = 576  # safety cap regardless of hours/step_minutes combination
 
 # --------------------------------------------------------------------------- #
-# Feature mapping: EMS measurement_type → consumption model feature column
+# Feature mapping: colonne attendue par le modèle → grandeur de la base.
+#
+# ⚠ LE FACTEUR EST OBLIGATOIRE ET EXPLICITE. Les modèles ont été entraînés sur
+# le jeu public UCI, dont `Global_active_power` est en KILOWATTS ; la base, elle,
+# stocke des WATTS depuis §2.4 (l'unité est portée par le nom de la grandeur).
+# Nourrir le modèle en watts là où il attend des kilowatts serait très
+# exactement le facteur 1000 que cette refonte supprime — mais déplacé au bord
+# du modèle, où il serait invisible.
+#
+# Le facteur convertit DE la base VERS le modèle : valeur_modèle = valeur_base × facteur.
 # --------------------------------------------------------------------------- #
-CONSUMPTION_FEATURE_MAP: dict[str, str] = {
-    "Global_active_power": "consumption",
-    "Global_reactive_power": "reactive_power",
-    "Voltage": "voltage",
-    "Global_intensity": "current",
-    "Sub_metering_1": "sub_metering_1",
-    "Sub_metering_2": "sub_metering_2",
-    "Sub_metering_3": "sub_metering_3",
+CONSUMPTION_FEATURE_MAP: dict[str, tuple[str, float]] = {
+    # W (base) -> kW (modèle)
+    "Global_active_power": ("load_power_w", 0.001),
+    "Voltage": ("grid_voltage_v", 1.0),
+    "Global_intensity": ("grid_current_a", 1.0),
+    # Ces trois-là n'ont AUCUNE grandeur correspondante dans ce micro-réseau :
+    # ce sont des sous-comptages du jeu public (cuisine, buanderie, chauffage)
+    # qu'aucun capteur du prototype ne mesure. Ils restent délibérément non
+    # cartographiés et sont comblés par l'imputeur médian du modèle — leur
+    # inventer une correspondance ferait entrer une donnée fausse dans la
+    # fenêtre d'entrée (cf. §3.4).
+    #   "Global_reactive_power", "Sub_metering_1/2/3"
 }
 CONSUMPTION_TARGET_COLUMN = "Global_active_power"
 CONSUMPTION_TEMPORAL = ["hour", "dayofweek", "month", "is_weekend"]
@@ -106,37 +119,67 @@ CONSUMPTION_TEMPORAL = ["hour", "dayofweek", "month", "is_weekend"]
 # during training, not the weather — no public API exposes them, so they are
 # intentionally left unmapped and filled by the model's own median imputer.
 # --------------------------------------------------------------------------- #
-PV_FEATURE_MAP: dict[str, str] = {
-    "Pmpp": "production",          # production stored in kW; multiply × 1000 → W
-    "Vmpp": "pv_voltage",
-    "Impp": "pv_current",
-    "module_temperature_center": "module_temp",
-    "module_temperature_lateral": "module_temp",
-    "air_temperature": "temperature",
-    "relative_humidity": "humidity",
-    "abs_pressure": "air_pressure",
-    "wind_speed_ms": "wind_speed",
-    "wind_direction": "wind_direction",
-    "G_horiz_start": "irradiance",
-    "G_horiz_end": "irradiance",
-    "G_tilt15_start": "irradiance_tilt15",
-    "G_tilt15_end": "irradiance_tilt15",
-    "G_tilt20_start": "irradiance_tilt20",
-    "G_tilt20_end": "irradiance_tilt20",
-    "G_east_start": "irradiance_east",
-    "G_east_end": "irradiance_east",
-    "G_west_start": "irradiance_west",
-    "G_west_end": "irradiance_west",
+PV_FEATURE_MAP: dict[str, tuple[str, float]] = {
+    # Le modèle PV raisonne en WATTS du panneau de référence, et la base stocke
+    # désormais des watts : le facteur 1000 qui traînait ici disparaît.
+    "Pmpp": ("pv_power_w", 1.0),
+    "Vmpp": ("pv_voltage_v", 1.0),
+    "Impp": ("pv_current_a", 1.0),
+    "module_temperature_center": ("module_temp_c", 1.0),
+    "module_temperature_lateral": ("module_temp_c", 1.0),
+    "air_temperature": ("ambient_temp_c", 1.0),
+    "relative_humidity": ("humidity_pct", 1.0),
+    "abs_pressure": ("air_pressure_hpa", 1.0),
+    "wind_speed_ms": ("wind_speed_ms", 1.0),
+    "wind_direction": ("wind_direction_deg", 1.0),
+    "G_horiz_start": ("irradiance_wm2", 1.0),
+    "G_horiz_end": ("irradiance_wm2", 1.0),
+    "G_tilt15_start": ("irradiance_tilt15_wm2", 1.0),
+    "G_tilt15_end": ("irradiance_tilt15_wm2", 1.0),
+    "G_tilt20_start": ("irradiance_tilt20_wm2", 1.0),
+    "G_tilt20_end": ("irradiance_tilt20_wm2", 1.0),
+    "G_east_start": ("irradiance_east_wm2", 1.0),
+    "G_east_end": ("irradiance_east_wm2", 1.0),
+    "G_west_start": ("irradiance_west_wm2", 1.0),
+    "G_west_end": ("irradiance_west_wm2", 1.0),
 }
 
 # Feature columns fed from the weather API forecast (rather than past device
 # telemetry) — overridden per-horizon so production varies through the day
 # instead of freezing on the last fetched snapshot (mirrors CONSUMPTION_TEMPORAL).
-PV_WEATHER_MEASUREMENT_TYPES = {
-    "irradiance", "irradiance_tilt15", "irradiance_tilt20",
-    "irradiance_east", "irradiance_west",
-    "temperature", "humidity", "air_pressure", "wind_speed", "wind_direction",
+# Grandeurs que la PRÉVISION météo peut fournir pour un horizon futur. Pour
+# celles-là, on préfère la météo prévue à la dernière mesure connue : prédire
+# l'après-midi avec l'irradiance de ce matin n'aurait aucun sens.
+PV_WEATHER_QUANTITIES = {
+    "irradiance_wm2", "irradiance_tilt15_wm2", "irradiance_tilt20_wm2",
+    "irradiance_east_wm2", "irradiance_west_wm2",
+    "ambient_temp_c", "humidity_pct", "air_pressure_hpa",
+    "wind_speed_ms", "wind_direction_deg",
 }
+
+# Clé sous laquelle Open-Meteo renvoie chaque grandeur. L'API météo n'est PAS
+# modifiée par cette refonte (mêmes variables, mêmes angles, même cadence) :
+# c'est ici qu'on traduit ses noms vers les grandeurs de la base, plutôt que de
+# la faire changer de vocabulaire.
+WEATHER_KEY_FOR_QUANTITY = {
+    "irradiance_wm2": "irradiance",
+    "irradiance_tilt15_wm2": "irradiance_tilt15",
+    "irradiance_tilt20_wm2": "irradiance_tilt20",
+    "irradiance_east_wm2": "irradiance_east",
+    "irradiance_west_wm2": "irradiance_west",
+    "ambient_temp_c": "temperature",
+    "humidity_pct": "humidity",
+    "air_pressure_hpa": "air_pressure",
+    "wind_speed_ms": "wind_speed",
+    "wind_direction_deg": "wind_direction",
+}
+
+
+def _weather_value(weather_row, quantity):
+    """Valeur prévue pour une grandeur, depuis une ligne Open-Meteo."""
+    if not weather_row:
+        return None
+    return weather_row.get(WEATHER_KEY_FOR_QUANTITY.get(quantity, quantity))
 
 
 # =========================================================================== #
@@ -208,11 +251,11 @@ def pv_scale_factor(house, model_record) -> tuple[float, float | None]:
     return (capacity_kw * 1000.0) / float(reference_w), capacity_kw
 
 
-def _recent_average(house, measurement_type: str, fallback: float) -> float:
+def _recent_average(house, quantity: str, fallback: float) -> float:
     if house is None:
         return fallback
     values = list(
-        Measurement.objects.filter(house=house, measurement_type=measurement_type)
+        Measurement.objects.filter(house=house, quantity=quantity)
         .order_by("-timestamp")
         .values_list("value", flat=True)[:24]
     )
@@ -403,17 +446,19 @@ def _get_sklearn_artifact_cached(model_record: ImportedModel):
     return artifact
 
 
-def _fetch_recent_measurements(house, mtype: str, n: int) -> list[float]:
-    """Return the last `n` values for a given measurement type, oldest first."""
+def _fetch_recent_measurements(house, quantity: str, n: int) -> list[float]:
+    """Les `n` dernières valeurs d'une GRANDEUR, de la plus ancienne à la plus
+    récente. Le filtre porte sur `quantity` depuis §2.4 : l'unité est portée
+    par le nom, donc lire la bonne grandeur suffit à lire la bonne unité."""
     qs = (
-        Measurement.objects.filter(house=house, measurement_type=mtype)
+        Measurement.objects.filter(house=house, quantity=quantity)
         .order_by("-timestamp")
         .values_list("value", flat=True)[:n]
     )
     return list(reversed(list(qs)))
 
 
-def _resample_last_known(house, mtype: str, timestamps: list[datetime]) -> list[float | None]:
+def _resample_last_known(house, quantity: str, timestamps: list[datetime]) -> list[float | None]:
     """
     For each timestamp (ascending), return the most recent real measurement
     value at or before it ("hold last known value"), or None if no
@@ -425,7 +470,7 @@ def _resample_last_known(house, mtype: str, timestamps: list[datetime]) -> list[
         return [None] * len(timestamps)
     rows = list(
         Measurement.objects.filter(
-            house=house, measurement_type=mtype, timestamp__lte=timestamps[-1]
+            house=house, quantity=quantity, timestamp__lte=timestamps[-1]
         )
         .order_by("-timestamp")
         .values_list("timestamp", "value")[:500]
@@ -473,10 +518,17 @@ def _build_consumption_window(
     for col in feature_cols:
         if col in CONSUMPTION_TEMPORAL:
             continue
-        mtype = CONSUMPTION_FEATURE_MAP.get(col)
-        if mtype is None:
+        mappe = CONSUMPTION_FEATURE_MAP.get(col)
+        if mappe is None:
             continue
-        series_cache[col] = _resample_last_known(house, mtype, timestamps)
+        quantity, facteur = mappe
+        # Le facteur convertit DE la base VERS le modèle. Il est appliqué ici,
+        # au bord du modèle, et nulle part ailleurs : c'est le seul endroit où
+        # une unité change, donc le seul où elle peut se tromper.
+        serie = _resample_last_known(house, quantity, timestamps)
+        series_cache[col] = [
+            None if v is None else v * facteur for v in serie
+        ]
 
     rows: list[list[float | None]] = []
     for row_idx, ts in enumerate(timestamps):
@@ -638,18 +690,26 @@ def _build_pv_sequence(
         rows.append([None] * len(feature_cols))
 
     for col_idx, col in enumerate(feature_cols):
-        mtype = PV_FEATURE_MAP.get(col)
-        if mtype is None:
+        mappe = PV_FEATURE_MAP.get(col)
+        if mappe is None:
             continue
-        if mtype in PV_WEATHER_MEASUREMENT_TYPES and weather_row and weather_row.get(mtype) is not None:
-            value = float(weather_row[mtype])
+        quantity, facteur = mappe
+        prevue = (
+            _weather_value(weather_row, quantity)
+            if quantity in PV_WEATHER_QUANTITIES
+            else None
+        )
+        if prevue is not None:
+            value = float(prevue)
             for row_idx in range(seq_len):
                 rows[row_idx][col_idx] = value
             continue
-        values = _fetch_recent_measurements(house, mtype, seq_len)
-        # PV production in EMS is kW; model expects Watts of the reference panel
+        values = [v * facteur for v in _fetch_recent_measurements(house, quantity, seq_len)]
+        # La base stocke desormais des WATTS : le facteur 1000 qui trainait ici
+        # a disparu avec le doublon `production` en kW. Seule subsiste la mise a
+        # l'echelle vers le panneau de REFERENCE sur lequel le modele a appris.
         if col == "Pmpp":
-            values = [v * 1000.0 / (scale or 1.0) for v in values]
+            values = [v / (scale or 1.0) for v in values]
         for row_offset, val in enumerate(values):
             actual_row = seq_len - len(values) + row_offset
             rows[actual_row][col_idx] = float(val)
@@ -741,15 +801,18 @@ def _pv_static_features(house, feature_cols: list[str], scale: float = 1.0) -> d
     """
     static: dict[str, float] = {}
     for col in feature_cols:
-        mtype = PV_FEATURE_MAP.get(col)
-        if mtype is None or mtype in PV_WEATHER_MEASUREMENT_TYPES:
+        mappe = PV_FEATURE_MAP.get(col)
+        if mappe is None:
             continue
-        values = _fetch_recent_measurements(house, mtype, 1)
+        quantity, facteur = mappe
+        if quantity in PV_WEATHER_QUANTITIES:
+            continue
+        values = _fetch_recent_measurements(house, quantity, 1)
         if not values:
             continue
-        val = values[-1]
+        val = values[-1] * facteur
         if col == "Pmpp":
-            val = val * 1000.0 / (scale or 1.0)
+            val = val / (scale or 1.0)
         static[col] = float(val)
     return static
 
@@ -766,12 +829,18 @@ def _build_pv_features_flat(
     """
     row: list[float] = []
     for col in feature_cols:
-        mtype = PV_FEATURE_MAP.get(col)
-        if mtype is None:
+        mappe = PV_FEATURE_MAP.get(col)
+        if mappe is None:
             row.append(np.nan)
             continue
-        if mtype in PV_WEATHER_MEASUREMENT_TYPES and weather_row and weather_row.get(mtype) is not None:
-            row.append(float(weather_row[mtype]))
+        quantity, _facteur = mappe
+        prevue = (
+            _weather_value(weather_row, quantity)
+            if quantity in PV_WEATHER_QUANTITIES
+            else None
+        )
+        if prevue is not None:
+            row.append(float(prevue))
             continue
         row.append(static_values.get(col, np.nan))
     return np.array(row, dtype=float).reshape(1, -1)

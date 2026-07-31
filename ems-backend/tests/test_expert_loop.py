@@ -95,10 +95,13 @@ def _seed_deficit(house):
     from apps.measurements.models import Measurement
     from django.utils import timezone
     now = timezone.now()
-    for mt, val, unit in [("consumption", 3.0, "kW"), ("battery_soc", 18.0, "%"),
-                          ("production", 0.0, "kW")]:
-        Measurement.objects.create(house=house, measurement_type=mt, value=val,
-                                   unit=unit, timestamp=now)
+    # Grandeurs TYPEES, en watts (§2.4) : 3 kW = 3000 W.
+    from apps.measurements.models import Quantity, record
+
+    for quantity, value in [(Quantity.LOAD_POWER_W, 3000.0),
+                            (Quantity.BATTERY_SOC_PCT, 18.0),
+                            (Quantity.PV_POWER_W, 0.0)]:
+        record(house, quantity, value, now)
 
 
 def test_auto_poll_waits_for_confirmation_window(auth_client):

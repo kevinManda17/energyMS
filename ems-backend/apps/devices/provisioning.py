@@ -50,3 +50,61 @@ def ensure_lines(house) -> list[Line]:
         LineState.objects.get_or_create(line=ligne)
         lignes.append(ligne)
     return lignes
+
+
+# Capteurs du nœud secondaire (bloc continu). Codes courts et stables, comme
+# pour les capteurs alternatifs : c'est ce qu'on lit sur le montage.
+CAPTEURS_CONTINUS = (
+    ("VB1", "voltage", "V", "Tension batterie 1"),
+    ("IB1", "current", "A", "Courant batterie 1 (signé)"),
+    ("TB1", "temperature", "°C", "Température batterie 1"),
+    ("VPV", "voltage", "V", "Tension photovoltaïque"),
+    ("IPV", "current", "A", "Courant photovoltaïque"),
+    ("TPV", "temperature", "°C", "Température module"),
+)
+
+# Quelle grandeur chaque capteur continu produit. C'est ce lien qui permet à
+# une mesure de NOMMER son capteur, donc de se déclarer mesurée.
+CAPTEUR_PAR_GRANDEUR = {
+    "battery_voltage_v": "VB1",
+    "battery_current_a": "IB1",
+    "battery_temp_c": "TB1",
+    "pv_voltage_v": "VPV",
+    "pv_current_a": "IPV",
+    "module_temp_c": "TPV",
+}
+
+
+def ensure_dc_sensors(house) -> dict[str, "Sensor"]:
+    """Enregistre les capteurs continus — au moment où ils parlent.
+
+    Une mesure qui se DIT lue par un capteur doit pouvoir le nommer : c'est la
+    contrainte `mesure_capteur_a_un_capteur`. Le bloc continu se déclarait
+    `SENSOR` alors qu'aucun `Sensor` correspondant n'existait en base — la
+    contrainte l'a refusé, et elle avait raison.
+
+    On ne crée pas ces capteurs à l'avance : provisionner du matériel qui n'est
+    pas monté reviendrait à l'inventer. On les crée quand le nœud secondaire
+    envoie effectivement son bloc `dc`, c'est-à-dire quand ils existent
+    réellement et qu'ils émettent. Idempotent.
+
+    Les coefficients de calibration restent à 1.0 : les capteurs continus ne
+    sont pas plus calibrés que les alternatifs, et le prétendre serait aussi
+    faux ici que là-bas.
+    """
+    from .models import Sensor
+
+    capteurs = {}
+    for code, type_capteur, unite, description in CAPTEURS_CONTINUS:
+        capteur, _ = Sensor.objects.get_or_create(
+            house=house,
+            code=code,
+            defaults={
+                "name": description,
+                "sensor_type": type_capteur,
+                "unit": unite,
+                "description": f"{description} (nœud secondaire, bloc continu)",
+            },
+        )
+        capteurs[code] = capteur
+    return capteurs

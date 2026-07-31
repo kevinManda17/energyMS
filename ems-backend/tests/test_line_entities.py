@@ -241,17 +241,27 @@ def test_a_line_reading_is_written_for_every_line(house):
 
 
 def test_the_aggregates_are_still_written(house):
-    """Écriture DOUBLE : l'ancien chemin reste intact pendant la bascule."""
-    from apps.measurements.models import Measurement
+    """Écriture DOUBLE : les agrégats du micro-réseau restent écrits.
+
+    Ils sont désormais typés (§2.4) : `load_power_w` remplace le couple
+    `power` (W) / `consumption` (kW), qui décrivait la même puissance dans
+    deux unités.
+    """
+    from apps.measurements.models import Measurement, Quantity, Source
 
     _sonder(house, RELEVE_TROIS_LIGNES)
 
-    types = set(
-        Measurement.objects.filter(house=house).values_list(
-            "measurement_type", flat=True
-        )
+    grandeurs = set(
+        Measurement.objects.filter(house=house).values_list("quantity", flat=True)
     )
-    assert {"power", "consumption", "voltage", "current"} <= types
+    assert {
+        Quantity.LOAD_POWER_W, Quantity.GRID_VOLTAGE_V, Quantity.GRID_CURRENT_A
+    } <= grandeurs
+
+    # Un agrégat SOMME les trois lignes : aucun capteur ne le lit, et il le dit.
+    total = Measurement.objects.get(house=house, quantity=Quantity.LOAD_POWER_W)
+    assert total.source == Source.DERIVED
+    assert total.value == pytest.approx(12.1 + 19.9 + 11.0)
 
 
 def test_a_silent_line_is_unmeasured_not_zero(house):

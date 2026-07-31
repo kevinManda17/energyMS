@@ -7,7 +7,7 @@ from django.utils import timezone
 from apps.devices.models import Equipment
 from apps.energy_assets.models import EnergyAsset
 from apps.forecasting.models import Forecast
-from apps.measurements.models import Measurement
+from apps.measurements.models import Measurement, Quantity
 
 from .core import (
     BatteryFacts,
@@ -55,9 +55,15 @@ BATTERY_STATE_MAX_AGE_S = 900
 # physique, pas de l'accès aux données, et il doit rester mesurable sans Django.
 
 
-def _latest_value(house, measurement_type: str, default: float | None = None):
+def _latest_value(house, quantity: str, default: float | None = None):
+    """Dernière valeur d'une GRANDEUR typée.
+
+    Le filtre portait sur `measurement_type`, dont l'unité vivait dans une
+    colonne à côté. Il porte désormais sur `quantity`, qui porte son unité dans
+    son nom : lire la bonne grandeur suffit à lire la bonne unité.
+    """
     row = (
-        Measurement.objects.filter(house=house, measurement_type=measurement_type)
+        Measurement.objects.filter(house=house, quantity=quantity)
         .order_by("-timestamp")
         .first()
     )
@@ -286,7 +292,7 @@ def _battery_facts(house) -> list[BatteryFacts]:
     # Sonde partagée : tant qu'une seule sonde équipe le parc, sa lecture vaut
     # pour toutes les batteries. Une sonde par batterie la remplacera dès que
     # `BatteryState.temperature_celsius` sera alimenté individuellement.
-    shared_temperature = _latest_value(house, "battery_temp")
+    shared_temperature = _latest_value(house, Quantity.BATTERY_TEMP_C)
     now = timezone.now()
 
     facts = []
@@ -510,21 +516,33 @@ def evaluate(
 def facts_from_house(house, overrides: dict | None = None) -> EnergyFacts:
     overrides = overrides or {}
 
+    # ⚠ CONVERSION EXPLICITE W -> kW. La base stocke des WATTS depuis §2.4
+    # (`pv_power_w`, `load_power_w`) tandis que `EnergyFacts` raisonne encore en
+    # kW — c'est la frontière assumée entre les champs historiques et les champs
+    # neufs (cf. docs/MEASUREMENTS_UNITS.md). La franchir sans diviser
+    # réintroduirait très exactement le facteur 1000 que cette refonte supprime,
+    # et le moteur lirait 3 000 kW là où la maison tire 3 kW.
+    #
+    # Les surcharges (`production_pv`, `consommation`) viennent de l'interface
+    # de test et sont DÉJÀ en kW : elles ne sont pas converties.
+    production_w = _latest_value(house, Quantity.PV_POWER_W)
+    consommation_w = _latest_value(house, Quantity.LOAD_POWER_W)
+
     raw = {
         "production": overrides.get("production_pv")
         if overrides.get("production_pv") is not None
-        else _latest_value(house, "production"),
+        else (None if production_w is None else production_w / WATTS_PER_KILOWATT),
         "consumption": overrides.get("consommation")
         if overrides.get("consommation") is not None
-        else _latest_value(house, "consumption"),
+        else (None if consommation_w is None else consommation_w / WATTS_PER_KILOWATT),
         "battery_soc": overrides.get("batterie_soc")
         if overrides.get("batterie_soc") is not None
-        else _latest_value(house, "battery_soc"),
+        else _latest_value(house, Quantity.BATTERY_SOC_PCT),
         # Température de la BATTERIE uniquement (sonde dédiée). Surtout pas
         # `temperature`, qui est la température ambiante de l'API météo : s'en
         # servir ferait déclencher les règles thermiques batterie (R001/R002)
         # sur la météo du jour, ce qui n'a aucun sens physique.
-        "battery_temperature": _latest_value(house, "battery_temp"),
+        "battery_temperature": _latest_value(house, Quantity.BATTERY_TEMP_C),
     }
 
     production = raw["production"] if raw["production"] is not None else 0.0
@@ -562,9 +580,10 @@ def facts_from_house(house, overrides: dict | None = None) -> EnergyFacts:
     # utilisée comme température batterie — cf. plus haut) ; ici elle est
     # transmise explicitement sous son vrai nom, sans ambiguïté.
     now = timezone.now()
-    module_temp = _latest_value(house, "module_temp")
-    if module_temp is None:
-        module_temp = _latest_value(house, "panel_temp")
+    # `panel_temp` et `module_temp` decrivaient la meme grandeur physique sous
+    # deux noms ; elles sont fusionnees en `module_temp_c` depuis §2.4, et il
+    # n'y a plus de repli a tenter.
+    module_temp = _latest_value(house, Quantity.MODULE_TEMP_C)
 
     # Faits par ligne et par batterie. Les agrégats maison restent calculés
     # (les 25 règles maison les lisent), mais ils sont désormais DÉRIVÉS du
@@ -592,8 +611,8 @@ def facts_from_house(house, overrides: dict | None = None) -> EnergyFacts:
         data_quality=data_quality,
         data_completeness=data_completeness,
         pv_nominal_power_kw=_pv_nominal_power_kw(house),
-        ambient_temperature_c=_latest_value(house, "temperature"),
-        solar_irradiance_wm2=_latest_value(house, "irradiance"),
+        ambient_temperature_c=_latest_value(house, Quantity.AMBIENT_TEMP_C),
+        solar_irradiance_wm2=_latest_value(house, Quantity.IRRADIANCE_WM2),
         module_temperature_c=module_temp,
         hour=now.hour,
         day_of_week=now.weekday(),

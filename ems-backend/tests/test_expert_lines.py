@@ -79,14 +79,16 @@ def _seed_deficit(house, soc_percent=22.0):
     lampe allumée.
     """
     now = timezone.now()
-    for mtype, value, unit in [
-        ("production", 0.0, "kW"),
-        ("consumption", 3.0, "kW"),
-        ("battery_soc", soc_percent, "%"),
+    # Les grandeurs sont TYPEES et en WATTS depuis §2.4 : 3 kW s'ecrivent
+    # 3000 W dans `load_power_w`, et l'unite n'est plus une colonne a part.
+    from apps.measurements.models import Quantity, record
+
+    for quantity, value in [
+        (Quantity.PV_POWER_W, 0.0),
+        (Quantity.LOAD_POWER_W, 3000.0),
+        (Quantity.BATTERY_SOC_PCT, soc_percent),
     ]:
-        Measurement.objects.create(
-            house=house, measurement_type=mtype, value=value, unit=unit, timestamp=now
-        )
+        record(house, quantity, value, now)
 
 
 def test_prototype_loads_are_the_ones_documented(prototype_house):

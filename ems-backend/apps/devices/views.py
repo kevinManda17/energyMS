@@ -9,10 +9,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.houses.models import House
-from apps.measurements.models import Measurement
+from apps.measurements.models import Measurement, Quantity, Source, record
 
 from . import calibration
-from .provisioning import ensure_lines
+from .provisioning import CAPTEUR_PAR_GRANDEUR, ensure_dc_sensors, ensure_lines
 from .models import Equipment, RelayState, Sensor
 from .serializers import EquipmentSerializer, RelayStateSerializer, SensorSerializer
 
@@ -46,14 +46,21 @@ def _to_float(d, key):
 
 def _store_line_measurements(house, payload, ts):
     """Convertit le relevé 3-lignes de l'ESP32 en mesures agrégées du
-    micro-réseau. C'est ce qui alimente le moteur expert en données réelles.
+    micro-réseau, et écrit le détail par ligne.
 
-    Unités produites :
-      - ``power``       : puissance instantanée totale, en W (valeur brute) ;
-      - ``consumption`` : la même puissance en kW (W / 1000) ;
-      - ``voltage``     : tension réseau en V, moyenne des lignes SOUS TENSION
+    Grandeurs produites — l'unité est portée par le NOM, plus par un champ
+    `unit` à côté (cf. `Quantity`) :
+      - ``load_power_w``   : puissance appelée totale, en W ;
+      - ``grid_voltage_v`` : tension réseau, moyenne des lignes SOUS TENSION
         (les lignes coupées, ≈ 0 V, ne tirent pas la moyenne vers le bas) ;
-      - ``current``     : courant total en A.
+      - ``grid_current_a`` : courant total.
+
+    Il n'y a PLUS de doublon `consumption` en kW. C'est exactement ce doublon
+    — la même puissance écrite dans deux unités — qui avait produit le facteur
+    1000 de l'historique : il suffisait qu'un écrivain se trompe de colonne.
+
+    Ces agrégats sont déclarés DERIVED : ils somment les trois lignes, aucun
+    capteur ne les lit.
 
     Aucune valeur n'est plafonnée ni forcée : les fluctuations réelles doivent
     apparaître. La justesse de la tension dépend de la calibration CAL_Vx.
@@ -67,25 +74,25 @@ def _store_line_measurements(house, payload, ts):
     volts = [v for v in (_to_float(d, "voltage") for d in lines) if v is not None]
     amps = [a for a in (_to_float(d, "current") for d in lines) if a is not None]
 
+    # Les agrégats sont DÉRIVÉS : ils somment les trois lignes. Aucun capteur
+    # ne les lit, et le déclarer évite qu'une somme se fasse passer pour une
+    # mesure. Plus de `consumption` en kW : la puissance appelée est une
+    # grandeur unique, en watts. C'est l'aller-retour W -> kW -> W qui avait
+    # produit le facteur 1000 de l'historique.
     rows = []
     if powers:
-        total_power_w = sum(powers)
-        rows.append(("power", total_power_w, "W"))
-        rows.append(("consumption", total_power_w / WATTS_PER_KILOWATT, "kW"))
+        rows.append((Quantity.LOAD_POWER_W, sum(powers)))
     if volts:
         # Tension réseau = moyenne des seules lignes sous tension. Si aucune ne
         # l'est, on garde la valeur réelle (≈ 0) plutôt que d'inventer.
         live = [v for v in volts if v >= MAINS_PRESENT_MIN_V]
-        source = live if live else volts
-        rows.append(("voltage", sum(source) / len(source), "V"))
+        retenues = live if live else volts
+        rows.append((Quantity.GRID_VOLTAGE_V, sum(retenues) / len(retenues)))
     if amps:
-        rows.append(("current", sum(amps), "A"))
+        rows.append((Quantity.GRID_CURRENT_A, sum(amps)))
 
-    for mtype, value, unit in rows:
-        Measurement.objects.create(
-            house=house, measurement_type=mtype,
-            value=round(value, 4), unit=unit, timestamp=ts,
-        )
+    for quantity, value in rows:
+        record(house, quantity, round(value, 4), ts, source=Source.DERIVED)
 
     # ÉCRITURE DOUBLE : le détail par ligne rejoint `LineReading`, en plus des
     # agrégats ci-dessus. Les deux chemins coexistent le temps de la bascule ;
@@ -175,18 +182,25 @@ def _store_dc_measurements(house, payload, ts):
     if not isinstance(dc, dict):
         return
 
+    # Le noeud secondaire parle : ses capteurs existent donc, et peuvent etre
+    # enregistres. Sans eux, une mesure ne pourrait pas NOMMER son capteur, et
+    # se declarer `SENSOR` serait refuse par la contrainte — a juste titre.
+    capteurs = ensure_dc_sensors(house)
+
+    # Ces six-là sont bien MESURÉES : elles viennent des capteurs du nœud
+    # secondaire, pas d'un calcul.
     rows = []
-    for key, mtype, unit in (
-        ("batteryVoltage", Measurement.Type.BATTERY_VOLTAGE, "V"),
-        ("batteryCurrent", Measurement.Type.BATTERY_CURRENT, "A"),
-        ("batteryTemp", Measurement.Type.BATTERY_TEMP, "°C"),
-        ("pvVoltage", Measurement.Type.PV_VOLTAGE, "V"),
-        ("pvCurrent", Measurement.Type.PV_CURRENT, "A"),
-        ("panelTemp", Measurement.Type.PANEL_TEMP, "°C"),
+    for key, quantity in (
+        ("batteryVoltage", Quantity.BATTERY_VOLTAGE_V),
+        ("batteryCurrent", Quantity.BATTERY_CURRENT_A),
+        ("batteryTemp", Quantity.BATTERY_TEMP_C),
+        ("pvVoltage", Quantity.PV_VOLTAGE_V),
+        ("pvCurrent", Quantity.PV_CURRENT_A),
+        ("panelTemp", Quantity.MODULE_TEMP_C),
     ):
         value = _to_float(dc, key)
         if value is not None:
-            rows.append((mtype, value, unit))
+            rows.append((quantity, value, Source.SENSOR))
 
     # Puissances CALCULÉES, jamais mesurées : le nœud n'a pas de wattmètre.
     # Elles sont dérivées ici plutôt que côté firmware pour que le produit
@@ -194,23 +208,22 @@ def _store_dc_measurements(house, payload, ts):
     battery_v = _to_float(dc, "batteryVoltage")
     battery_i = _to_float(dc, "batteryCurrent")
     if battery_v is not None and battery_i is not None:
-        rows.append((Measurement.Type.BATTERY_POWER, battery_v * battery_i, "W"))
+        rows.append((Quantity.BATTERY_POWER_W, battery_v * battery_i, Source.DERIVED))
 
     pv_v = _to_float(dc, "pvVoltage")
     pv_i = _to_float(dc, "pvCurrent")
     if pv_v is not None and pv_i is not None:
-        pv_power_w = pv_v * pv_i
-        rows.append((Measurement.Type.PV_POWER, pv_power_w, "W"))
-        # `production` est l'agrégat applicatif, en kW (cf. MEASUREMENTS_UNITS).
-        # C'est le premier producteur réel de ce fait : jusqu'ici le moteur
-        # retombait sur 0 kW faute de source.
-        rows.append(("production", pv_power_w / WATTS_PER_KILOWATT, "kW"))
+        # Une seule grandeur, en watts. Il n'y a plus de doublon `production`
+        # en kW : c'est exactement ce doublon qui avait produit le facteur 1000.
+        rows.append((Quantity.PV_POWER_W, pv_v * pv_i, Source.DERIVED))
 
-    for mtype, value, unit in rows:
-        Measurement.objects.create(
-            house=house, measurement_type=mtype,
-            value=round(value, 4), unit=unit, timestamp=ts,
-        )
+    for quantity, value, source in rows:
+        # Une mesure de capteur NOMME son capteur ; une valeur calculee n'en a
+        # pas et se declare derivee. `record` impose SENSOR des qu'un capteur
+        # est fourni, ce qui rend l'incoherence impossible.
+        capteur = capteurs.get(CAPTEUR_PAR_GRANDEUR.get(quantity, ""))
+        record(house, quantity, round(value, 4), ts,
+               source=source, sensor=capteur if source == Source.SENSOR else None)
 
 
 def _refresh_battery_states(house):
