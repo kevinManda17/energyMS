@@ -317,3 +317,75 @@ def test_provisioning_is_idempotent_and_preserves_customisation(house):
     assert ligne.name == "Cuisine"
     assert ligne.priority_override == Priority.CRITICAL
     assert Line.objects.filter(house=house).count() == 3
+
+
+# --------------------------------------------------------------------------- #
+# §2.8 — les libellés viennent de l'API, plus des interfaces
+# --------------------------------------------------------------------------- #
+
+def test_the_reference_endpoint_serves_every_enumeration(house):
+    """LE correctif du défaut d'affichage des priorités.
+
+    Les libellés étaient écrits en dur dans le web ET dans le mobile : trois
+    listes pour la même énumération, qui ne coïncidaient pas. L'interface
+    montrait « prioritaire » là où la base disait `IMPORTANT`, et une valeur
+    inconnue tombait dans le vide.
+    """
+    from rest_framework.test import APIClient
+
+    client = APIClient()
+    client.force_authenticate(house.owner)
+    resp = client.get("/api/reference/")
+    assert resp.status_code == 200
+
+    attendues = {
+        "priorities", "decision_codes", "execution_modes", "alert_levels",
+        "equipment_statuses", "load_types", "control_modes", "node_types",
+        "quantities", "measurement_sources",
+    }
+    assert attendues <= set(resp.data)
+    for nom in attendues:
+        assert resp.data[nom], f"{nom} est vide"
+        for entree in resp.data[nom]:
+            assert entree["value"] and entree["label"]
+
+
+def test_priorities_are_served_in_the_engine_order(house):
+    """Du plus délestable au plus protégé.
+
+    Une interface qui affiche la liste telle quelle présente donc les niveaux
+    dans l'ordre qui a un sens physique, sans avoir à les retrier.
+    """
+    from rest_framework.test import APIClient
+
+    client = APIClient()
+    client.force_authenticate(house.owner)
+    resp = client.get("/api/reference/")
+
+    valeurs = [p["value"] for p in resp.data["priorities"]]
+    attendu = sorted(
+        (p.value for p in Priority), key=core_priorities.rank
+    )
+    assert valeurs == attendu
+    assert valeurs[0] == "NON_CRITICAL"   # délestée en premier
+    assert valeurs[-1] == "CRITICAL"      # jamais coupée
+
+
+def test_quantities_carry_their_unit(house):
+    """L'interface n'a plus ni à deviner l'unité ni à la stocker."""
+    from rest_framework.test import APIClient
+
+    client = APIClient()
+    client.force_authenticate(house.owner)
+    resp = client.get("/api/reference/")
+
+    par_valeur = {q["value"]: q for q in resp.data["quantities"]}
+    assert par_valeur["load_power_w"]["unit"] == "W"
+    assert par_valeur["battery_temp_c"]["unit"] == "°C"
+    assert par_valeur["irradiance_wm2"]["unit"] == "W/m²"
+
+
+def test_the_reference_endpoint_requires_authentication():
+    from rest_framework.test import APIClient
+
+    assert APIClient().get("/api/reference/").status_code in (401, 403)
