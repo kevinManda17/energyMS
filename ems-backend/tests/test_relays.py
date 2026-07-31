@@ -252,7 +252,7 @@ def test_enriched_payload_produces_a_battery_state(auth_client):
     client.get(f"/api/houses/{house.id}/relays/")
     EnergyAsset.objects.create(
         house=house, name="Batterie 1",
-        asset_type=EnergyAsset.AssetType.BATTERY, capacity_kwh=1.2, voltage=12.0,
+        asset_type=EnergyAsset.AssetType.BATTERY, capacity_wh=1200.0, voltage=12.0,
     )
     token = RelayState.objects.get(house=house).device_token
 

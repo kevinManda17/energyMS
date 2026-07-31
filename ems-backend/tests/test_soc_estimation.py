@@ -203,24 +203,24 @@ class TestBatteryStateService:
         return House.objects.create(owner=user, name="Proto SOC")
 
     @staticmethod
-    def _battery(house, capacity_kwh=1.2, voltage=12.0):
+    def _battery(house, capacity_wh=1200.0, voltage=12.0):
         from apps.energy_assets.models import EnergyAsset
 
         return EnergyAsset.objects.create(
             house=house, name="Batterie 1",
             asset_type=EnergyAsset.AssetType.BATTERY,
-            capacity_kwh=capacity_kwh, voltage=voltage,
+            capacity_wh=capacity_wh, voltage=voltage,
         )
 
     @staticmethod
-    def _measure(house, mtype, value, unit):
+    def _measure(house, quantity, value, _unit=None):
+        """Seme une GRANDEUR typee (§2.4) : l'unite est portee par le nom."""
         from django.utils import timezone
         from apps.measurements.models import Measurement
 
-        return Measurement.objects.create(
-            house=house, measurement_type=mtype, value=value, unit=unit,
-            timestamp=timezone.now(),
-        )
+        from apps.measurements.models import record
+
+        return record(house, quantity, value, timezone.now())
 
     def test_without_any_measurement_the_state_is_unknown(self):
         from apps.energy_assets.soc_service import estimate_battery_state
@@ -235,8 +235,8 @@ class TestBatteryStateService:
         from apps.energy_assets.soc_service import estimate_battery_state
 
         house = self._house()
-        self._measure(house, "battery_voltage", 12.40, "V")
-        self._measure(house, "battery_current", 0.05, "A")
+        self._measure(house, "battery_voltage_v", 12.40, "V")
+        self._measure(house, "battery_current_a", 0.05, "A")
 
         state = estimate_battery_state(self._battery(house))
         assert state.estimation_method == "OCV"
@@ -260,8 +260,8 @@ class TestBatteryStateService:
             soc_percent=80.0, estimation_method="OCV", uncertainty_percent=10.0,
             calibrated_at=timezone.now() - timedelta(minutes=30),
         )
-        self._measure(house, "battery_voltage", 12.10, "V")
-        self._measure(house, "battery_current", -5.0, "A")
+        self._measure(house, "battery_voltage_v", 12.10, "V")
+        self._measure(house, "battery_current_a", -5.0, "A")
 
         state = estimate_battery_state(battery)
         assert state.estimation_method == "COULOMB"
@@ -274,8 +274,8 @@ class TestBatteryStateService:
         from apps.energy_assets.soc_service import estimate_battery_state
 
         house = self._house()
-        self._measure(house, "battery_voltage", 12.66, "V")
-        self._measure(house, "battery_current", 0.1, "A")
+        self._measure(house, "battery_voltage_v", 12.66, "V")
+        self._measure(house, "battery_current_a", 0.1, "A")
         estimate_battery_state(self._battery(house))
 
         facts = facts_from_house(house)

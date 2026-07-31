@@ -103,17 +103,20 @@ def _prediction_energy(house, target: str, fallback_power_kw: float) -> float:
 
 
 def _pv_nominal_power_kw(house, fallback: float = 5.0) -> float:
-    values = (
-        EnergyAsset.objects.filter(
-            house=house,
-            asset_type=EnergyAsset.AssetType.PV_PANEL,
-            status=EnergyAsset.Status.ACTIVE,
-        )
-        .exclude(nominal_power_kw__isnull=True)
-        .values_list("nominal_power_kw", flat=True)
-    )
-    total = sum(float(value or 0) for value in values)
-    return total or fallback
+    """Puissance crete installee, en kW pour `EnergyFacts`.
+
+    IL N'Y A PLUS DE SECONDE IMPLEMENTATION. Cette fonction recalculait la
+    somme des panneaux de son cote, tandis que `forecasting/services.py`
+    faisait la meme somme PUIS retombait sur `House.pv_capacity_kw` — que
+    celle-ci ignorait. Les deux modules raisonnaient donc sur des capacites
+    differentes pour la meme maison.
+
+    Les deux lisent desormais `House.pv_nominal_power_w`, unique source. La
+    division par 1000 est la frontiere assumee entre la base (W) et
+    `EnergyFacts` (kW) : elle est explicite, comme celle des puissances.
+    """
+    watts = house.pv_nominal_power_w if house is not None else None
+    return (watts / WATTS_PER_KILOWATT) if watts else fallback
 
 
 def _operating_mode(house) -> str:
@@ -297,10 +300,10 @@ def _battery_facts(house) -> list[BatteryFacts]:
 
     facts = []
     for asset in rows:
+        # Deja en Wh depuis §2.7 : plus de conversion, donc plus d'occasion
+        # de l'oublier.
         capacity_wh = (
-            float(asset.capacity_kwh) * WH_PER_KWH
-            if asset.capacity_kwh is not None
-            else None
+            float(asset.capacity_wh) if asset.capacity_wh is not None else None
         )
         state = (
             BatteryState.objects.filter(battery=asset).order_by("-timestamp").first()

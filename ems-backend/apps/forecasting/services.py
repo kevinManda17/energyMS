@@ -207,48 +207,46 @@ def _active_sklearn_model(target: str) -> ImportedModel | None:
 # Helper utilities                                                              #
 # =========================================================================== #
 
-def pv_capacity_estimate_kw(house) -> float | None:
-    """
-    User-configured estimate of the installed PV capacity: the sum of active
-    PV panel assets when they carry a nominal power, else the house-level
-    pv_capacity_kw. None when nothing has been configured — both sources are
-    editable at any time (a solar configuration can change).
+def pv_capacity_estimate_w(house) -> float | None:
+    """Puissance crete installee, en WATTS — SOURCE UNIQUE.
+
+    Cette fonction retombait sur `House.pv_capacity_kw` quand aucun panneau
+    n'etait renseigne, tandis que `fuzzy_engine/engine.py::_pv_nominal_power_kw`
+    l'ignorait purement et simplement. Le module de prevision et le moteur
+    expert raisonnaient donc sur des capacites DIFFERENTES pour la meme maison,
+    sans que rien ne le signale.
+
+    Les deux lisent desormais la meme propriete calculee, et il n'y a plus de
+    seconde implementation. None quand aucun panneau n'est renseigne : une
+    capacite inconnue ne doit pas etre remplacee par une valeur plausible,
+    sans quoi la mise a l'echelle des previsions reposerait sur un chiffre que
+    personne n'a saisi.
     """
     if house is None:
         return None
-    total = (
-        EnergyAsset.objects.filter(
-            house=house,
-            asset_type=EnergyAsset.AssetType.PV_PANEL,
-            status=EnergyAsset.Status.ACTIVE,
-        )
-        .exclude(nominal_power_kw__isnull=True)
-        .values_list("nominal_power_kw", flat=True)
-    )
-    capacity = sum(float(v or 0) for v in total)
-    if capacity:
-        return capacity
-    house_capacity = getattr(house, "pv_capacity_kw", None)
-    return float(house_capacity) if house_capacity else None
+    return house.pv_nominal_power_w
 
 
-def pv_nominal_power_kw(house, fallback: float = 5.0) -> float:
-    return pv_capacity_estimate_kw(house) or fallback
+def pv_nominal_power_w(house, fallback: float = 5000.0) -> float:
+    return pv_capacity_estimate_w(house) or fallback
 
 
 def pv_scale_factor(house, model_record) -> tuple[float, float | None]:
     """
-    (scale, capacity_kw) to convert the PV model's output — Watts of the
+    (scale, capacity_w) to convert the PV model's output — Watts of the
     reference panel it was trained on — into the user's own installation.
     Scale stays 1.0 (raw model output) unless BOTH the model's
     reference_peak_w and an estimated capacity for the house are configured,
     so nothing is ever silently invented.
     """
-    capacity_kw = pv_capacity_estimate_kw(house)
+    capacity_w = pv_capacity_estimate_w(house)
     reference_w = getattr(model_record, "reference_peak_w", None)
-    if not capacity_kw or not reference_w:
-        return 1.0, capacity_kw
-    return (capacity_kw * 1000.0) / float(reference_w), capacity_kw
+    if not capacity_w or not reference_w:
+        return 1.0, capacity_w
+    # Les deux termes sont en WATTS : le rapport est direct, sans conversion.
+    # C'est le x1000 qui trainait ici qui rendait la formule difficile a
+    # verifier — il fallait se souvenir que l'un etait en kW et l'autre en W.
+    return capacity_w / float(reference_w), capacity_w
 
 
 def _recent_average(house, quantity: str, fallback: float) -> float:
@@ -400,14 +398,18 @@ def _weather_row_for_horizon(weather_lookup: dict[datetime, dict], horizon: date
 
 
 def _feature_context(house, horizon) -> dict:
-    capacity = pv_nominal_power_kw(house)
+    capacity_w = pv_nominal_power_w(house)
     return {
         "hour": horizon.hour,
         "weekday": horizon.weekday(),
-        "recent_production_kw": _recent_average(house, "production", fallback=capacity * 0.35),
+        # La base stocke des watts ; ce contexte, lui, est en kW. La frontiere
+        # est explicite, comme partout ailleurs depuis §2.4.
+        "recent_production_kw": _recent_average(
+            house, "pv_power_w", fallback=capacity_w * 0.35
+        ) / 1000.0,
         "recent_consumption_kw": _recent_average(house, "consumption", fallback=1.8),
         "battery_soc": _recent_average(house, "battery_soc", fallback=50.0),
-        "pv_nominal_power_kw": capacity,
+        "pv_nominal_power_w": capacity_w,
     }
 
 
@@ -847,7 +849,7 @@ def _predict_with_keras_model(
 def _features_for_sklearn(model: ImportedModel, context: dict) -> list[list[float]]:
     feature_names = model.input_schema.get("features") or [
         "hour", "recent_production_kw", "recent_consumption_kw",
-        "battery_soc", "pv_nominal_power_kw",
+        "battery_soc", "pv_nominal_power_w",
     ]
     return [[float(context.get(name, 0.0) or 0.0) for name in feature_names]]
 
@@ -964,7 +966,7 @@ def _forecast_production_sklearn_batch(
     if not feature_cols:
         return None
 
-    scale, capacity_kw = pv_scale_factor(house, model_record)
+    scale, capacity_w = pv_scale_factor(house, model_record)
     static_values = _pv_static_features(house, feature_cols, scale=scale)
     horizons = [now + timedelta(minutes=step_minutes * step) for step in range(1, n_steps + 1)]
     weather_rows = [_weather_row_for_horizon(weather_lookup, h) for h in horizons]
@@ -990,7 +992,7 @@ def _forecast_production_sklearn_batch(
                 "mode": "sklearn",
                 "weather": weather_row or {},
                 "pv_scale": round(scale, 4),
-                "pv_capacity_kw": capacity_kw,
+                "pv_capacity_w": capacity_w,
             },
         })
     return results
@@ -1044,7 +1046,7 @@ def forecast_value(
 
     keras_record = _active_keras_model(target)
     if keras_record is not None:
-        scale, capacity_kw = (
+        scale, capacity_w = (
             pv_scale_factor(house, keras_record) if target == "production" else (1.0, None)
         )
         value = _predict_with_keras_model(
@@ -1058,12 +1060,12 @@ def forecast_value(
                 "features": context,
                 "weather": weather_row or {},
                 "pv_scale": round(scale, 4),
-                "pv_capacity_kw": capacity_kw,
+                "pv_capacity_w": capacity_w,
             }
 
     sklearn_record = _active_sklearn_model(target)
     if sklearn_record is not None:
-        scale, capacity_kw = (
+        scale, capacity_w = (
             pv_scale_factor(house, sklearn_record) if target == "production" else (1.0, None)
         )
         value = _predict_with_sklearn_model(
@@ -1077,7 +1079,7 @@ def forecast_value(
                 "features": context,
                 "weather": weather_row or {},
                 "pv_scale": round(scale, 4),
-                "pv_capacity_kw": capacity_kw,
+                "pv_capacity_w": capacity_w,
             }
 
     # No mathematical fallback: surfacing an explicit error beats showing the

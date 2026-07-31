@@ -16,7 +16,7 @@ from __future__ import annotations
 from django.utils import timezone
 
 from apps.fuzzy_engine.core import soc as soc_core
-from apps.measurements.models import Measurement
+from apps.measurements.models import Measurement, Quantity
 
 from .models import BatteryState, EnergyAsset
 
@@ -35,7 +35,7 @@ DEFAULT_NOMINAL_VOLTAGE_V = 12.0
 IDLE_CURRENT_A = 0.5
 
 
-def _latest(house, measurement_type: str, max_age_s: int = MEASUREMENT_MAX_AGE_S):
+def _latest(house, quantity: str, max_age_s: int = MEASUREMENT_MAX_AGE_S):
     """Dernière mesure d'un type, si elle est encore fraîche.
 
     La fraîcheur n'est pas un détail : une tension batterie vieille d'une heure
@@ -43,7 +43,7 @@ def _latest(house, measurement_type: str, max_age_s: int = MEASUREMENT_MAX_AGE_S
     d'un point faux qu'il propagerait ensuite indéfiniment.
     """
     row = (
-        Measurement.objects.filter(house=house, measurement_type=measurement_type)
+        Measurement.objects.filter(house=house, quantity=quantity)
         .order_by("-timestamp")
         .first()
     )
@@ -56,15 +56,16 @@ def _latest(house, measurement_type: str, max_age_s: int = MEASUREMENT_MAX_AGE_S
 def _capacity_ah(battery: EnergyAsset) -> float | None:
     """Capacité en ampères-heures, déduite de la capacité en kWh et de la tension.
 
-    `EnergyAsset` stocke des kWh ; le comptage coulométrique, lui, intègre des
+    `EnergyAsset` stocke des Wh ; le comptage coulométrique, lui, intègre des
     ampères. La conversion passe par la tension nominale : Ah = Wh / V.
     """
-    if battery.capacity_kwh is None:
+    if battery.capacity_wh is None:
         return None
     voltage = battery.voltage or DEFAULT_NOMINAL_VOLTAGE_V
     if voltage <= 0:
         return None
-    return (battery.capacity_kwh * 1000.0) / voltage
+    # La capacite est deja en Wh : plus de x1000 a se rappeler. Ah = Wh / V.
+    return battery.capacity_wh / voltage
 
 
 def _direction(current_a: float | None) -> str:
@@ -89,9 +90,9 @@ def estimate_battery_state(battery: EnergyAsset, persist: bool = True):
     house = battery.house
     now = timezone.now()
 
-    voltage_v = _latest(house, Measurement.Type.BATTERY_VOLTAGE)
-    current_a = _latest(house, Measurement.Type.BATTERY_CURRENT)
-    temperature_c = _latest(house, Measurement.Type.BATTERY_TEMP)
+    voltage_v = _latest(house, Quantity.BATTERY_VOLTAGE_V)
+    current_a = _latest(house, Quantity.BATTERY_CURRENT_A)
+    temperature_c = _latest(house, Quantity.BATTERY_TEMP_C)
 
     previous = (
         BatteryState.objects.filter(battery=battery)
@@ -133,8 +134,8 @@ def estimate_battery_state(battery: EnergyAsset, persist: bool = True):
     )
 
     energy_wh = None
-    if estimate.soc_percent is not None and battery.capacity_kwh is not None:
-        energy_wh = estimate.soc_percent / 100.0 * battery.capacity_kwh * 1000.0
+    if estimate.soc_percent is not None and battery.capacity_wh is not None:
+        energy_wh = estimate.soc_percent / 100.0 * battery.capacity_wh
 
     state = BatteryState(
         battery=battery,

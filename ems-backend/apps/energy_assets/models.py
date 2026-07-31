@@ -27,8 +27,13 @@ class EnergyAsset(models.Model):
     )
     name = models.CharField(max_length=120)
     asset_type = models.CharField(max_length=30, choices=AssetType.choices)
-    nominal_power_kw = models.FloatField(null=True, blank=True)
-    capacity_kwh = models.FloatField(null=True, blank=True)
+    # Unités portées par le NOM, et stockage en W / Wh (§7 du cahier de
+    # refonte). `nominal_power_kw` et `capacity_kwh` avaient l'unité dans le
+    # nom mais laissaient chaque lecteur reconvertir : `soc_service` multipliait
+    # par 1000, `engine.py` non, `forecasting` encore autrement. Une même
+    # capacité valait donc trois choses selon qui la lisait.
+    nominal_power_w = models.FloatField(null=True, blank=True)
+    capacity_wh = models.FloatField(null=True, blank=True)
     voltage = models.FloatField(null=True, blank=True)
     current = models.FloatField(null=True, blank=True)
     efficiency = models.FloatField(null=True, blank=True)
