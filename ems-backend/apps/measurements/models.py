@@ -421,3 +421,98 @@ class WeatherForecast(models.Model):
     def __str__(self) -> str:
         return (f"{self.quantity}={self.value}{unit_for(self.quantity)} "
                 f"pour {self.valid_at:%Y-%m-%d %H:%M}")
+
+
+# Pas d'agrégation : DIX MINUTES. Ce n'est pas un réglage de confort — c'est le
+# ré-échantillonnage du jeu de consommation sur lequel le GRU a été entraîné.
+# La base doit produire directement le format attendu par l'entraînement, sinon
+# il faut ré-échantillonner à la volée à chaque usage, et deux
+# ré-échantillonnages successifs ne donnent pas le même résultat qu'un seul.
+ROLLUP_STEP_MINUTES = 10
+
+
+def floor_to_bucket(instant, step_minutes: int = ROLLUP_STEP_MINUTES):
+    """Ramène un instant au début de son intervalle d'agrégation."""
+    return instant.replace(
+        minute=(instant.minute // step_minutes) * step_minutes,
+        second=0,
+        microsecond=0,
+    )
+
+
+class MeasurementRollup(models.Model):
+    """Agrégat d'une grandeur sur dix minutes.
+
+    Pourquoi agréger : le nœud produit une mesure toutes les 30 s, soit
+    2 880 lignes par grandeur et par jour. Tracer une semaine d'historique
+    demanderait de lire 20 000 lignes pour dessiner 1 000 points. L'agrégat
+    fait le travail une fois.
+
+    `min` et `max` sont conservés en plus de la moyenne : une moyenne seule
+    efface les pointes, et ce sont précisément les pointes qui déclenchent le
+    délestage. Un intervalle dont la moyenne est 40 W et le maximum 900 W ne
+    décrit pas la même maison qu'un intervalle plat à 40 W.
+    """
+
+    house = models.ForeignKey(
+        House, on_delete=models.CASCADE, related_name="measurement_rollups"
+    )
+    quantity = models.CharField(max_length=28, choices=Quantity.choices)
+    bucket = models.DateTimeField(db_index=True)
+    avg_value = models.FloatField()
+    min_value = models.FloatField()
+    max_value = models.FloatField()
+    # Combien de mesures réelles composent l'agrégat. Un intervalle bâti sur
+    # 2 mesures au lieu de 20 n'a pas la même valeur, et il faut pouvoir le dire.
+    sample_count = models.PositiveIntegerField()
+
+    class Meta:
+        ordering = ["-bucket"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["house", "quantity", "bucket"],
+                name="un_agregat_par_grandeur_et_intervalle",
+            )
+        ]
+        indexes = [models.Index(fields=["house", "quantity", "-bucket"])]
+
+    def __str__(self) -> str:
+        return f"{self.quantity} moy={self.avg_value} @ {self.bucket:%Y-%m-%d %H:%M}"
+
+
+class LineRollup(models.Model):
+    """Agrégat d'une ligne sur dix minutes — ce qui rend l'historique par ligne
+    lisible.
+
+    `energy_wh` est la seule grandeur du système qui soit une ÉNERGIE et non
+    une puissance : elle intègre la puissance sur la durée de l'intervalle.
+    Sommer des puissances sans multiplier par le temps ne donne pas une énergie
+    — c'est la confusion que `docs/MEASUREMENTS_UNITS.md` interdit depuis le
+    début, et l'agrégat est le premier endroit du dépôt où le calcul est fait.
+
+    `closed_ratio` mesure la part de l'intervalle pendant laquelle la ligne
+    était alimentée. C'est ce qui permet de dire « la ligne 1 a été coupée
+    40 minutes hier » — une phrase que rien ne permettait de produire.
+    """
+
+    line = models.ForeignKey(
+        "devices.Line", on_delete=models.CASCADE, related_name="rollups"
+    )
+    bucket = models.DateTimeField(db_index=True)
+    avg_power_w = models.FloatField()
+    max_power_w = models.FloatField()
+    energy_wh = models.FloatField()
+    closed_ratio = models.FloatField()
+    sample_count = models.PositiveIntegerField()
+
+    class Meta:
+        ordering = ["-bucket"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["line", "bucket"], name="un_agregat_par_ligne_et_intervalle"
+            )
+        ]
+        indexes = [models.Index(fields=["line", "-bucket"])]
+
+    def __str__(self) -> str:
+        return f"{self.line} {self.energy_wh:.1f} Wh @ {self.bucket:%Y-%m-%d %H:%M}"

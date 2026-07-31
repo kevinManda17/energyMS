@@ -603,6 +603,7 @@ class EmsDecisionView(APIView):
             desired_lines_for_decision,
             lines_changed,
         )
+        from apps.fuzzy_engine.decision_lines import persist_decision_lines
         from apps.fuzzy_engine.engine import evaluate_house
         from apps.fuzzy_engine.models import Decision
 
@@ -619,10 +620,15 @@ class EmsDecisionView(APIView):
                     Forecast.objects.filter(house=state.house)
                     .order_by("-created_at").first()
                 )
-                Decision.objects.create(
+                decision = Decision.objects.create(
                     house=state.house, forecast=forecast,
                     **result.decision_payload()
                 )
+                # `applied` reste None ici : a l'instant ou la decision est
+                # tracee, rien n'a encore ete ecrit dans les relais. La
+                # difference entre DECIDER et FAIRE est precisement ce que
+                # `was_applied` enregistre.
+                persist_decision_lines(decision, state.house, applied=None)
 
         try:
             result = evaluate_house(state.house)
