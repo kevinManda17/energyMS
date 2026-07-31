@@ -32,13 +32,13 @@ def forecast_client(monkeypatch):
         house=house,
         name="Panneaux PV",
         asset_type=EnergyAsset.AssetType.PV_PANEL,
-        nominal_power_kw=4.5,
+        nominal_power_w=4500.0,
     )
     EnergyAsset.objects.create(
         house=house,
         name="Batterie",
         asset_type=EnergyAsset.AssetType.BATTERY,
-        capacity_kwh=7.5,
+        capacity_wh=7500.0,
     )
     now = timezone.now()
     for i in range(24):
@@ -110,7 +110,7 @@ def active_models(tmp_path):
                 "recent_production_kw",
                 "recent_consumption_kw",
                 "battery_soc",
-                "pv_nominal_power_kw",
+                "pv_nominal_power_w",
             ]
         },
         is_active=True,

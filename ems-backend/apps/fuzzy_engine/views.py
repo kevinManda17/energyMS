@@ -7,6 +7,7 @@ from apps.houses.models import House
 from apps.forecasting.models import Forecast
 
 from .actuator import apply_decision_to_relays
+from .decision_lines import persist_decision_lines
 from .engine import evaluate_house
 from .models import Decision
 from .serializers import DecisionSerializer, TriggerSerializer
@@ -81,6 +82,10 @@ class DecisionViewSet(
             forecast=forecast,
             **result.decision_payload(),
         )
+        # Le raisonnement par ligne devient INTERROGEABLE : il ne vit plus
+        # seulement dans le JSON de la trace, ou l'on ne pouvait le lire que
+        # decision par decision.
+        persist_decision_lines(decision, house, applied=applied_lines)
 
         if result.action in CRITICAL_ACTIONS:
             self._raise_alert(house, decision)

@@ -18,14 +18,22 @@ class HouseSerializer(serializers.ModelSerializer):
             "location",
             "latitude",
             "longitude",
-            "pv_capacity_kw",
-            "battery_capacity_kwh",
+            # Capacites CALCULEES depuis les actifs, en lecture seule : elles
+            # ne sont plus saisies sur la maison. Deux sources pour la meme
+            # capacite divergeaient — le module de prevision retombait sur
+            # celle de la maison quand aucun panneau n'etait renseigne, le
+            # moteur expert l'ignorait.
+            "pv_nominal_power_w",
+            "battery_capacity_wh",
             "description",
             "status",
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "owner", "created_at", "updated_at")
+        read_only_fields = (
+            "id", "owner", "created_at", "updated_at",
+            "pv_nominal_power_w", "battery_capacity_wh",
+        )
 
     def validate_latitude(self, value):
         # La latitude alimente la requête météo Open-Meteo (prévision PV) : une

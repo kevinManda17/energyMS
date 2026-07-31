@@ -10,7 +10,7 @@ import logging
 import os
 from datetime import datetime, timezone as dt_timezone
 
-from apps.measurements.models import Measurement
+from apps.measurements.models import Measurement, Quantity, Source, record
 from apps.measurements.weather_api import GTI_UNIT, fetch_solar_snapshot
 
 logger = logging.getLogger("ems.weather")
@@ -29,6 +29,26 @@ WEATHER_MEASUREMENT_UNITS = {
     "air_pressure": "hPa",
     "wind_speed": "m/s",
     "wind_direction": "°",
+}
+
+# Grandeur typée correspondant à chaque variable renvoyée par Open-Meteo.
+# TOUTES sont enregistrées avec `source=WEATHER_API` : ce sont des ESTIMATIONS
+# de modèle météorologique, pas des lectures de capteur. La distinction n'est
+# pas cosmétique — sans elle, la règle R032 du moteur (« plein soleil mais
+# production nulle -> anomalie photovoltaïque ») pouvait diagnostiquer une
+# panne matérielle sur la foi d'une irradiance qu'aucun pyranomètre n'avait
+# mesurée, sur un prototype qui n'en possède précisément pas.
+WEATHER_QUANTITIES = {
+    "irradiance": Quantity.IRRADIANCE_WM2,
+    "irradiance_tilt15": Quantity.IRRADIANCE_TILT15_WM2,
+    "irradiance_tilt20": Quantity.IRRADIANCE_TILT20_WM2,
+    "irradiance_east": Quantity.IRRADIANCE_EAST_WM2,
+    "irradiance_west": Quantity.IRRADIANCE_WEST_WM2,
+    "temperature": Quantity.AMBIENT_TEMP_C,
+    "humidity": Quantity.HUMIDITY_PCT,
+    "air_pressure": Quantity.AIR_PRESSURE_HPA,
+    "wind_speed": Quantity.WIND_SPEED_MS,
+    "wind_direction": Quantity.WIND_DIRECTION_DEG,
 }
 
 # Measurement types that come from the weather API — used to report the last
@@ -76,15 +96,15 @@ def collect_weather_for_house(house, lat: float | None = None, lon: float | None
     for mtype, value in snapshot.items():
         if value is None:
             continue
-        Measurement.objects.update_or_create(
-            house=house,
-            measurement_type=mtype,
-            timestamp=timestamp,
-            defaults={
-                "value": float(value),
-                "unit": WEATHER_MEASUREMENT_UNITS.get(mtype, ""),
-            },
-        )
+        quantity = WEATHER_QUANTITIES.get(mtype)
+        if quantity is None:
+            # Une variable sans grandeur connue n'est pas inventee : on la
+            # signale et on passe. Lui attribuer une grandeur approchante
+            # ferait entrer une donnee mal nommee dans le raisonnement.
+            logger.warning("Variable meteo sans grandeur correspondante : %s", mtype)
+            continue
+        record(house, quantity, float(value), timestamp,
+               source=Source.WEATHER_API)
         values[mtype] = float(value)
         stored += 1
 

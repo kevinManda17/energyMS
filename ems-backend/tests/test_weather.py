@@ -6,7 +6,7 @@ from rest_framework.test import APIClient
 
 from apps.energy_assets.models import EnergyAsset
 from apps.forecasting.models import ImportedModel
-from apps.forecasting.services import pv_capacity_estimate_kw, pv_scale_factor
+from apps.forecasting.services import pv_capacity_estimate_w, pv_scale_factor
 from apps.houses.models import House
 from apps.measurements.models import Measurement
 from apps.measurements.services import collect_weather_for_house
@@ -137,33 +137,46 @@ def _production_model(**extra):
 
 
 def test_pv_capacity_falls_back_to_house_estimate(scaling_house):
-    assert pv_capacity_estimate_kw(scaling_house) is None
+    assert pv_capacity_estimate_w(scaling_house) is None
 
-    scaling_house.pv_capacity_kw = 0.4
     scaling_house.save()
-    assert pv_capacity_estimate_kw(scaling_house) == 0.4
+    # `House.pv_capacity_kw` a ete RETIRE (§2.7) : la capacite se declare sur
+    # les actifs, source unique. Deux sources divergeaient — le module de
+    # prevision retombait sur celle de la maison, le moteur expert l'ignorait.
 
     # An active PV panel asset with nominal power takes precedence.
     EnergyAsset.objects.create(
         house=scaling_house,
         name="Panneau",
         asset_type=EnergyAsset.AssetType.PV_PANEL,
-        nominal_power_kw=0.3,
+        nominal_power_w=300.0,
     )
-    assert pv_capacity_estimate_kw(scaling_house) == 0.3
+    assert pv_capacity_estimate_w(scaling_house) == 300.0
 
 
 def test_pv_scale_factor_requires_both_reference_and_capacity(scaling_house):
+    """La mise a l'echelle n'invente rien : il lui faut LES DEUX termes.
+
+    Les deux sont desormais en WATTS, donc le rapport est direct. C'est le
+    x1000 qui trainait dans la formule qui la rendait difficile a verifier — il
+    fallait se souvenir que l'un etait en kW et l'autre en W.
+    """
+    from apps.energy_assets.models import EnergyAsset
+
     model = _production_model()
+    # Ni capacite ni reference : sortie brute du modele, et capacite inconnue.
     assert pv_scale_factor(scaling_house, model) == (1.0, None)
 
-    scaling_house.pv_capacity_kw = 0.4
-    scaling_house.save()
-    assert pv_scale_factor(scaling_house, model) == (1.0, 0.4)
+    # Capacite declaree sur un ACTIF — source unique depuis §2.7.
+    EnergyAsset.objects.create(
+        house=scaling_house, name="Panneau", asset_type="PV_PANEL",
+        nominal_power_w=400.0, status="ACTIVE",
+    )
+    assert pv_scale_factor(scaling_house, model) == (1.0, 400.0)
 
     model.reference_peak_w = 250.0
-    scale, capacity = pv_scale_factor(scaling_house, model)
-    assert capacity == 0.4
+    scale, capacity_w = pv_scale_factor(scaling_house, model)
+    assert capacity_w == 400.0
     assert scale == pytest.approx(400.0 / 250.0)
 
 

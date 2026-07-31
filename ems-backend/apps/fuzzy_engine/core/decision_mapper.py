@@ -395,5 +395,10 @@ def map_decision(
             "lines": [
                 evaluation.to_dict() for evaluation in (line_evaluations or [])
             ],
+            # Les FAITS de ligne, à côté de leur évaluation. Sans eux, la trace
+            # dit ce que le moteur a conclu sans dire sur quoi : on ne pourrait
+            # pas rejouer le raisonnement, ni savoir quelle ligne était
+            # alimentée au moment de la décision.
+            "input_lines": [line.to_dict() for line in facts.lines],
         },
     )

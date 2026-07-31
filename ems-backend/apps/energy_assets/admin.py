@@ -10,8 +10,8 @@ class EnergyAssetAdmin(admin.ModelAdmin):
         "house",
         "asset_type",
         "status",
-        "nominal_power_kw",
-        "capacity_kwh",
+        "nominal_power_w",
+        "capacity_wh",
     )
     list_filter = ("asset_type", "status")
     search_fields = ("name", "house__name")
