@@ -146,105 +146,112 @@ def _load_priority(house) -> str:
     return prio.DECISION_CLASS.get(dominant, "NON_PRIORITY")
 
 
-def _line_report(house):
-    """Dernier relevé par ligne remonté par le nœud, s'il est encore frais.
+def _latest_line_readings(lines) -> dict[int, object]:
+    """Dernier `LineReading` de chaque ligne, s'il est encore frais.
 
-    Renvoie ``(payload, relay_state)`` ou ``(None, relay_state)``. Le relevé du
-    nœud est la SEULE source par ligne : les `Measurement` agrégés (`power`,
-    `consumption`) additionnent les trois lignes et ne permettent plus de
-    savoir laquelle tire quoi.
+    Une ligne dont le dernier relevé est périmé n'apparaît pas dans le
+    résultat : elle sera traitée comme non mesurée. Un relevé vieux de dix
+    minutes décrit une maison qui n'existe plus, et agir dessus serait agir à
+    l'aveugle.
     """
-    from apps.devices.models import RelayState
+    from apps.measurements.models import LineReading
 
-    state = RelayState.objects.filter(house=house).first()
-    if state is None:
-        return None, None
-    report = state.last_report if isinstance(state.last_report, dict) else None
-    if report is None or state.last_contact_at is None:
-        return None, state
-    age_s = (timezone.now() - state.last_contact_at).total_seconds()
-    if age_s > LINE_REPORT_MAX_AGE_S:
-        return None, state
-    return report, state
+    limite = timezone.now() - timezone.timedelta(seconds=LINE_REPORT_MAX_AGE_S)
+    derniers: dict[int, object] = {}
+    for ligne in lines:
+        releve = (
+            LineReading.objects.filter(line=ligne, timestamp__gte=limite)
+            .order_by("-timestamp")
+            .first()
+        )
+        if releve is not None:
+            derniers[ligne.number] = releve
+    return derniers
 
 
 def _line_facts(house) -> list[LineFacts]:
-    """Assemble l'état des trois lignes commutables.
+    """Assemble l'état des lignes commutables.
 
     Trois sources se rejoignent ici :
       - les charges rattachées (`Equipment.relay_line`) donnent la priorité,
         la puissance nominale et les noms lisibles ;
-      - le relevé du nœud donne tension, courant et puissance mesurées ;
-      - `RelayState` donne l'état commandé du relais.
+      - `LineReading` donne tension, courant et puissance mesurées ;
+      - `LineState` donne l'état du relais.
+
+    La télémétrie vient désormais de `LineReading` et non de
+    `RelayState.last_report`. Ce n'est pas un simple déplacement de source :
+    `last_report` était un JSON écrasé toutes les trois secondes, sans
+    historique et sans horodatage par ligne. On ne pouvait donc pas dire depuis
+    quand UNE ligne donnée était muette — seulement depuis quand le nœud
+    entier l'était.
 
     Une ligne sans mesure n'est pas une ligne à 0 W : `is_measured` reste faux
     et `power_w` reste None. La différence est capitale — un 0 W inventé ferait
     croire à l'optimiseur qu'il ne gagne rien à couper cette ligne, alors qu'il
     n'en sait rien.
 
-    Renvoie une liste VIDE quand le micro-réseau n'a pas de `RelayState`,
-    c'est-à-dire quand aucun nœud ne lui a jamais été rattaché. Il faut
-    distinguer deux absences que l'on confond facilement :
+    Renvoie une liste VIDE quand le micro-réseau n'a aucune `Line`, c'est-à-dire
+    quand il n'a jamais été provisionné. Il faut distinguer deux absences que
+    l'on confond facilement :
 
-      - « j'ai trois lignes pilotables et je ne les vois pas » (nœud muet) :
-        les lignes existent, elles sont non mesurées, et le moteur s'interdit
-        d'y toucher ;
-      - « je n'ai aucun canal de télémétrie par ligne » (pas de nœud, cas de
-        l'interface de test) : le raisonnement par ligne ne s'applique pas, et
-        le moteur retombe sur le raisonnement maison.
+      - « j'ai des lignes pilotables et je ne les vois pas » (nœud muet) : les
+        lignes existent, elles sont non mesurées, et le moteur s'interdit d'y
+        toucher ;
+      - « je n'ai aucun canal de télémétrie par ligne » (micro-réseau non
+        provisionné, cas de l'interface de test) : le raisonnement par ligne
+        ne s'applique pas et le moteur retombe sur le raisonnement maison.
 
-    Fabriquer trois lignes fantômes dans le second cas aurait bloqué toute
-    décision automatique sur un micro-réseau qui n'a jamais prétendu en
-    fournir.
+    Fabriquer des lignes fantômes dans le second cas aurait bloqué toute
+    décision automatique sur un micro-réseau qui n'a jamais prétendu en fournir.
     """
-    report, state = _line_report(house)
-    if state is None:
+    from apps.devices.models import Line, LineState
+
+    lignes = list(Line.objects.filter(house=house).order_by("number"))
+    if not lignes:
         return []
 
-    loads: dict[int, list] = {n: [] for n in LINE_NUMBERS}
+    releves = _latest_line_readings(lignes)
+    etats = {
+        s.line_id: s.is_closed for s in LineState.objects.filter(line__house=house)
+    }
+
+    loads: dict[int, list] = {ligne.number: [] for ligne in lignes}
     rows = Equipment.objects.filter(
         house=house,
         status=Equipment.Status.ACTIVE,
-        relay_line__in=LINE_NUMBERS,
+        relay_line__in=list(loads),
     ).values_list("relay_line", "priority", "rated_power_kw", "name")
     for line_no, priority, rated_kw, name in rows:
         loads[line_no].append((priority, rated_kw, name))
 
     facts = []
-    for number in LINE_NUMBERS:
-        attached = loads[number]
-        priority = prio.line_priority([p for p, _kw, _n in attached])
-        if priority is None:
+    for ligne in lignes:
+        attached = loads[ligne.number]
+        # Une priorité forcée sur la ligne l'emporte : c'est sa raison d'être.
+        priority = ligne.priority_override or prio.line_priority(
+            [p for p, _kw, _n in attached]
+        )
+        if not priority:
             # Aucune charge rattachée : convention du prototype (cf.
             # core/priorities.py), pas un rang arbitraire.
-            priority = prio.FALLBACK_LINE_PRIORITY[number]
+            priority = prio.FALLBACK_LINE_PRIORITY.get(ligne.number, "NORMAL")
 
-        measured = report.get(f"line{number}") if report else None
-        measured = measured if isinstance(measured, dict) else None
-        voltage = _to_float(measured, "voltage") if measured else None
-        current = _to_float(measured, "current") if measured else None
-        power = _to_float(measured, "power") if measured else None
-        # Le firmware envoie déjà P = U x I x cos(phi) ; on ne le recalcule que
-        # s'il ne l'a pas fait, pour ne pas fabriquer une valeur là où le nœud
-        # en a une (et pour rester cohérent avec sa calibration).
-        if power is None and voltage is not None and current is not None:
-            power = voltage * current
-
+        releve = releves.get(ligne.number)
         facts.append(
             LineFacts(
-                line_number=number,
-                voltage_v=voltage,
-                current_a=current,
-                power_w=power,
-                relay_closed=(
-                    bool(getattr(state, f"line{number}")) if state else True
-                ),
+                line_number=ligne.number,
+                voltage_v=releve.voltage_v if releve else None,
+                current_a=releve.current_a if releve else None,
+                power_w=releve.power_w if releve else None,
+                # L'état du relais vient de `LineState` ; à défaut, la ligne est
+                # réputée alimentée, ce qui reste l'état par défaut d'un relais.
+                relay_closed=etats.get(ligne.id, True),
                 priority=priority,
                 nominal_power_w=sum(
                     float(kw or 0) * WATTS_PER_KILOWATT for _p, kw, _n in attached
                 ),
                 load_names=[name for _p, _kw, name in attached],
-                is_measured=power is not None,
+                is_measured=bool(releve and releve.is_measured),
             )
         )
     return facts
