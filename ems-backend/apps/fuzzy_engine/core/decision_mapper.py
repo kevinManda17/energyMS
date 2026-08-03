@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .models import EnergyDecisionResult, EnergyFacts, FuzzyInferenceResult
 from .priorities import is_sheddable
+from .shedding import build_shed_plan
 
 
 DECISION_LABELS = {
@@ -368,6 +369,22 @@ def map_decision(
     battery_action = _battery_action(scores, facts)
     explanation = _build_explanation(facts, decision_code, execution_mode, scores, inference_result)
 
+    # LE PLAN DE DÉLESTAGE EST PRODUIT ICI, par le moteur, et non recalculé en
+    # aval. C'est le principe de cette refonte : le système expert conclut,
+    # le back-end exécute. L'optimiseur, lui, recalculait une cible
+    # indépendamment des règles et pouvait ANNULER la décision — mesuré sur
+    # 98 pas sur 144 d'une journée couverte, soit 100 % des pas où le
+    # délestage était pourtant annoncé.
+    #
+    # Uniquement en mode AUTOMATIC : une recommandation ne doit produire
+    # aucune commande, même préparée. Un plan qui existe finit par être
+    # appliqué — le plus sûr est qu'il n'existe pas.
+    plan = (
+        build_shed_plan(facts, line_evaluations, decision_code)
+        if execution_mode == "AUTOMATIC"
+        else None
+    )
+
     return EnergyDecisionResult(
         decision_code=decision_code,
         decision_label=DECISION_LABELS[decision_code],
@@ -400,5 +417,9 @@ def map_decision(
             # pas rejouer le raisonnement, ni savoir quelle ligne était
             # alimentée au moment de la décision.
             "input_lines": [line.to_dict() for line in facts.lines],
+            # `None` = la question ne se pose pas (décision non actionnable,
+            # ou aucun fait de ligne). Un plan VIDE dirait autre chose : « la
+            # question se pose, et la réponse est rien à couper ».
+            "shed_plan": plan.to_dict() if plan is not None else None,
         },
     )

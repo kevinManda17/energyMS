@@ -45,10 +45,18 @@ def _seed_deficit(house):
 # --------------------------------------------------------------------------- #
 
 class _Res:
-    """Décision minimale pour tester le mapping."""
-    def __init__(self, code, mode="AUTOMATIC"):
+    """Décision minimale pour tester le REPLI de l'actionneur.
+
+    `shed_plan` vaut None : c'est exactement ce que produit le moteur quand le
+    micro-réseau n'a aucun fait de ligne. Ces tests vérifient donc le chemin de
+    repli — la convention de rang — et non le plan, qui a ses propres tests
+    dans `test_shedding.py`.
+    """
+    def __init__(self, code, mode="AUTOMATIC", shed_plan=None):
         self.decision_code = code
         self.execution_mode = mode
+        self.shed_plan = shed_plan
+        self.trace = {}
 
 
 def test_shedding_targets_line_with_lowest_priority_equipment(auth_client):

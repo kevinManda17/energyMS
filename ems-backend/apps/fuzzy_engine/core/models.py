@@ -33,6 +33,17 @@ class LineFacts:
     # ligne ; l'optimiseur a interdiction d'y toucher (on ne coupe pas à
     # l'aveugle, et on ne rétablit pas non plus).
     is_measured: bool = False
+    # D'OÙ vient la priorité : "DECLAREE" quand au moins une charge active est
+    # rattachée à la ligne, "CONVENTION" quand aucune ne l'est et que le code
+    # retombe sur `priorities.FALLBACK_LINE_PRIORITY`.
+    #
+    # Sans ce champ, la trace ne distinguait pas une priorité issue de la base
+    # d'une priorité DEVINÉE. Les deux n'ont pas la même valeur de preuve :
+    # l'une exprime ce que l'utilisateur a déclaré de ses charges, l'autre une
+    # convention de câblage héritée du firmware. Couper une ligne sur la
+    # seconde en le sachant est un choix ; le faire sans le savoir est un
+    # accident.
+    priority_source: str = "CONVENTION"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -194,6 +205,17 @@ class EnergyDecisionResult:
     # rejouer le raisonnement sans le recalculer. Un seul champ pour ne pas
     # multiplier les colonnes à chaque nouvelle étape du moteur.
     trace: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def shed_plan(self) -> dict[str, Any] | None:
+        """Le plan de délestage, lu dans la trace.
+
+        PROPRIÉTÉ et non champ de dataclasse, délibérément : un champ serait
+        déversé en colonne par `ExpertEvaluation.decision_payload()` et
+        exigerait une migration. La trace est déjà le champ JSON prévu pour le
+        raisonnement — le plan y a sa place, pas dans une colonne de plus.
+        """
+        return (self.trace or {}).get("shed_plan")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
