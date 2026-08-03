@@ -120,28 +120,6 @@ def fuzzify_pv_generation_ratio(value: float) -> dict[str, float]:
     }
 
 
-def fuzzify_autonomy_hours(value: float) -> dict[str, float]:
-    """Combien d'heures le stockage tient au rythme actuel.
-
-    C'est la variable qui COUPLE production, consommation et stockage. Les
-    autres faits n'entraient dans les règles que par des conjonctions (`min`) :
-    chacun plafonnait les autres, et faire varier le bilan prévisionnel sur
-    toute son étendue ne changeait rien à la décision dans une large part des
-    situations. L'autonomie, elle, est une grandeur unique — et la seule du
-    moteur qui se dise telle quelle à l'oral : « le système tient trois heures ».
-
-    Univers borné à 72 h : au-delà de trois jours, la distinction cesse d'avoir
-    un sens décisionnel.
-    """
-    x = clamp(value, 0.0, 72.0)
-    return {
-        "critical": trapezoidal(x, 0, 0, 1, 2),      # moins d'une heure
-        "short": trapezoidal(x, 1, 2, 4, 6),         # une à quatre heures
-        "comfortable": trapezoidal(x, 4, 6, 12, 16),  # quatre à douze heures
-        "large": trapezoidal(x, 12, 16, 72, 72),     # plus de douze heures
-    }
-
-
 def fuzzify_line_power_share(value: float) -> dict[str, float]:
     """Part d'une ligne dans la puissance totale du micro-réseau.
 
@@ -185,6 +163,21 @@ def soc_at_most_low(value: float | None) -> float:
     return trapezoidal(clamp(value, 0.0, 100.0), 0, 0, 30, 45)
 
 
+def soc_at_least_medium(value: float | None) -> float:
+    """« Le SOC est moyen ou mieux » — sommet et pied gauche de `medium`.
+
+    Construction SYMÉTRIQUE de `soc_at_most_low` : on reprend le sommet et le
+    pied du terme concerné en saturant du côté favorable. Aucun paramètre
+    nouveau — les bornes 35 et 55 sont celles du terme `medium` lui-même.
+
+    Elle remplace `autonomy_at_least_comfortable` dans la prémisse de
+    relâchement (cf. `rules._shortfall_is_covered`).
+    """
+    if value is None:
+        return 0.0
+    return trapezoidal(clamp(value, 0.0, 100.0), 35, 55, 100, 100)
+
+
 def pv_at_most_low(value: float) -> float:
     """« La production est faible ou pire » — sommet et pied droit de `low`."""
     return trapezoidal(clamp(value, 0.0, 1.0), 0, 0, 0.35, 0.55)
@@ -200,21 +193,6 @@ def temperature_at_least_high(value: float | None) -> float:
     if value is None:
         return 0.0
     return trapezoidal(clamp(value, -20.0, 100.0), 35, 45, 100, 100)
-
-
-def autonomy_at_most_short(value: float) -> float:
-    """« L'autonomie est courte ou pire » — sommet et pied droit de `short`."""
-    return trapezoidal(clamp(value, 0.0, 72.0), 0, 0, 4, 6)
-
-
-def autonomy_at_least_comfortable(value: float) -> float:
-    """« L'autonomie est confortable ou mieux » — sommet et pied gauche.
-
-    Sert de prémisse de RELÂCHEMENT : c'est la seule condition qui autorise le
-    moteur à ne pas s'alarmer d'une production faible. Elle n'est vraie que si
-    l'autonomie est effectivement connue et suffisante — jamais par défaut.
-    """
-    return trapezoidal(clamp(value, 0.0, 72.0), 4, 6, 72, 72)
 
 
 def line_power_at_least_moderate(value: float) -> float:
@@ -310,26 +288,6 @@ def hours_until_daylight(hour: int | None) -> float | None:
     if DAYLIGHT_START_HOUR <= hour < DAYLIGHT_END_HOUR:
         return 0.0
     return float((DAYLIGHT_START_HOUR - hour) % 24)
-
-
-def night_coverage_gap(
-    autonomy_h: float | None, hour: int | None
-) -> float:
-    """À quel point l'autonomie ne couvre PAS la nuit qui reste, entre 0 et 1.
-
-    C'est l'anticipation que le moteur ne savait pas faire : à 19 h avec trois
-    heures d'autonomie, tout va bien *maintenant* — et la maison sera dans le
-    noir à 22 h. Attendre que l'autonomie devienne critique, c'est réagir trois
-    heures trop tard, alors que le photovoltaïque ne rechargera rien avant le
-    lendemain matin.
-
-    Vaut 0 le jour, et 0 si l'heure ou l'autonomie sont inconnues : le moteur
-    n'anticipe pas sur ce qu'il ignore.
-    """
-    remaining = hours_until_daylight(hour)
-    if remaining is None or autonomy_h is None or remaining <= 0:
-        return 0.0
-    return clamp((remaining - autonomy_h) / remaining, 0.0, 1.0)
 
 
 def probe_implausibility(

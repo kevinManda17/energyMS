@@ -119,13 +119,6 @@ class EnergyFacts:
     lines: list[LineFacts] = field(default_factory=list)
     batteries: list[BatteryFacts] = field(default_factory=list)
 
-    # Autonomie prévue, en heures. Fait dérivé qui COUPLE enfin la prévision,
-    # la capacité de stockage et le SOC, au lieu de les laisser se plafonner
-    # mutuellement par un `min`. Directement interprétable : « le système sait
-    # combien d'heures il tient ». None = pas calculable (SOC ou capacité
-    # inconnus) — et alors aucune règle d'autonomie ne se déclenche.
-    autonomy_hours: float | None = None
-
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 

@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 from .membership import (
-    autonomy_at_least_comfortable,
-    autonomy_at_most_short,
     balance_at_most_deficit,
     clamp,
-    fuzzify_autonomy_hours,
     fuzzify_battery_soc,
     fuzzify_battery_temperature,
     fuzzify_current_load_ratio,
@@ -14,10 +11,10 @@ from .membership import (
     fuzzify_irradiance,
     fuzzify_pv_generation_ratio,
     module_derating,
-    night_coverage_gap,
     presence_level,
     probe_implausibility,
     pv_at_most_low,
+    soc_at_least_medium,
     soc_at_most_low,
     temperature_at_least_high,
 )
@@ -43,17 +40,6 @@ def fuzzify_facts(facts: EnergyFacts) -> dict:
         "data_quality": fuzzify_data_quality(
             facts.data_quality, facts.data_completeness
         ),
-        # Autonomie : tous les termes à zéro quand elle n'est pas calculable
-        # (SOC ou capacité inconnus). Une règle d'autonomie ne se déclenche
-        # alors pas — elle ne se déclenche pas « en faveur du calme » non plus,
-        # elle ne se déclenche simplement pas. `known` permet aux règles de
-        # distinguer « autonomie confortable » de « autonomie inconnue ».
-        "autonomy": (
-            fuzzify_autonomy_hours(facts.autonomy_hours)
-            if facts.autonomy_hours is not None
-            else {"critical": 0.0, "short": 0.0, "comfortable": 0.0, "large": 0.0}
-        ),
-        "autonomy_known": 1.0 if facts.autonomy_hours is not None else 0.0,
         # Contexte : météo, sonde module, horloge, régime de pilotage. Chacun
         # de ces faits était transmis au moteur et tracé dans la Decision sans
         # qu'AUCUNE règle ne le lise — six promesses non tenues. Chacun vaut 0
@@ -73,10 +59,6 @@ def fuzzify_facts(facts: EnergyFacts) -> dict:
             ),
             # Présence attendue au domicile (heure + jour de la semaine).
             "presence": presence_level(facts.hour, facts.day_of_week),
-            # L'autonomie couvre-t-elle la nuit qui reste ?
-            "night_coverage_gap": night_coverage_gap(
-                facts.autonomy_hours, facts.hour
-            ),
             # Cohérence entre la sonde batterie et la température ambiante.
             "probe_implausibility": probe_implausibility(
                 facts.battery_temperature_c, facts.ambient_temperature_c
@@ -102,22 +84,12 @@ def fuzzify_facts(facts: EnergyFacts) -> dict:
         # qui s'en sert reste vérifiable a posteriori.
         "cumulative": {
             "soc_at_most_low": soc_at_most_low(facts.battery_soc_percent),
+            # Prémisse de RELÂCHEMENT, en remplacement de l'autonomie.
+            "soc_at_least_medium": soc_at_least_medium(facts.battery_soc_percent),
             "pv_at_most_low": pv_at_most_low(pv_generation_ratio),
             "balance_at_most_deficit": balance_at_most_deficit(energy_balance_ratio),
             "temperature_at_least_high": temperature_at_least_high(
                 facts.battery_temperature_c
-            ),
-            "autonomy_at_most_short": (
-                autonomy_at_most_short(facts.autonomy_hours)
-                if facts.autonomy_hours is not None
-                else 0.0
-            ),
-            # Prémisse de RELÂCHEMENT. Vaut 0 quand l'autonomie est inconnue :
-            # le moteur ne se rassure jamais sur une donnée qu'il n'a pas.
-            "autonomy_at_least_comfortable": (
-                autonomy_at_least_comfortable(facts.autonomy_hours)
-                if facts.autonomy_hours is not None
-                else 0.0
             ),
         },
     }
