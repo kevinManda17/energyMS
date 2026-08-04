@@ -17,7 +17,6 @@ from .core import (
     LineFacts,
 )
 from .core import priorities as prio
-from .core.autonomy import autonomy_hours
 
 
 # Il n'y a PLUS de valeur par défaut pour le SOC ni pour la température
@@ -39,7 +38,7 @@ LINE_NUMBERS = (1, 2, 3)
 
 # Au-delà de cet âge, le dernier relevé du nœud ne vaut plus comme mesure : le
 # nœud est muet. Les lignes passent alors `is_measured = False`, ce qui INTERDIT
-# à l'optimiseur d'y toucher. Un relevé vieux de dix minutes décrit une maison
+# au moteur d'y toucher (veto L006). Un relevé vieux de dix minutes décrit une maison
 # qui n'existe plus ; agir dessus serait agir à l'aveugle. La cadence de sondage
 # est de 3 s, celle de stockage de 30 s : 120 s laissent passer quatre sondages
 # manqués avant de déclarer la ligne inconnue.
@@ -51,8 +50,6 @@ LINE_REPORT_MAX_AGE_S = 120
 # exactement le genre de valeur fausse qui a l'air juste.
 BATTERY_STATE_MAX_AGE_S = 900
 
-# Le calcul d'autonomie lui-même vit dans core/autonomy.py : c'est de la
-# physique, pas de l'accès aux données, et il doit rester mesurable sans Django.
 
 
 def _latest_value(house, quantity: str, default: float | None = None):
@@ -240,6 +237,14 @@ def _line_facts(house) -> list[LineFacts]:
         priority = ligne.priority_override or prio.line_priority(
             [p for p, _kw, _n in attached]
         )
+        # D'OÙ vient cette priorité. Une priorité DÉCLARÉE (issue des charges
+        # rattachées, ou forcée sur la ligne) et une priorité DEVINÉE (la
+        # convention du firmware) n'ont pas la même valeur de preuve. Sans
+        # cette distinction, la trace ne permettait pas de savoir si le moteur
+        # avait coupé une ligne sur ce que l'utilisateur a déclaré, ou sur une
+        # convention de câblage héritée. Couper sur la seconde en le sachant
+        # est un choix ; le faire sans le savoir est un accident.
+        priority_source = "DECLAREE" if priority else "CONVENTION"
         if not priority:
             # Aucune charge rattachée : convention du prototype (cf.
             # core/priorities.py), pas un rang arbitraire.
@@ -256,6 +261,7 @@ def _line_facts(house) -> list[LineFacts]:
                 # réputée alimentée, ce qui reste l'état par défaut d'un relais.
                 relay_closed=etats.get(ligne.id, True),
                 priority=priority,
+                priority_source=priority_source,
                 nominal_power_w=sum(
                     float(kw or 0) * WATTS_PER_KILOWATT for _p, kw, _n in attached
                 ),
@@ -622,7 +628,6 @@ def facts_from_house(house, overrides: dict | None = None) -> EnergyFacts:
         operating_mode=_operating_mode(house),
         lines=lines,
         batteries=batteries,
-        autonomy_hours=autonomy_hours(batteries, consumption, production),
     )
 
 

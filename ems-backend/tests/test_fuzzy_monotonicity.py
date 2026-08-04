@@ -17,7 +17,6 @@ TROIS FAMILLES
 import pytest
 
 from apps.fuzzy_engine.core import BatteryFacts, EnergyFacts, FuzzyExpertEngine, LineFacts
-from apps.fuzzy_engine.core.autonomy import autonomy_hours
 from apps.fuzzy_engine.core.line_rules import get_line_rules
 from apps.fuzzy_engine.core.rules import get_default_rules
 
@@ -70,9 +69,6 @@ def make_facts(soc=50.0, temp=25.0, balance=1.0, pv_kw=1.5, load_kw=1.0,
         data_quality=quality,
         pv_nominal_power_kw=5.0,
         batteries=[battery] if battery else [],
-        autonomy_hours=(
-            autonomy_hours([battery], load_kw, pv_kw) if battery else None
-        ),
         **extra,
     )
 
@@ -163,26 +159,28 @@ def test_severity_never_decreases_as_production_falls():
     )
 
 
-def test_severity_never_decreases_as_autonomy_shrinks():
-    """L'autonomie se pilote par le SOC à déficit fixé — comme dans la réalité,
-    où la capacité ne change pas en marche."""
-    failures = []
-    for pv_kw, load_kw in ((0.0, 1.0), (0.5, 2.0), (1.0, 4.0)):
-        for priority in ("CRITICAL", "PRIORITY", "NON_PRIORITY"):
-            previous = None
-            for soc in frange(100.0, 0.0):
-                facts = make_facts(soc=soc, pv_kw=pv_kw, load_kw=load_kw,
-                                   priority=priority, with_battery=True)
-                result = ENGINE.evaluate(facts)
-                danger = DANGER_SEVERITY[result.decision_code]
-                if previous is not None and danger < previous[1]:
-                    failures.append(
-                        f"autonomie : SOC {previous[0]} -> {soc} "
-                        f"({facts.autonomy_hours:.2f} h), gravite "
-                        f"{previous[1]} -> {danger}"
-                    )
-                previous = (soc, danger)
-    assert not failures, "\n".join(failures[:10])
+def test_autonomy_is_no_longer_a_fact_of_the_engine():
+    """L'autonomie a été RETIRÉE des faits du système expert.
+
+    C'était une grandeur DÉRIVÉE — elle combinait production, consommation et
+    stockage — et elle transportait un horizon (« confortable au-delà de quatre
+    heures ») qu'aucune règle ne justifiait. Elle se déduit à l'extérieur si
+    besoin.
+
+    Ce test remplace l'ancien balayage de monotonie sur l'axe de l'autonomie :
+    cet axe n'existe plus, et le vérifier n'aurait plus d'objet. Ce qui reste
+    vérifiable, c'est que le fait a bien disparu de la sortie du moteur.
+    """
+    facts = make_facts(soc=40.0, with_battery=True)
+    result = ENGINE.evaluate(facts)
+
+    assert "autonomy_hours" not in result.input_facts
+    assert "autonomy" not in result.fuzzy_values
+    assert "autonomy_known" not in result.fuzzy_values
+    cumulatives = result.fuzzy_values["cumulative"]
+    assert not any(cle.startswith("autonomy") for cle in cumulatives)
+    # La prémisse de relâchement qui la remplace, elle, est bien là.
+    assert "soc_at_least_medium" in cumulatives
 
 
 # --------------------------------------------------------------------------- #
@@ -429,10 +427,22 @@ def test_every_declared_fact_influences_the_engine():
     """
     from tools.fuzzy_bench import measure_fact_usage
 
+    # `batteries` est la SEULE exception admise, et elle est documentée.
+    # L'autonomie était son unique lectrice dans le noyau ; en la retirant, on
+    # a laissé le parc de batteries sans lecteur côté règles. Il reste utile
+    # côté assembleur Django, qui en dérive le SOC agrégé et la température
+    # retenue — mais dans `core/`, il ne pèse plus sur rien.
+    #
+    # Cette exception est ÉCRITE plutôt que tolérée en silence : le jour où une
+    # règle lira de nouveau le parc, ce test le signalera comme une régression
+    # de la liste, et il faudra le retirer d'ici sciemment.
+    SANS_LECTEUR_DANS_LE_NOYAU = {"batteries"}
+
     usage = measure_fact_usage()
-    assert not usage["without_influence"], (
+    inattendus = set(usage["without_influence"]) - SANS_LECTEUR_DANS_LE_NOYAU
+    assert not inattendus, (
         "faits declares sans aucune influence sur la sortie du moteur : "
-        f"{usage['without_influence']}"
+        f"{sorted(inattendus)}"
     )
 
 

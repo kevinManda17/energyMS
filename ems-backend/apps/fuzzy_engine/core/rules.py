@@ -47,15 +47,27 @@ def _shortfall_is_covered(fuzzy_values: dict) -> float:
     Deux façons, indépendantes, qu'une production momentanément faible ne soit
     PAS un problème :
 
-      - l'autonomie est confortable : la batterie tient le temps qu'il faut ;
+      - la réserve est moyenne ou mieux : la batterie a de quoi tenir ;
       - le bilan prévisionnel annonce un excédent ET la batterie n'est pas
         basse : la production va revenir, et il y a de quoi patienter.
 
     Disjonction et non conjonction : l'une OU l'autre suffit. C'est bien deux
     raisons distinctes de ne pas s'alarmer.
+
+    CE QUE CE REMPLACEMENT NE RATTRAPE PAS. Le premier terme lisait autrefois
+    l'autonomie, retirée des faits du moteur. L'autonomie RAPPORTAIT la réserve
+    à la consommation ; le SOC seul ne le fait pas. Une batterie à 50 % est
+    ample pour 24 W et dérisoire pour 2 kW, et cette prémisse ne distingue plus
+    les deux. Le relâchement est donc plus GROSSIER — c'est le prix assumé de
+    la simplification, et il faut le savoir en lisant les décisions nocturnes.
+
+    Sans ce remplacement, le retrait de l'autonomie coûtait 171 Wh délestés sur
+    une journée de ciel clair où la batterie ne descend pas sous 51 % : la nuit,
+    la production prévue étant nulle, le bilan est en déficit critique quelle
+    que soit la batterie, et plus rien ne venait tempérer l'alarme.
     """
     return fuzzy_or(
-        fuzzy_values["cumulative"]["autonomy_at_least_comfortable"],
+        fuzzy_values["cumulative"]["soc_at_least_medium"],
         fuzzy_and(
             fuzzy_values["energy_balance"]["surplus"],
             fuzzy_not(fuzzy_values["cumulative"]["soc_at_most_low"]),
@@ -129,6 +141,12 @@ def get_default_rules() -> list[FuzzyRule]:
     Pour exprimer « la situation est calme », il ne faut donc pas un score bas :
     il faut ne rien ajouter, ou porter la prémisse de relâchement dans une règle
     concurrente (cf. `_shortfall_is_covered`).
+
+    R026 (autonomie critique), R027 (autonomie courte) et R036 (nuit non
+    couverte) ont été RETIRÉES avec le fait d'autonomie. L'autonomie était une
+    grandeur DÉRIVÉE — elle combinait production, consommation et stockage — et
+    elle transportait un horizon (« confortable au-delà de quatre heures »)
+    qu'aucune règle ne justifiait. La base passe de 38 à 35 règles.
     """
     return [
         _make_rule(
@@ -212,9 +230,16 @@ def get_default_rules() -> list[FuzzyRule]:
             "R006_CRITICAL_DEFICIT_PRIORITY",
             "Deficit critique charge prioritaire",
             "Deficit critique avec charge prioritaire ou critique.",
+            # `_shortfall_not_covered` AJOUTE : R006 concluait au delestage sans
+            # jamais lire la batterie, alors que sa regle jumelle R005 lit bien
+            # la reserve. L'asymetrie n'etait pas un choix. Verifie sur le
+            # moteur : a 95 % d'etat de charge, a 22 h, R006 se declenchait a
+            # activation 1,00 et produisait risque 95, alerte CRITICAL et
+            # delestage automatique.
             lambda f, v: fuzzy_and(
                 v["energy_balance"]["critical_deficit"],
                 fuzzy_or(_priority(f, "PRIORITY"), _priority(f, "CRITICAL")),
+                _shortfall_not_covered(v),
             ),
             {
                 "risk_score": 95,
@@ -404,7 +429,13 @@ def get_default_rules() -> list[FuzzyRule]:
             "R021_NON_PRIORITY_LOAD_ECO_MODE",
             "Mode economie charge non prioritaire",
             "Risque energetique eleve avec charge non prioritaire.",
-            lambda f, v: fuzzy_and(_risk_estimate(v), _priority(f, "NON_PRIORITY")),
+            # Meme correction que R006 : un risque eleve ne justifie pas de
+            # delester si la reserve couvre le creux.
+            lambda f, v: fuzzy_and(
+                _risk_estimate(v),
+                _priority(f, "NON_PRIORITY"),
+                _shortfall_not_covered(v),
+            ),
             {
                 "risk_score": 85,
                 "shedding_level": 90,
@@ -417,7 +448,11 @@ def get_default_rules() -> list[FuzzyRule]:
             "R022_PRIORITY_LOAD_ECO_MODE",
             "Mode economie charge prioritaire",
             "Risque energetique eleve avec charge prioritaire.",
-            lambda f, v: fuzzy_and(_risk_estimate(v), _priority(f, "PRIORITY")),
+            lambda f, v: fuzzy_and(
+                _risk_estimate(v),
+                _priority(f, "PRIORITY"),
+                _shortfall_not_covered(v),
+            ),
             {
                 "risk_score": 85,
                 "shedding_level": 70,
@@ -467,42 +502,6 @@ def get_default_rules() -> list[FuzzyRule]:
         # Ces deux regles sont les seules a lire une grandeur qui COMBINE
         # production, consommation et stockage. Toutes les autres les lisent
         # separement, puis les font se plafonner par des `min`.
-        _make_rule(
-            "R026_AUTONOMY_CRITICAL",
-            "Autonomie critique",
-            "Moins d'une heure d'autonomie au rythme actuel.",
-            lambda _f, v: v["autonomy"]["critical"],
-            {
-                "risk_score": 95,
-                "shedding_level": 90,
-                "protect_battery_score": 65,
-                "automatic_score": 85,
-                "recommendation_score": 95,
-            },
-            "Au rythme actuel, la reserve d'energie ne tiendra pas une heure : il "
-            "faut reduire la consommation tout de suite.",
-        ),
-        _make_rule(
-            "R027_AUTONOMY_SHORT",
-            "Autonomie courte",
-            "Une a quatre heures d'autonomie : anticiper avant la panne.",
-            lambda _f, v: fuzzy_and(
-                v["autonomy"]["short"], fuzzy_not(v["autonomy"]["critical"])
-            ),
-            {
-                "risk_score": 70,
-                "shedding_level": 62,
-                "recommendation_score": 85,
-            },
-            "La reserve d'energie ne couvre que quelques heures : mieux vaut "
-            "alleger maintenant que subir une coupure plus tard.",
-        ),
-        # --- Bilan previsionnel SEUL -----------------------------------------
-        # Le bilan n'intervenait qu'en conjonction avec un terme portant sur le
-        # SOC ou la charge. Consequence mesuree : faire varier le bilan sur
-        # toute son etendue (0 a 2) ne changeait PAS la decision dans une large
-        # part des situations de bonne qualite. Une prevision qui n'influence
-        # jamais rien n'est pas une prevision, c'est un affichage.
         _make_rule(
             "R028_FORECAST_CRITICAL_DEFICIT",
             "Deficit previsionnel critique",
@@ -635,20 +634,6 @@ def get_default_rules() -> list[FuzzyRule]:
             "Le local est chaud et la batterie l'est deja : sa temperature va "
             "continuer de monter. Il vaut mieux la menager avant qu'elle "
             "n'atteigne un niveau dangereux.",
-        ),
-        _make_rule(
-            "R036_NIGHT_AHEAD_NOT_COVERED",
-            "La nuit restante n'est pas couverte",
-            "L'autonomie ne couvre pas les heures d'obscurite qui restent.",
-            lambda _f, v: v["context"]["night_coverage_gap"],
-            {
-                "risk_score": 80,
-                "shedding_level": 68,
-                "recommendation_score": 92,
-            },
-            "La reserve d'energie ne suffira pas a passer la nuit, et le solaire "
-            "ne produira rien avant le matin. Il faut economiser maintenant "
-            "plutot que de subir une coupure au milieu de la nuit.",
         ),
         _make_rule(
             "R037_AUTOMATIC_MODE_NEEDS_SOUND_DATA",

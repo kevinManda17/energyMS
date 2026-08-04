@@ -286,8 +286,10 @@ class TestBatteryStateService:
         assert battery.soc_percent == pytest.approx(80.0, abs=1.0)
         # L'agrégat maison est DÉRIVÉ du parc : les deux ne peuvent plus diverger.
         assert facts.battery_soc_percent == pytest.approx(80.0, abs=1.0)
-        # Et l'autonomie devient calculable, puisque SOC et capacité le sont.
-        assert facts.autonomy_hours is not None
+        # L'autonomie n'est plus un fait du moteur : elle a été retirée avec
+        # R026/R027/R036. Ce que le SOC alimente désormais, c'est l'agrégat
+        # maison et la prémisse de relâchement `soc_at_least_medium`.
+        assert not hasattr(facts, "autonomy_hours")
 
     def test_a_stale_state_is_not_reused_as_current(self):
         """Un SOC périmé lu comme actuel est une valeur fausse qui a l'air juste."""
