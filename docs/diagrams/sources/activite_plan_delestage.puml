@@ -1,0 +1,172 @@
+@startuml activite_plan_delestage
+' ===========================================================================
+' La construction du plan de délestage — core/shedding.py, build_shed_plan()
+'
+' CE MODULE NE CONTIENT AUCUNE CONSTANTE NUMÉRIQUE. Ce n'est pas une élégance :
+' c'est la définition même de ce qu'il fait. Il n'optimise rien, il ORDONNE ce
+' que les règles de ligne ont déjà jugé. Tout seuil qu'il porterait serait un
+' second avis, en concurrence avec celui du moteur.
+'
+' L'OPTIMISEUR QU'IL REMPLACE recalculait une cible de puissance avec ses
+' propres coefficients, puis choisissait la combinaison de lignes qui
+' l'atteignait au moindre coût. Quand cette cible valait zéro — parce que la
+' réserve était inconnue, ou parce qu'aucune ligne n'était mesurée — il ne
+' coupait rien, alors même que le moteur venait de conclure au délestage.
+' Mesuré : 98 pas sur 144 d'une journée couverte, soit 100 % des pas où le
+' délestage était annoncé. Le système disait « je coupe » et ne coupait pas.
+' ===========================================================================
+skinparam defaultFontName Helvetica
+skinparam shadowing false
+skinparam ArrowColor #546E7A
+
+skinparam activity {
+  BackgroundColor #FFFFFF
+  BorderColor #78909C
+  DiamondBackgroundColor #FFF8E1
+  DiamondBorderColor #F9A825
+  FontSize 12
+  StartColor #37474F
+  EndColor #37474F
+}
+skinparam note {
+  BackgroundColor #FFFDE7
+  BorderColor #FBC02D
+}
+
+title Plan de délestage — le moteur conclut, le back-end exécute
+
+start
+
+:decision_code, faits de ligne,
+évaluations produites par les 6 règles;
+
+if (le code de décision commande-t-il les relais ?\nSHED_NON_PRIORITY_LOAD ou PROTECT_BATTERY) then (non)
+  #ECEFF1:**None**
+  « la question ne se pose pas »;
+  stop
+endif
+
+if (le micro-réseau a-t-il des faits de ligne ?) then (non)
+  #ECEFF1:**None**;
+  note right
+    `None` et un plan VIDE ne disent pas la même
+    chose. Le premier : « la question ne se pose
+    pas ». Le second : « elle se pose, et la
+    réponse est : rien à couper ». Les confondre
+    ferait passer une abstention pour une absence
+    de sujet.
+  end note
+  stop
+endif
+
+partition "Ordonner — sans rejuger" {
+  :**ordered_candidates()**
+  retenir les lignes NON bloquées par un veto;
+  :trier par ( −shed_score , rang de priorité , numéro );
+  note right
+    Le shed_score vient des règles de ligne et
+    n'est pas recalculé — c'est tout l'objet de
+    la refonte. Le rang départage à score égal,
+    le numéro rend l'ordre reproductible : sans
+    lui, le système couperait tantôt l'une tantôt
+    l'autre sans qu'on puisse l'expliquer.
+  end note
+
+  :**forbidden_lines()**
+  les lignes interdites, avec le veto qui les protège
+  L003 vitale · L005 déjà ouverte · L006 non mesurée;
+  note right
+    Une interdiction invisible ne se distingue
+    pas d'un oubli. Elles figurent dans le plan
+    même si elles n'y changent rien.
+  end note
+}
+
+if (reste-t-il au moins un candidat ?) then (non)
+  #FFCDD2:**AUCUNE_LIGNE_AUTORISEE**
+  aucune coupure — tout reste en l'état;
+else (oui)
+
+  if (décision) then (PROTECT_BATTERY)
+
+    if (une ligne VITALE existe-t-elle\ndans le micro-réseau ?) then (oui)
+      #F8BBD0:couper **toutes** les lignes autorisées
+      **PROTECTION_BATTERIE**;
+      note right
+        Ce qui reste alimenté est exactement ce qui
+        compte : les lignes critiques, que le veto
+        L003 a déjà écartées des candidats.
+      end note
+    else (non)
+      #F8BBD0:couper toutes **sauf la dernière de l'ordre**
+      **PROTECTION_BATTERIE**;
+      note right
+        Celle que les règles veulent le moins couper
+        est épargnée. Tout éteindre laisserait la
+        maison dans le noir pour préserver une
+        batterie qui n'alimente plus rien : protéger
+        la réserve n'a de sens que s'il reste quelque
+        chose à alimenter.
+      end note
+    endif
+
+  else (SHED_NON_PRIORITY_LOAD)
+
+    if (un délestage est-il **déjà en place** ?\nligne ouverte, mesurée, non critique) then (oui)
+      #FFECB3:aucune coupure
+      **DELESTAGE_DEJA_EN_PLACE**;
+      note right
+        La garantie porte sur l'ÉPISODE, pas sur le
+        cycle. Sans ce garde-fou, un déficit qui
+        persiste coupe une ligne de plus à CHAQUE
+        évaluation. Mesuré sur le prototype : les
+        trois lignes éteintes en trente minutes,
+        batterie à 69 %.
+
+        Une ligne vitale ouverte ne compte pas : le
+        moteur ne les coupe jamais, donc son état ne
+        prouve aucun délestage. Une ligne non mesurée
+        non plus : on ignore si l'ouvrir a soulagé
+        quoi que ce soit.
+      end note
+    else (non)
+      #FFECB3:couper **la première de l'ordre, et elle seule**
+      **COUPURE_UNIQUE**;
+    endif
+
+  endif
+endif
+
+partition "Rendre le plan lisible" {
+  :état voulu de CHAQUE ligne — y compris celles
+  qu'on ne touche pas, laissées dans leur état;
+  :puissance libérée, ou **None** si les lignes
+  coupées ne sont pas mesurées;
+  note right
+    `None` plutôt que 0 W : annoncer zéro
+    laisserait croire que la coupure ne
+    rapporte rien, alors qu'on l'ignore.
+  end note
+  :`basis` — chaque candidat avec son score,
+  la règle qui le porte, et l'origine de sa priorité
+  (**DECLAREE** en base ou **CONVENTION** de câblage);
+  :explication en français : ce qui a été coupé,
+  pourquoi on s'est arrêté là, ce qui a été épargné
+  et par quel veto;
+}
+
+#C8E6C9:**ShedPlan**;
+note right
+  **Couper sur une convention de câblage en le**
+  **sachant est un choix ; le faire sans le savoir**
+  **est un accident.** Quand aucune charge n'est
+  rattachée à une ligne, sa priorité retombe sur la
+  convention héritée du firmware (L2 prioritaire,
+  L1 et L3 délestables). Le plan le signale
+  explicitement, au lieu de présenter cette
+  supposition comme une déclaration.
+end note
+
+stop
+
+@enduml

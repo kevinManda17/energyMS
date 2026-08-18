@@ -1,0 +1,324 @@
+@startuml classes_systeme_expert
+' ===========================================================================
+' Le noyau du système expert flou — apps/fuzzy_engine/core/
+'
+' CE QUE CE DIAGRAMME DOIT FAIRE VOIR EN PREMIER : le noyau n'importe pas
+' Django. Pas un modèle, pas un réglage, pas une requête. C'est une contrainte
+' d'architecture tenue, pas une intention — elle est ce qui permet de balayer
+' 222 750 situations en une cinquantaine de secondes, et de tester le
+' raisonnement sans base de données.
+'
+' Les modules sans état (fuzzification, inférence, agrégation, planchers,
+' cascade, délestage) sont dessinés en «module» avec leurs fonctions : ce sont
+' des fonctions libres, pas des méthodes. Les dessiner en classes donnerait à
+' croire à une conception objet qui n'existe pas et que rien n'exige.
+' ===========================================================================
+skinparam defaultFontName Helvetica
+skinparam shadowing false
+skinparam ArrowColor #546E7A
+skinparam linetype ortho
+
+skinparam class {
+  BackgroundColor #FFFFFF
+  BorderColor #78909C
+  ArrowColor #546E7A
+  FontSize 12
+}
+skinparam package {
+  BorderColor #B0BEC5
+  FontStyle bold
+}
+skinparam note {
+  BackgroundColor #FFFDE7
+  BorderColor #FBC02D
+}
+
+title Système expert flou — classes du noyau (aucune dépendance Django)
+
+package "Faits — ce que le système sait" #E8F5E9 {
+
+  class EnergyFacts <<dataclass>> {
+    .. Agrégats du micro-réseau ..
+    +current_pv_power_kw : float
+    +current_load_power_kw : float
+    +forecast_pv_energy_kwh : float
+    +forecast_load_energy_kwh : float
+    +battery_soc_percent : float | None
+    +battery_temperature_c : float | None
+    +load_priority : str
+    +data_quality : str
+    +data_completeness : float | None
+    +pv_nominal_power_kw : float
+    .. Contexte ..
+    +ambient_temperature_c : float | None
+    +solar_irradiance_wm2 : float | None
+    +module_temperature_c : float | None
+    +hour : int | None
+    +day_of_week : int | None
+    +operating_mode : str
+    .. Détail ..
+    +lines : list<LineFacts>
+    +batteries : list<BatteryFacts>
+    --
+    +to_dict() : dict
+  }
+
+  class LineFacts <<dataclass>> {
+    +line_number : int
+    +voltage_v : float | None
+    +current_a : float | None
+    +power_w : float | None
+    +relay_closed : bool
+    +priority : str
+    +nominal_power_w : float
+    +load_names : list<str>
+    +is_measured : bool
+    +priority_source : str
+    --
+    +to_dict() : dict
+  }
+
+  class BatteryFacts <<dataclass>> {
+    +battery_id : str
+    +soc_percent : float | None
+    +soc_method : str
+    +soc_uncertainty_percent : float | None
+    +voltage_v : float | None
+    +current_a : float | None
+    +power_w : float | None
+    +direction : str
+    +temperature_c : float | None
+    +capacity_wh : float | None
+    +energy_wh : float | None
+  }
+}
+
+package "Règles" #F3E5F5 {
+
+  class FuzzyRule <<dataclass>> {
+    +id : str
+    +name : str
+    +description : str
+    +evaluate : (EnergyFacts, dict) -> float
+    +effects : dict<str, float>
+    +explanation_template : str
+  }
+
+  class LineRule <<dataclass>> {
+    +id : str
+    +name : str
+    +description : str
+    +evaluate : (LineFacts, dict) -> float
+    +effects : dict<str, float>
+    +explanation_template : str
+    +veto : bool = False
+  }
+
+  class FuzzyRuleResult <<dataclass>> {
+    +rule_id : str
+    +rule_name : str
+    +activation_degree : float
+    +effects : dict<str, float>
+    +explanation : str
+  }
+}
+
+package "Moteur" #EDE7F6 {
+
+  class FuzzyExpertEngine {
+    +rules : list<FuzzyRule> | None
+    +line_rules : list<LineRule> | None
+    --
+    +evaluate(facts : EnergyFacts) : EnergyDecisionResult
+    -_validate_and_normalize_facts(facts) : EnergyFacts
+  }
+
+  class membership <<module>> {
+    +triangular(x, a, b, c) : float
+    +trapezoidal(x, a, b, c, d) : float
+    +fuzzify_battery_soc(v) : dict
+    +fuzzify_battery_temperature(v) : dict
+    +fuzzify_energy_balance_ratio(v) : dict
+    +fuzzify_pv_generation_ratio(v) : dict
+    +fuzzify_irradiance(v) : dict
+    .. Prémisses cumulatives ..
+    +soc_at_most_low(v) : float
+    +soc_at_least_medium(v) : float
+    +pv_at_most_low(v) : float
+    +balance_at_most_deficit(v) : float
+    +temperature_at_least_high(v) : float
+  }
+
+  class facts <<module>> {
+    +fuzzify_facts(f : EnergyFacts) : dict
+  }
+
+  class inference <<module>> {
+    +run_inference(f, fuzzy, rules) : FuzzyInferenceResult
+  }
+
+  class aggregation <<module>> {
+    +aggregate_rule_results(results) : dict
+  }
+
+  class safety <<module>> {
+    +risk_floor(soc, temp) : float
+    +protect_floor(soc, temp) : float
+    +apply_safety_floors(scores, f) : dict
+  }
+
+  class decision_mapper <<module>> {
+    +map_decision(f, inference, fuzzy, lines) : EnergyDecisionResult
+    -_battery_action(scores, f) : str
+    -_shed_capability(f, evaluations) : (bool, list)
+  }
+
+  class shedding <<module>> {
+    +ordered_candidates(f, evaluations) : list<Candidate>
+    +forbidden_lines(f, evaluations) : list<dict>
+    +already_shed(f) : list<int>
+    +build_shed_plan(f, evaluations, code) : ShedPlan | None
+  }
+
+  class soc <<module>> {
+    +soc_from_ocv(v, nominal) : float
+    +estimate_from_ocv(v, i) : SocEstimate
+    +estimate_from_coulomb(...) : SocEstimate
+    +best_estimate(...) : SocEstimate
+  }
+
+  class priorities <<module>> {
+    +PRIORITY_RANK : dict
+    +rank(priority) : int
+    +FALLBACK_LINE_PRIORITY : dict
+  }
+}
+
+package "Conclusions — ce que le système décide" #E1F5FE {
+
+  class FuzzyInferenceResult <<dataclass>> {
+    +fired_rules : list<FuzzyRuleResult>
+    +aggregated_scores : dict
+    +rule_scores : dict
+    +safety_floors : dict
+  }
+
+  class LineEvaluation <<dataclass>> {
+    +line_number : int
+    +shed_score : float
+    +protect_score : float
+    +blocked : bool
+    +block_reasons : list<str>
+    +fired_rules : list<dict>
+    +explanation : str
+  }
+
+  class EnergyDecisionResult <<dataclass>> {
+    +decision_code : str
+    +decision_label : str
+    +execution_mode : str
+    +alert_level : str
+    +risk_score : float
+    +shedding_level : float
+    +charge_battery_score : float
+    +discharge_battery_score : float
+    +protect_battery_score : float
+    +recommendation_score : float
+    +automatic_score : float
+    +blocked_score : float
+    +battery_action : str
+    +explanation : str
+    +trace : dict
+    --
+    +shed_plan : dict | None <<property>>
+  }
+
+  class ShedPlan <<dataclass>> {
+    +desired : dict<int, bool>
+    +shed_lines : list<int>
+    +ordered_candidates : list<Candidate>
+    +forbidden_lines : list<dict>
+    +recovered_power_w : float | None
+    +stop_reason : str
+    +basis : list<dict>
+    +explanation : str
+  }
+
+  class Candidate <<dataclass>> {
+    +line_number : int
+    +shed_score : float
+    +rank : int
+    +priority : str
+    +power_w : float | None
+    +order : int
+    +rule_id : str
+    +priority_source : str
+  }
+
+  class SocEstimate <<dataclass>> {
+    +soc_percent : float | None
+    +method : str
+    +uncertainty_percent : float | None
+    +reason : str
+    --
+    +is_usable : bool <<property>>
+  }
+}
+
+' --- Composition des faits ------------------------------------------------ '
+EnergyFacts *-- "0..*" LineFacts
+EnergyFacts *-- "0..*" BatteryFacts
+
+' --- Le pipeline, dans son ordre d'exécution ------------------------------ '
+FuzzyExpertEngine ..> facts : 1. fuzzifie
+FuzzyExpertEngine ..> inference : 2. infère
+FuzzyExpertEngine ..> LineEvaluation : 3. évalue\nchaque ligne
+FuzzyExpertEngine ..> decision_mapper : 4. tranche
+
+facts ..> membership
+inference ..> aggregation
+inference ..> safety
+inference ..> FuzzyRule : applique
+inference --> FuzzyInferenceResult : produit
+LineRule --> LineEvaluation : produit
+decision_mapper ..> shedding : si AUTOMATIC
+decision_mapper --> EnergyDecisionResult : produit
+shedding --> ShedPlan : produit
+shedding ..> priorities : départage à\nscore égal
+soc --> SocEstimate : produit
+
+ShedPlan *-- "0..*" Candidate
+FuzzyInferenceResult *-- "0..*" FuzzyRuleResult
+EnergyDecisionResult ..> ShedPlan : via trace["shed_plan"]
+
+note right of FuzzyExpertEngine
+  **Le noyau n'importe pas Django.**
+  C'est ce qui permet de balayer
+  222 750 situations en ~50 s et de
+  tester le raisonnement sans base.
+  La couche Django (engine.py, actuator.py)
+  ne fait que traduire : base → faits,
+  puis décision → relais.
+end note
+
+note bottom of ShedPlan
+  **Aucune constante numérique.**
+  Le plan n'optimise rien : il ORDONNE
+  ce que les règles de ligne ont jugé.
+  L'optimiseur qu'il remplace recalculait
+  une cible avec ses propres coefficients
+  et pouvait ANNULER la décision du moteur —
+  mesuré sur 98 pas sur 144 d'une journée
+  couverte, soit 100 % des pas où le
+  délestage était pourtant annoncé.
+end note
+
+note bottom of SocEstimate
+  Le SOC n'est jamais MESURÉ : aucun capteur
+  ne lit « 62 % ». Il est estimé, et la méthode
+  change ce qu'on a le droit d'en faire.
+  UNKNOWN est une réponse valide — jamais
+  une valeur par défaut.
+end note
+
+@enduml

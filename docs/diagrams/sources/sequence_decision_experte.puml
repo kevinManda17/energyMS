@@ -1,0 +1,185 @@
+@startuml sequence_decision_experte
+' ===========================================================================
+' Le raisonnement du système expert — les quatre étapes, en détail
+'
+' Ce diagramme ZOOME sur l'appel `FuzzyExpertEngine.evaluate(facts)` que la
+' boucle fermée traite en une flèche. Tout ce qui suit se déroule en mémoire,
+' sans une seule requête : c'est ce qui rend possible le balayage de 222 750
+' situations en une cinquantaine de secondes.
+'
+' L'ORDRE DES ÉTAPES N'EST PAS ARBITRAIRE. L'évaluation par ligne vient APRÈS
+' l'inférence maison, parce qu'elle lit le risque agrégé — une ligne ne se juge
+' pas dans le vide. Elle vient AVANT la cascade, parce que la cascade a besoin
+' de savoir s'il existe quelque chose à délester : annoncer « je déleste »
+' quand toutes les lignes sont vitales serait une promesse intenable.
+' ===========================================================================
+skinparam defaultFontName Helvetica
+skinparam shadowing false
+skinparam sequenceMessageAlign center
+skinparam maxMessageSize 280
+
+skinparam sequence {
+  ArrowColor #37474F
+  LifeLineBorderColor #90A4AE
+  LifeLineBackgroundColor #F3E5F5
+  ParticipantBorderColor #78909C
+  ParticipantBackgroundColor #FFFFFF
+  ParticipantFontSize 12
+  BoxBorderColor #B0BEC5
+}
+skinparam note {
+  BackgroundColor #FFFDE7
+  BorderColor #FBC02D
+}
+
+title Le raisonnement du système expert — quatre étapes, en mémoire
+
+participant "engine\n(couche Django)" as DJ #E3F2FD
+box "Noyau — apps/fuzzy_engine/core/" #FAFAFA
+  participant "FuzzyExpertEngine" as ENG
+  participant "facts\nmembership" as FUZ
+  participant "inference\naggregation" as INF
+  participant "safety" as SAF
+  participant "line_rules" as LR
+  participant "decision_mapper" as MAP
+  participant "shedding" as SHED
+end box
+
+DJ -> ENG : evaluate(facts : EnergyFacts)
+activate ENG
+
+ENG -> ENG : _validate_and_normalize_facts()
+note right of ENG
+  `None` traverse la normalisation INTACT.
+  C'est une valeur légitime — « pas de mesure » —
+  et non une valeur à borner. Le moteur
+  substituait autrefois 50 % et 25 °C en silence :
+  onze règles raisonnaient alors sur des chiffres
+  inventés qui avaient l'air de mesures.
+end note
+
+== Étape 1 — Fuzzification : des grandeurs aux degrés d'appartenance ==
+
+ENG -> FUZ : fuzzify_facts(facts)
+activate FUZ
+FUZ -> FUZ : ratios dérivés\n(bilan, charge, production)
+FUZ -> FUZ : battery_soc → critical, low, medium, high
+FUZ -> FUZ : battery_temperature → cold, normal, high, dangerous
+FUZ -> FUZ : energy_balance → critical_deficit, deficit,\nbalanced, surplus
+FUZ -> FUZ : pv_generation, current_load, irradiance,\ndata_quality, contexte, mode
+FUZ -> FUZ : prémisses **cumulatives**\nsoc_at_most_low, soc_at_least_medium,\npv_at_most_low, balance_at_most_deficit,\ntemperature_at_least_high
+FUZ --> ENG : fuzzy_values : dict
+deactivate FUZ
+
+note over FUZ
+  Une prémisse cumulative dit « ce terme OU PIRE »
+  au lieu de « exactement ce terme ». Sans elles,
+  la gravité redescendait dans les creux laissés
+  entre deux frontières d'ensembles voisins :
+  un SOC de 27 % pouvait sembler moins grave
+  qu'un SOC de 30 %.
+end note
+
+== Étape 2 — Inférence : 35 règles, agrégation, planchers ==
+
+ENG -> INF : run_inference(facts, fuzzy_values)
+activate INF
+INF -> INF : évalue les 35 règles\n(R001…R036, sauf celles retirées)
+INF -> INF : ne retient que les règles activées\n(degré > 0,001)
+INF -> INF : aggregate_rule_results()\n**maximum pondéré** par indicateur
+
+note right of INF
+  Maximum pondéré, et non somme ni moyenne.
+  Trois alternatives ont été mesurées et
+  dégradent toutes le système :
+  · somme probabiliste → le moteur sature
+    (risque moyen 69 → 89) ;
+  · moyenne pondérée → les règles se diluent
+    (bilan inerte dans 76 % des cas) ;
+  · partitions ε-complètes → il discrimine moins.
+  Un empilement de règles tièdes ne peut pas
+  fabriquer une gravité qu'aucune règle n'affirme.
+end note
+
+INF -> SAF : apply_safety_floors(scores, soc, température)
+activate SAF
+SAF -> SAF : risk_floor() — rampe SOC 50 → 5 %,\nchaud 35 → 60 °C, froid 5 → −10 °C
+SAF -> SAF : protect_floor() — SOC 35 → 5 %,\nchaud 50 → 60 °C, froid 10 → −5 °C
+SAF --> INF : scores relevés
+deactivate SAF
+
+INF --> ENG : FuzzyInferenceResult\n{fired_rules, aggregated_scores,\n**rule_scores** (avant planchers),\nsafety_floors}
+deactivate INF
+
+note right of INF
+  Les scores AVANT planchers sont conservés
+  à côté. Sans eux, la trace ne pourrait pas
+  répondre à « est-ce une règle ou un
+  garde-fou qui a décidé ? ».
+end note
+
+== Étape 3 — Six règles par ligne, et leurs vetos ==
+
+ENG -> LR : evaluate_lines(facts, fuzzy, scores)
+activate LR
+LR -> LR : line_context() — le risque agrégé\ndescend au niveau de la ligne
+
+loop pour chaque ligne
+  LR -> LR : L001 déficit critique · L002 risque élevé\nL004 ligne lourde en déficit
+  LR -> LR : **L003** ligne vitale — VETO\n**L005** ligne déjà ouverte — VETO\n**L006** ligne non mesurée — VETO
+  LR -> LR : shed_score = max pondéré\n(même échelle que la base maison)
+  alt un veto est actif (activation ≥ 0,5)
+    LR -> LR : shed_score = 0
+    note right of LR
+      Un veto ne RÉDUIT pas le score : il le
+      SUPPRIME. Un score résiduel sur une ligne
+      intouchable inviterait à la considérer,
+      et la trace laisserait croire qu'elle
+      a été envisagée.
+    end note
+  end
+end
+
+LR --> ENG : list<LineEvaluation>
+deactivate LR
+
+== Étape 4 — Cascade de décision, puis plan ==
+
+ENG -> MAP : map_decision(facts, inference, fuzzy, lignes)
+activate MAP
+MAP -> MAP : _shed_capability()\nexiste-t-il seulement quelque chose à couper ?
+MAP -> MAP : cascade — qualité des données d'abord,\npuis protection, délestage, opportunités
+MAP -> MAP : _alert_level(), _battery_action(),\n_build_explanation() en français
+
+alt execution_mode = AUTOMATIC
+  MAP -> SHED : build_shed_plan(facts, lignes, code)
+  activate SHED
+  SHED -> SHED : already_shed() — un délestage\nest-il déjà en place ?
+  SHED -> SHED : ordered_candidates()\ntri (−shed_score, rang, numéro)
+  SHED -> SHED : forbidden_lines() — les vetos, nommés
+  SHED --> MAP : ShedPlan | None
+  deactivate SHED
+else RECOMMENDATION ou BLOCKED
+  MAP -> MAP : aucun plan
+  note right of MAP
+    Une recommandation ne doit produire aucune
+    commande, **même préparée** : un plan qui
+    existe finit par être appliqué. Le plus sûr
+    est qu'il n'existe pas.
+  end note
+end
+
+MAP --> ENG : EnergyDecisionResult\n+ trace{rule_scores, safety_floors,\nlines, input_lines, shed_plan}
+deactivate MAP
+
+ENG --> DJ : EnergyDecisionResult
+deactivate ENG
+
+note over DJ, SHED
+  **Aucune requête en base dans tout ce qui précède.** Le noyau reçoit des
+  faits et rend une conclusion. C'est cette absence de dépendance qui permet
+  de rejouer 222 750 situations en une cinquantaine de secondes et de tester
+  le raisonnement sans base de données.
+end note
+
+@enduml

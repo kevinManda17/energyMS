@@ -1,0 +1,149 @@
+@startuml sequence_prevision
+' ===========================================================================
+' Une demande de prévision, de l'interface au modèle appris
+'
+' DEUX CHEMINS, ET ILS NE SE RESSEMBLENT PAS. C'est ce que ce diagramme doit
+' faire comprendre avant tout le reste :
+'
+'   CONSOMMATION — un déroulé AUTORÉGRESSIF. Le GRU rejoue 144 pas où chaque
+'   pas réinjecte sa propre sortie dans la fenêtre d'entrée du suivant. On ne
+'   peut pas le paralléliser : le pas 42 a besoin du pas 41. Environ 15 s même
+'   modèle chargé — le coût est l'inférence, pas le chargement.
+'
+'   PRODUCTION — un appel en LOT. Chaque horizon est indépendant : c'est la
+'   météo qui porte l'information, pas l'historique. Un seul appel suffit.
+'
+' D'où la réutilisation d'une prévision fraîche : sans elle, tourner la page
+' d'un tableau de 144 points relancerait les quinze secondes de déroulé.
+' ===========================================================================
+skinparam defaultFontName Helvetica
+skinparam shadowing false
+skinparam sequenceMessageAlign center
+skinparam maxMessageSize 280
+
+skinparam sequence {
+  ArrowColor #37474F
+  LifeLineBorderColor #90A4AE
+  LifeLineBackgroundColor #FCE4EC
+  ParticipantBorderColor #78909C
+  ParticipantBackgroundColor #FFFFFF
+  ParticipantFontSize 12
+  BoxBorderColor #B0BEC5
+}
+skinparam note {
+  BackgroundColor #FFFDE7
+  BorderColor #FBC02D
+}
+
+title Prévision — de la demande de l'interface au modèle appris
+
+actor "Utilisateur\nou ordonnanceur" as U
+participant "PredictView" as VIEW #E3F2FD
+box "services.py" #FAFAFA
+  participant "predict_future" as PF
+  participant "déroulé GRU /\nlot sklearn" as PRED
+  participant "caches de\nprocessus" as CACHE
+end box
+participant "Open-Meteo" as METEO #E0F2F1
+database "Base" as DB
+
+U -> VIEW : POST /api/forecasting/predict/\n{target, hours: 24, step_minutes: 10,\npage, page_size}
+activate VIEW
+
+VIEW -> VIEW : valide target ∈ {production, consumption}\nborne page_size, résout la maison
+VIEW -> VIEW : forecast_horizons(24 h, 10 min)\n→ 144 horizons
+
+VIEW -> DB : fresh_forecast_queryset()\nles 144 horizons sont-ils déjà couverts,\nde moins de 90 secondes ?
+
+alt prévision fraîche et complète déjà en base
+  DB --> VIEW : 144 lignes Forecast
+  note right of VIEW
+    Le cas de la PAGINATION. Passer de la page 1
+    à la page 2 ne doit pas relancer un déroulé
+    de quinze secondes pour réafficher des points
+    déjà calculés.
+  end note
+
+else il faut (re)calculer
+  VIEW -> PF : predict_future(target, house, 24 h, 10 min)
+  activate PF
+
+  alt cible = CONSOMMATION et un GRU est actif
+    PF -> PRED : _rollout_consumption_gru()
+    activate PRED
+    PRED -> CACHE : modèle Keras + prétraitement
+    CACHE --> PRED : (chargés une fois par processus)
+    PRED -> DB : les `sequence_length` dernières mesures\nré-échantillonnées au pas de 10 min
+
+    loop 144 pas, **séquentiellement**
+      PRED -> PRED : caractéristiques temporelles\n(heure, jour, mois, week-end)
+      PRED -> PRED : inférence GRU sur la fenêtre
+      PRED -> PRED : la sortie devient l'entrée\ndu pas suivant
+    end
+    note right of PRED
+      Impossible à paralléliser : le pas 42
+      a besoin du résultat du pas 41. C'est
+      la nature d'un déroulé autorégressif,
+      pas une limite d'implémentation.
+    end note
+    PRED --> PF : 144 points
+    deactivate PRED
+
+  else cible = PRODUCTION
+    PF -> METEO : fetch_hourly_solar_forecast(lat, lon, 24 h)
+    activate METEO
+    METEO --> PF : irradiance, diffus, DNI, température,\nhumidité, vent, nébulosité — par heure
+    deactivate METEO
+    PF -> DB : WeatherForecast(**fetched_at**, **valid_at**,\nquantity, value)
+    note right of PF
+      Persistée, et non seulement mise en cache.
+      Sans cela, impossible de répondre plus tard
+      à « la prévision d'hier était-elle bonne ? » :
+      ce qui avait été annoncé aurait disparu.
+    end note
+
+    PF -> PRED : _forecast_production_sklearn_batch()
+    activate PRED
+    PRED -> CACHE : artefact scikit-learn (joblib)
+    PRED -> PRED : pv_scale_factor(house, modèle)
+    note right of PRED
+      Le modèle a été entraîné sur une installation
+      de référence. Sans remise à l'échelle sur la
+      puissance crête déclarée, il prédirait la
+      production de CETTE installation-là, pas
+      celle du micro-réseau observé.
+    end note
+    PRED -> PRED : un seul appel pour les 144 horizons
+    PRED -> PRED : production forcée à zéro la nuit
+    PRED --> PF : 144 points
+    deactivate PRED
+
+  else aucun modèle actif pour la cible
+    PF --> VIEW : **NoActiveModelError**
+    VIEW --> U : 503 — « Importez puis activez\nun modèle entraîné. »
+    note right of VIEW
+      Aucun repli mathématique. Un profil horaire
+      moyen ressemble trait pour trait à une
+      prévision, et rien dans l'interface ne
+      permettrait à l'utilisateur de les distinguer.
+    end note
+  end
+
+  PF --> VIEW : list<points>
+  deactivate PF
+
+  VIEW -> DB : persist_forecasts()\nsupprime puis recrée les 144 lignes
+end
+
+VIEW -> DB : les points de la page demandée
+VIEW --> U : {target, step_minutes, model,\nforecasts[], pagination{}}
+deactivate VIEW
+
+note over U, DB
+  `input_snapshot` accompagne chaque point : les caractéristiques employées, la
+  ligne météo retenue et le facteur d'échelle appliqué. Une prévision qu'on ne
+  peut pas rejouer ne peut pas être expliquée quand elle se trompe — et c'est
+  précisément quand elle se trompe qu'on cherche à la comprendre.
+end note
+
+@enduml

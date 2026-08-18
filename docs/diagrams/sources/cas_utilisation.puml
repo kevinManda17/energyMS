@@ -1,0 +1,157 @@
+@startuml cas_utilisation
+' ===========================================================================
+' Cas d'utilisation de la plateforme EMS
+'
+' Chaque cas correspond à un point d'entrée qui EXISTE : une route de l'API
+' (config/urls.py et les urls.py de chaque application) ou une commande
+' d'administration. Aucun cas n'a été ajouté parce qu'il « irait de soi » — un
+' diagramme qui décrit des intentions plutôt que des fonctions ne peut pas
+' être confronté au code.
+'
+' CE QUI EST DÉTAILLÉ ET CE QUI EST REPLIÉ. Le système expert, la prévision et
+' la chaîne IoT sont dépliés cas par cas ; la gestion de compte tient en un
+' seul cas alors qu'elle occupe huit routes. Ce n'est pas un oubli : un
+' diagramme où tout a le même poids ne dit plus où est le sujet. L'inscription
+' et la réinitialisation de mot de passe sont du logiciel ordinaire, le
+' délestage automatique ne l'est pas.
+'
+' Les quatre acteurs non humains sont représentés comme tels : le nœud ESP32
+' déclenche autant de comportement que l'utilisateur, et le taire donnerait
+' l'image d'un système piloté depuis l'interface, ce qu'il n'est pas.
+' ===========================================================================
+skinparam defaultFontName Helvetica
+skinparam shadowing false
+skinparam ArrowColor #546E7A
+skinparam actorStyle awesome
+skinparam nodesep 12
+skinparam ranksep 34
+
+skinparam usecase {
+  BackgroundColor #FFFFFF
+  BorderColor #78909C
+  FontSize 12
+}
+skinparam package {
+  BorderColor #B0BEC5
+  FontStyle bold
+  FontSize 13
+}
+skinparam actor {
+  BackgroundColor #ECEFF1
+  BorderColor #37474F
+}
+skinparam note {
+  BackgroundColor #FFFDE7
+  BorderColor #FBC02D
+}
+
+title Cas d'utilisation — plateforme de gestion d'énergie (EMS)
+
+left to right direction
+
+' Acteurs humains à gauche : déclarés AVANT le système.
+actor "Utilisateur\n(propriétaire\ndu micro-réseau)" as U
+actor "Administrateur\nEMS" as A
+
+rectangle "Plateforme EMS" {
+
+  package "Supervision et pilotage" #E3F2FD {
+    usecase "Consulter l'état\ninstantané" as UC_ETAT
+    usecase "Consulter l'historique\net exporter" as UC_HIST
+    usecase "Déclarer ses charges,\nleur priorité et leur ligne" as UC_DECL
+    usecase "Commander une ligne\n(ouvrir / fermer)" as UC_CMD
+    usecase "Choisir le mode\nMANUEL / ASSISTÉ / AUTO" as UC_MODE
+    usecase "Accepter ou refuser\nla proposition de l'expert" as UC_VALID
+    usecase "Gérer son compte\n(inscription, JWT,\nvérification, mot de passe)" as UC_COMPTE
+  }
+
+  package "Système expert flou" #F3E5F5 {
+    usecase "Évaluer la situation\n(35 règles maison,\n6 règles par ligne)" as UC_EVAL
+    usecase "Délester une ligne\nnon prioritaire" as UC_DELEST
+    usecase "Protéger la batterie" as UC_PROTECT
+    usecase "Bloquer toute action\n(données inexploitables)" as UC_BLOCK
+    usecase "Consulter le raisonnement\n(règles, vetos, plan)" as UC_TRACE
+    usecase "Émettre une alerte" as UC_ALERTE
+  }
+
+  package "Prévision" #FCE4EC {
+    usecase "Prévoir la production\nphotovoltaïque" as UC_PREVPV
+    usecase "Prévoir la\nconsommation" as UC_PREVCONSO
+    usecase "Collecter la\nprévision météo" as UC_METEO
+    usecase "Importer un modèle\nentraîné" as UC_IMPORT
+  }
+
+  package "Chaîne IoT" #FFF3E0 {
+    usecase "Remonter les mesures\ndes trois lignes AC" as UC_REMONTE
+    usecase "Remonter le bloc continu\n(batterie, PV)" as UC_REMONTEDC
+    usecase "Recevoir la consigne\ndes relais" as UC_CONSIGNE
+    usecase "Estimer l'état de charge\n(OCV / coulomb / BMS)" as UC_SOC
+    usecase "Calibrer un capteur" as UC_CALIB
+  }
+}
+
+' Acteurs non humains à droite : déclarés APRÈS le système.
+actor "Nœud ESP32\nprincipal\n(lignes AC, relais)" as ESP <<matériel>>
+actor "Nœud ESP32\nsecondaire\n(bloc continu)" as ESPDC <<matériel>>
+actor "Service météo\nOpen-Meteo" as METEO <<externe>>
+actor "Ordonnanceur" as CRON <<temps>>
+
+' --- Utilisateur ---------------------------------------------------------- '
+U --> UC_COMPTE
+U --> UC_ETAT
+U --> UC_HIST
+U --> UC_DECL
+U --> UC_CMD
+U --> UC_MODE
+U --> UC_VALID
+U --> UC_TRACE
+U --> UC_ALERTE
+U --> UC_CALIB
+
+' --- Administrateur ------------------------------------------------------- '
+A --> UC_IMPORT
+A --> UC_METEO
+
+' --- Acteurs matériels, externes et temporels ----------------------------- '
+ESP --> UC_REMONTE
+ESP --> UC_CONSIGNE
+ESPDC --> UC_REMONTEDC
+METEO --> UC_METEO
+CRON --> UC_METEO
+CRON --> UC_PREVPV
+CRON --> UC_PREVCONSO
+
+' --- Relations entre cas --------------------------------------------------- '
+' Le sondage du nœud DÉCLENCHE l'évaluation : c'est la boucle fermée. Sans
+' cette flèche on croirait le système expert actionné depuis l'interface,
+' alors qu'il s'exécute à la cadence des mesures.
+UC_REMONTE ..> UC_EVAL : <<include>>
+UC_REMONTEDC ..> UC_SOC : <<include>>
+UC_EVAL ..> UC_PREVPV : <<include>>
+UC_EVAL ..> UC_PREVCONSO : <<include>>
+UC_EVAL ..> UC_SOC : <<include>>
+UC_DELEST ..> UC_EVAL : <<extend>>
+UC_PROTECT ..> UC_EVAL : <<extend>>
+UC_BLOCK ..> UC_EVAL : <<extend>>
+UC_ALERTE ..> UC_EVAL : <<extend>>
+UC_CONSIGNE ..> UC_DELEST : <<extend>>
+UC_VALID ..> UC_CMD : <<include>>
+UC_PREVPV ..> UC_METEO : <<include>>
+UC_CALIB ..> UC_REMONTE : <<extend>>
+
+note right of UC_EVAL
+  Déclenchée par le sondage du nœud
+  (toutes les 30 s), jamais par l'interface :
+  le système raisonne en continu.
+  En mode ASSISTÉ il PROPOSE ;
+  en mode AUTOMATIQUE il agit, mais
+  seulement après confirmation dans le temps.
+end note
+
+note right of UC_CONSIGNE
+  Réponse en texte brut « L1=1;L2=0;L3=1 ».
+  Jeton d'appareil (X-Device-Token) et non JWT :
+  un nœud embarqué n'a pas de session utilisateur.
+end note
+
+@enduml

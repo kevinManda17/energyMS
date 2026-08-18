@@ -1,0 +1,148 @@
+@startuml activite_estimation_soc
+' ===========================================================================
+' L'estimation de l'état de charge — core/soc.py, best_estimate()
+'
+' AUCUN CAPTEUR NE LIT « 62 % ». L'état de charge d'une batterie ne se mesure
+' pas : il s'estime, par des méthodes qui n'ont ni la même précision ni les
+' mêmes conditions de validité. Ce diagramme montre l'arbitrage entre elles —
+' et surtout les endroits où le module REFUSE de répondre.
+'
+' La moitié de ce module consiste à s'interdire de répondre, et c'est sa
+' principale valeur. Un SOC faux ressemble trait pour trait à un SOC juste :
+' même type, même plage, même affichage. Rien en aval ne peut le rattraper.
+' Le moteur substituait autrefois 50 % en silence, et onze règles raisonnaient
+' alors sur un chiffre inventé qui avait l'air d'une mesure.
+'
+' UNKNOWN EST UNE RÉPONSE, PAS UN ÉCHEC.
+' ===========================================================================
+skinparam defaultFontName Helvetica
+skinparam shadowing false
+skinparam ArrowColor #546E7A
+
+skinparam activity {
+  BackgroundColor #FFFFFF
+  BorderColor #78909C
+  DiamondBackgroundColor #FFF8E1
+  DiamondBorderColor #F9A825
+  FontSize 12
+  StartColor #37474F
+  EndColor #37474F
+}
+skinparam note {
+  BackgroundColor #FFFDE7
+  BorderColor #FBC02D
+}
+
+title Estimation de l'état de charge — l'ordre suit la valeur de preuve
+
+start
+
+:tension, courant signé, capacité,
+estimation précédente et son incertitude,
+temps écoulé, temps depuis le dernier recalage;
+
+note right
+  Le courant est **signé** : positif en charge.
+  Sans le signe, impossible de distinguer une
+  batterie qui se remplit d'une batterie qui se
+  vide — donc impossible de compter les coulombs.
+end note
+
+partition "1. Système de gestion de batterie (BMS)" {
+  if (un BMS annonce-t-il un SOC ?) then (oui)
+    #C8E6C9:**BMS**
+    la meilleure preuve disponible :
+    l'électronique de la batterie mesure
+    ce que nous ne pouvons qu'estimer;
+    stop
+  else (non)
+  endif
+}
+
+partition "2. Tension à vide (OCV)" {
+  if (tension mesurée ?) then (non)
+    #ECEFF1:passer au comptage;
+  elseif (courant connu ?) then (non)
+    #FFCDD2:**refus**
+    « tension connue mais courant inconnu :
+    impossible de vérifier le repos »;
+    note right
+      Supposer le repos serait exactement l'erreur
+      que le test suivant interdit, avec en plus
+      l'excuse de ne pas savoir.
+    end note
+  elseif (la batterie est-elle au REPOS ?\n|courant| sous le seuil) then (non)
+    #FFCDD2:**refus**
+    « sous charge, la tension chute et donnerait
+    un SOC faux de 15 à 20 points »;
+    note right
+      **Le refus le plus important du module.**
+      La chute ohmique fausse toujours dans le sens
+      qui inquiète — donc toujours dans le sens qui
+      déclencherait des délestages injustifiés.
+      L'estimateur doit refuser, pas corriger : il
+      n'a pas la résistance interne pour corriger.
+    end note
+  else (oui — batterie au repos)
+    :interpolation dans la table OCV
+    (mise à l'échelle du parc : 24 V = deux
+    éléments 12 V en série);
+    #C8E6C9:**OCV**, incertitude ±10 %;
+    note right
+      L'incertitude fait partie de la réponse.
+      Sans elle, ce ±10 % disparaîtrait et une
+      estimation grossière se présenterait comme
+      une mesure.
+    end note
+    stop
+  endif
+}
+
+partition "3. Comptage coulométrique" {
+  if (existe-t-il une estimation PRÉCÉDENTE\net une capacité connue ?) then (non)
+    #FFCDD2:**UNKNOWN**
+    « aucune méthode applicable »;
+    note right
+      Un comptage parti d'une valeur arbitraire
+      resterait faux indéfiniment : chaque pas
+      s'appuie sur le précédent.
+    end note
+    stop
+  else (oui)
+  endif
+
+  :intégrer le courant sur le temps écoulé
+  rendement de 0,90 **en charge seulement**;
+  note right
+    Aucun rendement en décharge : tout ce qui
+    sort est bien sorti. L'appliquer des deux
+    côtés ferait disparaître de l'énergie.
+  end note
+
+  :borner le résultat entre 0 et 100 %;
+
+  :incertitude = base 3 %
+  **+ 0,5 point par heure** depuis le recalage;
+  note right
+    La propriété essentielle de la méthode :
+    elle dérive, et elle le DIT. Un comptage
+    jamais recalé finit par mentir avec aplomb —
+    il produit un chiffre net, stable, et faux.
+  end note
+
+  if (incertitude au-delà de ±20 % ?) then (oui)
+    #FFCDD2:**UNKNOWN**
+    la dérive rend le chiffre sans valeur;
+    note right
+      Le seuil d'abandon est ce qui empêche le
+      comptage de mentir avec aplomb. Mieux vaut
+      dire qu'on ne sait pas.
+    end note
+    stop
+  else (non)
+    #C8E6C9:**COULOMB**, avec son incertitude courante;
+    stop
+  endif
+}
+
+@enduml

@@ -1,0 +1,147 @@
+@startuml activite_cascade_decision
+' ===========================================================================
+' La cascade de décision — core/decision_mapper.py, map_decision()
+'
+' L'ORDRE DES TESTS EST LA DÉCISION. Une cascade n'est pas une liste de cas :
+' le premier test qui répond gagne, et déplacer un test change le système.
+' Trois positions ont été choisies contre l'intuition, et méritent qu'on
+' s'y arrête :
+'
+'   1. LA QUALITÉ DES DONNÉES PASSE AVANT TOUT — avant même la protection de la
+'      batterie. Sur des mesures inexploitables, un SOC de 8 % peut être un
+'      capteur débranché. Agir sur une donnée fausse est pire qu'attendre.
+'
+'   2. UN BLOCAGE QUALITÉ NE SE REQUALIFIE JAMAIS. Le garde-fou « charge
+'      critique » écrasait autrefois un BLOCK_AUTOMATIC_ACTION en simple
+'      recommandation — mesuré sur 46,1 % des situations combinant données
+'      mauvaises et charge critique. La piste d'audit affirmait alors l'inverse
+'      de ce que le moteur avait conclu.
+'
+'   3. LES ACTIONS D'OPPORTUNITÉ (charger, décharger) NE PASSENT QU'EN DESSOUS
+'      DU SEUIL D'ÉCONOMIE. Annoncer « je charge la batterie » alors que le
+'      risque vaut 90 dirait à l'utilisateur que tout va bien à l'instant précis
+'      où le système constate le contraire. La consigne n'est pas perdue : elle
+'      part par `battery_action`, qui est un autre canal.
+' ===========================================================================
+skinparam defaultFontName Helvetica
+skinparam shadowing false
+skinparam ArrowColor #546E7A
+
+skinparam activity {
+  BackgroundColor #FFFFFF
+  BorderColor #78909C
+  DiamondBackgroundColor #FFF8E1
+  DiamondBorderColor #F9A825
+  FontSize 12
+  StartColor #37474F
+  EndColor #37474F
+}
+skinparam note {
+  BackgroundColor #FFFDE7
+  BorderColor #FBC02D
+}
+
+title Cascade de décision — le premier test qui répond gagne
+
+start
+
+:scores agrégés issus de l'inférence
+(risque, délestage, protection, charge,
+décharge, automatique, blocage);
+
+:_shed_capability()
+**existe-t-il seulement quelque chose à couper ?**
+une ligne non bloquée, mesurée, encore fermée
+— calculé AVANT la cascade, qui s'en sert;
+
+if (data_quality = BAD\nou blocked_score ≥ 60 ?) then (oui)
+  #FFCDD2:**BLOCK_AUTOMATIC_ACTION**
+  mode BLOCKED · quality_blocked = vrai
+  ——
+  la qualité des données passe AVANT la
+  protection : sur des mesures inexploitables,
+  un SOC de 8 % peut être un capteur débranché;
+elseif (data_quality = PARTIAL ?) then (oui)
+  if (risque ≥ 70 ou blocked_score ≥ 45 ?) then (oui)
+    #FFCDD2:**BLOCK_AUTOMATIC_ACTION**
+    mode BLOCKED
+    quality_blocked = vrai;
+  else (non)
+    #FFE0B2:**DATA_QUALITY_ALERT**
+    mode RECOMMANDATION;
+  endif
+elseif (protect_battery_score ≥ 60 ?) then (oui)
+  #F8BBD0:**PROTECT_BATTERY**
+  mode AUTOMATIQUE;
+elseif (shedding_level ≥ 60\net quelque chose à couper ?) then (oui)
+  #FFECB3:**SHED_NON_PRIORITY_LOAD**
+  mode AUTOMATIQUE;
+elseif (shedding_level ≥ 60\nmais rien à couper ?) then (oui)
+  #FFE0B2:**RECOMMEND_REDUCE_PRIORITY_LOAD**
+  mode RECOMMANDATION
+  ——
+  justifié, mais tout est critique, déjà coupé
+  ou hors de vue : reste à le dire à l'humain;
+elseif (risque < 50\net charge_score ≥ 55 ?) then (oui)
+  #C8E6C9:**CHARGE_BATTERY**
+  mode AUTOMATIQUE;
+elseif (risque < 50\net décharge_score ≥ 55\net SOC connu ≥ 30 % ?) then (oui)
+  #C8E6C9:**USE_BATTERY**
+  mode AUTOMATIQUE
+  ——
+  le SOC doit être CONNU : un `None` ne passe
+  pas ce test. Décharger une batterie dont on
+  ignore l'état est exactement ce que la
+  suppression des valeurs par défaut interdit;
+elseif (risque ≥ 50 ?) then (oui)
+  #FFF9C4:**ECO_MODE**
+  mode RECOMMANDATION;
+else (aucun des cas)
+  #E1F5FE:**NORMAL_OPERATION**
+  mode AUTOMATIQUE si automatic_score ≥ 60,
+  sinon RECOMMANDATION;
+endif
+
+:garde-fou « charge critique »;
+
+if (charge agrégée CRITIQUE\net rien à couper\net shedding_level ≥ 60\net décision ≠ PROTECT_BATTERY\n**et pas un blocage qualité** ?) then (oui)
+  #FFE0B2:requalifié en
+  **RECOMMEND_REDUCE_PRIORITY_LOAD**
+  mode RECOMMANDATION;
+  note right
+    **Un blocage qualité ne se requalifie jamais.**
+    La donnée manquante ne devient pas exploitable
+    parce que la charge est critique. Sans cette
+    condition, la trace affirmait l'inverse de ce
+    que le moteur avait conclu — sur 46,1 % des
+    situations concernées.
+  end note
+else (non)
+endif
+
+:_alert_level() — niveau d'alerte
+_battery_action() — consigne batterie, canal distinct
+_build_explanation() — en français, citant les règles;
+
+if (mode = AUTOMATIQUE ?) then (oui)
+  :build_shed_plan()
+  le moteur produit lui-même
+  la commande des lignes;
+else (RECOMMANDATION ou BLOCKED)
+  :**aucun plan** (None);
+  note right
+    Une recommandation ne doit produire aucune
+    commande, même préparée : un plan qui existe
+    finit par être appliqué. Le plus sûr est
+    qu'il n'existe pas.
+  end note
+endif
+
+:EnergyDecisionResult
++ trace complète : scores avant planchers,
+rampes de sûreté, évaluation par ligne,
+faits de ligne, plan;
+
+stop
+
+@enduml

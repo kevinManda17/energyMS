@@ -1,0 +1,282 @@
+@startuml classes_chaine_iot
+' ===========================================================================
+' La chaîne IoT — du capteur à la commande de relais
+'
+' L'ERD montre les TABLES ; ce diagramme montre le CODE qui les traverse. Les
+' deux sont nécessaires : on ne lit pas dans un schéma relationnel pourquoi une
+' mesure brute et une mesure calibrée coexistent, ni qui décide de couper.
+'
+' TROIS SÉPARATIONS QUE LE DIAGRAMME DOIT RENDRE VISIBLES :
+'
+'   1. brut / calibré — `raw_value` est conservé à côté de `value`. Sans lui,
+'      recalibrer un capteur invaliderait tout l'historique, et le recalculer
+'      à partir de valeurs déjà calibrées le fausserait deux fois.
+'
+'   2. mesuré / déduit — `Measurement` est ce qu'un capteur a lu, `BatteryState`
+'      ce que le système en a déduit. Le SOC n'est jamais lu.
+'
+'   3. décidé / appliqué — le moteur conclut, l'actionneur exécute, et les deux
+'      diffèrent légitimement : en mode assisté la décision attend un accord,
+'      en mode automatique elle attend la fenêtre de confirmation.
+' ===========================================================================
+skinparam defaultFontName Helvetica
+skinparam shadowing false
+skinparam ArrowColor #546E7A
+
+skinparam class {
+  BackgroundColor #FFFFFF
+  BorderColor #78909C
+  FontSize 12
+}
+skinparam package {
+  BorderColor #B0BEC5
+  FontStyle bold
+}
+skinparam note {
+  BackgroundColor #FFFDE7
+  BorderColor #FBC02D
+}
+
+title Chaîne IoT — du capteur à la commande de relais
+
+package "Matériel" #ECEFF1 {
+  class "ESP32 principal" as ESP <<matériel>> {
+    3 lignes AC (ZMPT101B + SCT-013)
+    3 relais : GPIO 25, 26, 27
+    --
+    sonde toutes les 3 s
+    POST /api/ems/decision/
+    attend « L1=1;L2=0;L3=1 »
+  }
+
+  class "ESP32 secondaire" as ESPDC <<matériel>> {
+    bloc continu : batterie, PV
+    VB1 IB1 TB1 · VPV IPV TPV
+  }
+}
+
+package "Entrée — apps/devices/" #FFF3E0 {
+  class EmsDecisionView <<APIView>> {
+    POST /api/ems/decision/
+    --
+    +post(request) : HttpResponse
+    -_run_expert_control(state)
+    -_clear_pending(state)
+    --
+    Authentification par X-Device-Token.
+    Sans jeton valide : 403.
+  }
+
+  class views <<module>> {
+    -_store_line_measurements(house, payload, ts)
+    -_store_line_readings(house, payload, ts)
+    -_store_dc_measurements(house, payload, ts)
+    -_refresh_battery_states(house)
+  }
+
+  class provisioning <<module>> {
+    +ensure_lines(house) : list<Line>
+    +ensure_dc_sensors(house) : dict<str, Sensor>
+    --
+    Idempotent. Les capteurs continus ne
+    sont créés qu'au moment où ils PARLENT :
+    provisionner du matériel non monté
+    reviendrait à l'inventer.
+  }
+
+  class calibration <<module>> {
+    +propose(sensor, référence, brut)
+    +apply(sensor, ...)
+    --
+    Deux actions séparées : aucun
+    coefficient n'est appliqué sans
+    validation humaine explicite.
+  }
+}
+
+package "Domaine — lignes et capteurs" #E3F2FD {
+  class Line <<Django>> {
+    +house : FK
+    +number : 1..3
+    +name : str
+    +relay_gpio : int | None
+    +is_switchable : bool
+    +max_power_w : float | None
+    +priority_override : Priority
+  }
+
+  class LineState <<Django>> {
+    +line : O2O
+    +is_closed : bool
+    +desired_closed : bool
+    +pending_since : datetime | None
+    +last_commanded_at : datetime | None
+  }
+
+  class IoTNode <<Django>> {
+    +house : FK
+    +node_type : ESP32_MAIN |
+    \t ESP32_DC | EDGE_GATEWAY
+    +device_token : unique
+    +control_mode : MANUAL |
+    \t ASSISTED | AUTOMATIC
+    +last_contact_at, last_report
+  }
+
+  class Sensor <<Django>> {
+    +code : V1, I1, VB1…
+    +line_number : int | None
+    +gpio_pin : int | None
+    +calibration_factor : float
+    +calibration_offset : float
+    +calibration_status : str
+    --
+    +is_calibrated : bool <<property>>
+    +apply_calibration(brut) : float | None
+  }
+
+  class Equipment <<Django>> {
+    +name, load_type
+    +rated_power_kw : float
+    +priority : Priority
+    +relay_line : 1..3 | None
+  }
+}
+
+package "Mesures" #F1F8E9 {
+  class Measurement <<Django>> {
+    +quantity : Quantity
+    +source : SENSOR | WEATHER_API |
+    \t DERIVED | MANUAL
+    +value : float
+    +raw_value : float | None
+    +calibration_factor_used
+    +calibration_offset_used
+    --
+    +unit_symbol : str <<property>>
+  }
+
+  class LineReading <<Django>> {
+    +line : FK
+    +voltage_v, current_a, power_w
+    +relay_closed : bool
+    +is_measured : bool
+    +raw_voltage, raw_current
+    +calibration_v, calibration_i
+  }
+
+  class BatteryState <<Django>> {
+    +soc_percent : float | None
+    +estimation_method : OCV |
+    \t COULOMB | BMS | UNKNOWN
+    +uncertainty_percent : float | None
+    +direction, energy_wh
+    +cumulated_charge_wh
+  }
+}
+
+package "Décision — apps/fuzzy_engine/" #F3E5F5 {
+  class engine <<module>> {
+    +facts_from_house(house) : EnergyFacts
+    +evaluate_house(house) : ExpertEvaluation
+    -_line_facts(house) : list<LineFacts>
+    -_battery_facts(house) : list<BatteryFacts>
+    -_data_quality(values) : (str, float)
+  }
+
+  class FuzzyExpertEngine <<noyau>> {
+    +evaluate(facts) : EnergyDecisionResult
+    --
+    Python pur — aucun Django.
+  }
+
+  class actuator <<module>> {
+    +desired_lines_for_decision(résultat, house)
+    +lines_changed(state, voulu) : bool
+    +apply_decision_to_relays(house, résultat)
+    --
+    N'INVENTE PLUS DE PLAN : il lit celui
+    que le moteur a produit. Repli de rang
+    seulement si le plan est absent.
+  }
+
+  class decision_lines <<module>> {
+    +persist_decision_lines(decision, house, appliqué)
+    --
+    Rend le raisonnement par ligne
+    INTERROGEABLE : « combien de fois la
+    ligne 2 a-t-elle été protégée ? »
+  }
+
+  class Decision <<Django>> {
+    +decision_code, execution_mode
+    +risk_score, shedding_level
+    +protect_battery_score
+    +fired_rules, input_facts
+    +fuzzy_values
+    +reasoning_trace : dict
+  }
+
+  class DecisionLine <<Django>> {
+    +shed_score : float
+    +is_blocked : bool
+    +blocked_reason : str
+    +state_before : bool
+    +state_desired : bool
+    +was_applied : bool
+  }
+}
+
+' --- Le trajet d'une mesure ------------------------------------------------ '
+ESP --> EmsDecisionView : POST mesures brutes\n(3 s)
+ESPDC --> EmsDecisionView : bloc continu
+EmsDecisionView ..> provisioning : garantit les lignes
+EmsDecisionView ..> views : persiste (30 s)
+views --> Measurement
+views --> LineReading
+views --> BatteryState : réestime le SOC
+views ..> Sensor : apply_calibration()
+
+Line ||--|| LineState
+Line ||--o{ LineReading
+Sensor }o--|| Line : line_number
+Equipment }o--|| Line : relay_line
+
+' --- Le trajet d'une décision ---------------------------------------------- '
+EmsDecisionView ..> engine : si mode ASSISTÉ\nou AUTOMATIQUE
+engine ..> Measurement : lit
+engine ..> LineReading : lit
+engine ..> BatteryState : lit
+engine ..> Equipment : priorité des lignes
+engine --> FuzzyExpertEngine : facts_from_house()
+FuzzyExpertEngine --> actuator : plan de délestage
+actuator --> LineState : état voulu
+actuator ..> IoTNode : mode de contrôle
+engine --> Decision : persiste
+Decision ||--o{ DecisionLine
+decision_lines --> DecisionLine
+EmsDecisionView --> ESP : « L1=1;L2=0;L3=1 »
+
+note bottom of Sensor
+  Un coefficient PAR capteur : deux ZMPT101B
+  n'ont pas le même potentiomètre.
+  facteur 1.0 / offset 0.0 = jamais calibré,
+  on lit alors le RMS brut en volts ADC.
+end note
+
+note bottom of LineReading
+  `is_measured` distingue « ligne à 0 W » de
+  « ligne dont on ne sait rien ». C'est ce
+  qu'exige le veto L006 : un 0 W inventé
+  ferait croire qu'il n'y a rien à gagner
+  à couper cette ligne.
+end note
+
+note right of BatteryState
+  Séparé de `Measurement` à dessein :
+  une mesure est ce qu'un capteur a LU,
+  un BatteryState ce que le système
+  en a DÉDUIT. Aucun capteur ne lit « 62 % ».
+end note
+
+@enduml

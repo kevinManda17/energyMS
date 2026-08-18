@@ -1,0 +1,231 @@
+@startuml classes_prevision
+' ===========================================================================
+' Le sous-système de prévision — apps/forecasting/
+'
+' TROIS CHEMINS, ET C'EST LE POINT. On lit souvent « le modèle prédit » comme
+' s'il n'y avait qu'une manière de prédire. Il y en a trois ici, et elles ne
+' se valent pas :
+'
+'   - la CONSOMMATION se déroule en autorégressif : le GRU rejoue 144 pas où
+'     chaque pas consomme sa propre sortie. Un seul appel ne suffirait pas ;
+'   - la PRODUCTION part en lot : un appel scikit-learn pour tous les horizons,
+'     avec la météo comme entrée principale ;
+'   - la boucle générique pas à pas sert de repli quand ni l'un ni l'autre
+'     n'est disponible.
+'
+' Ce qu'il N'Y A PAS : aucun repli mathématique. Quand aucun modèle actif ne
+' répond, le système lève NoActiveModelError plutôt que de présenter un profil
+' horaire moyen. Un chiffre plausible sorti d'une moyenne ressemble trait pour
+' trait à une prévision, et l'utilisateur n'a aucun moyen de les distinguer.
+' ===========================================================================
+skinparam defaultFontName Helvetica
+skinparam shadowing false
+skinparam ArrowColor #546E7A
+
+skinparam class {
+  BackgroundColor #FFFFFF
+  BorderColor #78909C
+  FontSize 12
+}
+skinparam package {
+  BorderColor #B0BEC5
+  FontStyle bold
+}
+skinparam note {
+  BackgroundColor #FFFDE7
+  BorderColor #FBC02D
+}
+
+title Prévision — production photovoltaïque et consommation
+
+package "API" #E3F2FD {
+  class PredictView <<APIView>> {
+    POST /api/forecasting/predict/
+    --
+    +post(request) : Response
+    -- paramètres --
+    target : production | consumption
+    hours : int
+    step_minutes : int = 10
+    page, page_size
+  }
+
+  class ImportModelView <<APIView>> {
+    POST /api/forecasting/models/import/
+    réservé à l'administrateur EMS
+  }
+}
+
+package "Orchestration — services.py" #FCE4EC {
+
+  class services <<module>> {
+    +predict_future(target, house, hours, step) : list<dict>
+    +forecast_value(target, horizon, house, weather) : (float, ImportedModel, dict)
+    +forecast_grid(hours, step) : (n_steps, hours, step, now)
+    +forecast_horizons(hours, step) : list<datetime>
+    +persist_forecasts(target, points, house) : ImportedModel
+    +fresh_forecast_queryset(target, house, horizons)
+    --
+    FORECAST_FRESHNESS_SECONDS = 90
+    DEFAULT_STEP_MINUTES = 10
+    MAX_STEPS = 576
+  }
+
+  class "Déroulé autorégressif" as ROLLOUT <<stratégie>> {
+    _rollout_consumption_gru()
+    --
+    CONSOMMATION uniquement.
+    144 pas séquentiels : chaque pas
+    réinjecte sa propre sortie dans
+    la fenêtre d'entrée du suivant.
+    Environ 15 s même modèle en
+    cache : le coût est l'inférence
+    elle-même, pas le chargement.
+  }
+
+  class "Prédiction en lot" as BATCH <<stratégie>> {
+    _forecast_production_sklearn_batch()
+    --
+    PRODUCTION uniquement.
+    Un seul appel pour tous les horizons :
+    chaque instant est indépendant,
+    la météo porte l'information.
+  }
+
+  class "Boucle pas à pas" as PASAPAS <<stratégie>> {
+    forecast_value() par horizon
+    --
+    Repli générique quand aucune des
+    deux voies rapides ne s'applique.
+  }
+
+  class "Mise à l'échelle PV" as ECHELLE <<module>> {
+    +pv_capacity_estimate_w(house) : float | None
+    +pv_nominal_power_w(house, fallback) : float
+    +pv_scale_factor(house, modèle) : (float, float | None)
+    --
+    Le modèle a été entraîné sur une
+    installation de référence. Sans
+    remise à l'échelle, il prédirait la
+    production de CETTE installation-là.
+  }
+}
+
+package "Modèles appris" #F3E5F5 {
+  class ImportedModel <<Django>> {
+    +name : str
+    +target : production | consumption
+    +model_type : profile | sklearn |
+    \t keras_gru | keras_lstm |
+    \t keras_cnn_lstm | keras_lstm_att
+    +file / file_path : str
+    +preprocessing_path : str
+    +sequence_length : int
+    +feature_columns : list
+    +reference_peak_w : float | None
+    +input_schema : dict
+    +metrics : dict
+    +is_active : bool
+    --
+    +resolved_path : str <<property>>
+  }
+
+  class "Caches de processus" as CACHE <<module>> {
+    _get_keras_model_cached()
+    _get_keras_preprocessing_cached()
+    _get_sklearn_artifact_cached()
+    --
+    Charger un modèle Keras coûte
+    des secondes. Le recharger à
+    chaque pas d'un déroulé de 144
+    coûterait des minutes.
+  }
+
+  class NoActiveModelError <<exception>> {
+    Aucun modèle actif pour la cible.
+    Levée plutôt que de fabriquer
+    une valeur plausible.
+  }
+}
+
+package "Météo" #E0F2F1 {
+  class weather_api <<module>> {
+    +fetch_hourly_solar_forecast(lat, lon, hours)
+    --
+    Open-Meteo, horaire.
+  }
+
+  class WeatherForecast <<Django>> {
+    +house : FK
+    +fetched_at : datetime
+    +valid_at : datetime
+    +quantity : Quantity
+    +value : float
+    --
+    +horizon_hours : float <<property>>
+  }
+}
+
+package "Sorties" #E1F5FE {
+  class Forecast <<Django>> {
+    +house : FK | None
+    +model : FK ImportedModel | None
+    +target : str
+    +horizon : datetime
+    +horizon_minutes : int
+    +forecast_value : float
+    +input_snapshot : dict
+    +created_at : datetime
+  }
+}
+
+' --- Flux ------------------------------------------------------------------ '
+PredictView --> services : predict_future()
+ImportModelView --> ImportedModel : enregistre
+
+services ..> ROLLOUT : si cible = consommation\net GRU actif
+services ..> BATCH : si cible = production\net sklearn actif
+services ..> PASAPAS : sinon
+services ..> ECHELLE : production seulement
+services --> Forecast : persiste
+services ..> NoActiveModelError : si rien ne répond
+
+ROLLOUT ..> CACHE
+BATCH ..> CACHE
+PASAPAS ..> CACHE
+CACHE --> ImportedModel : charge depuis\nresolved_path
+
+BATCH ..> weather_api
+PASAPAS ..> weather_api
+weather_api --> WeatherForecast : persiste\nl'annonce
+Forecast --> ImportedModel : quel modèle\na produit ce point
+
+note right of WeatherForecast
+  **Deux horodatages, et c'est l'essentiel.**
+  `fetched_at` : quand la prévision a été ÉMISE.
+  `valid_at`   : l'heure qu'elle DÉCRIT.
+
+  Les confondre rendrait impossible de dire
+  « la prévision d'hier était-elle bonne ? ».
+  Une annonce émise à 6 h pour 18 h et une
+  émise à 17 h pour 18 h décrivent la même
+  heure sans avoir la même valeur de preuve.
+end note
+
+note bottom of ROLLOUT
+  Le pas de 10 minutes n'est pas un réglage
+  de confort : c'est le ré-échantillonnage du
+  jeu sur lequel le modèle a été entraîné.
+  Deux ré-échantillonnages successifs ne
+  donnent pas le même résultat qu'un seul.
+end note
+
+note bottom of NoActiveModelError
+  **Pas de repli mathématique.**
+  Un profil horaire moyen ressemble trait
+  pour trait à une prévision, et rien dans
+  l'interface ne permettrait de les distinguer.
+  L'erreur explicite est préférable.
+end note
+
+@enduml

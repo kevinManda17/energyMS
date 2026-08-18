@@ -1,0 +1,188 @@
+@startuml sequence_boucle_fermee
+' ===========================================================================
+' La boucle fermée : un sondage du nœud ESP32, de bout en bout
+'
+' TROIS CADENCES DIFFÉRENTES, et les confondre est la première erreur de
+' lecture possible sur ce système :
+'
+'   3 s   — le nœud sonde. Il veut sa consigne de relais, rien de plus.
+'   30 s  — les mesures sont persistées, le SOC réestimé, l'expert consulté.
+'   180 s — la fenêtre de confirmation : une décision doit se MAINTENIR avant
+'           d'être appliquée. Sans elle, un nuage qui passe coupe une ligne.
+'
+' Le nœud reçoit TOUJOURS une réponse valide, même si l'évaluation échoue :
+' un nœud sans consigne est un nœud qui garde l'état précédent indéfiniment.
+' ===========================================================================
+skinparam defaultFontName Helvetica
+skinparam shadowing false
+skinparam sequenceMessageAlign center
+skinparam maxMessageSize 260
+
+skinparam sequence {
+  ArrowColor #37474F
+  LifeLineBorderColor #90A4AE
+  LifeLineBackgroundColor #ECEFF1
+  ParticipantBorderColor #78909C
+  ParticipantBackgroundColor #FFFFFF
+  ParticipantFontSize 12
+  BoxBorderColor #B0BEC5
+}
+skinparam note {
+  BackgroundColor #FFFDE7
+  BorderColor #FBC02D
+}
+
+title Boucle fermée — un sondage du nœud ESP32, de bout en bout
+
+participant "ESP32\nprincipal" as ESP #FFF3E0
+box "Backend Django" #FAFAFA
+  participant "EmsDecisionView" as VIEW
+  participant "views\n(persistance)" as STORE
+  participant "soc_service" as SOC
+  participant "engine\n(couche Django)" as ENG
+  participant "FuzzyExpertEngine\n(noyau, sans Django)" as CORE #F3E5F5
+  participant "actuator" as ACT
+end box
+database "Base de données" as DB
+
+== Sondage : toutes les 3 secondes ==
+
+ESP -> VIEW : POST /api/ems/decision/\nX-Device-Token: •••\n{lines:[V,I,relais], dc:{...}}
+activate VIEW
+
+VIEW -> DB : RelayState.filter(device_token)
+alt jeton absent ou inconnu
+  VIEW --> ESP : 403 ERR=invalid_token
+  note right of VIEW
+    Il n'y a plus de mode sans jeton.
+    Le repli « suivre le micro-réseau le plus
+    récemment piloté » servait l'état des relais
+    de n'importe quelle maison à quiconque
+    atteignait le port 8000.
+  end note
+end
+
+VIEW -> VIEW : ensure_lines(house)
+VIEW -> DB : last_contact_at = maintenant
+
+alt moins de 30 s depuis la dernière persistance
+  VIEW --> ESP : « L1=1;L2=0;L3=1 »\n(état courant, sans rien recalculer)
+  note right of VIEW
+    Le nœud sonde dix fois plus vite
+    que le système ne raisonne. Évaluer
+    à chaque sondage coûterait 10× plus
+    sans rien apprendre de nouveau.
+  end note
+end
+
+== Persistance et raisonnement : toutes les 30 secondes ==
+
+VIEW -> STORE : _store_line_measurements()\n_store_line_readings()
+activate STORE
+STORE -> DB : Sensor.apply_calibration(brut)
+STORE -> DB : Measurement(value, **raw_value**,\ncoefficients utilisés)
+STORE -> DB : LineReading(V, I, P, relay_closed,\n**is_measured**)
+note right of STORE
+  `raw_value` et les coefficients employés sont
+  conservés : recalibrer plus tard doit pouvoir
+  relire l'historique sans le fausser. Recalculer
+  à partir de valeurs déjà calibrées le fausserait
+  deux fois.
+end note
+deactivate STORE
+
+VIEW -> STORE : _store_dc_measurements()
+activate STORE
+STORE -> DB : ensure_dc_sensors(house)
+STORE -> DB : tension, courant signé, températures
+deactivate STORE
+
+VIEW -> SOC : _refresh_battery_states(house)
+activate SOC
+SOC -> SOC : best_estimate(BMS → OCV → coulomb)
+SOC -> DB : BatteryState(soc_percent, **method**,\nuncertainty, direction)
+note right of SOC
+  Réestimé ICI et nulle part ailleurs :
+  le comptage coulométrique doit voir CHAQUE
+  relevé. Un pas manqué est de l'énergie qui
+  a circulé sans être comptée.
+end note
+deactivate SOC
+
+alt mode MANUEL
+  VIEW --> ESP : « L1=1;L2=0;L3=1 »\n(ce que l'humain a commandé)
+end
+
+== Évaluation experte : modes ASSISTÉ et AUTOMATIQUE ==
+
+VIEW -> ENG : evaluate_house(house)
+activate ENG
+ENG -> DB : mesures, relevés de ligne, états batterie,\ncharges et leurs priorités, prévisions
+ENG -> ENG : facts_from_house()\n→ EnergyFacts + LineFacts + BatteryFacts
+ENG -> CORE : evaluate(facts)
+activate CORE
+CORE -> CORE : fuzzification → inférence (35 règles)\n→ planchers de sûreté\n→ 6 règles par ligne → cascade
+CORE -> CORE : build_shed_plan()\nsi execution_mode = AUTOMATIC
+CORE --> ENG : EnergyDecisionResult\n(+ trace["shed_plan"])
+deactivate CORE
+ENG --> VIEW : ExpertEvaluation
+deactivate ENG
+
+VIEW -> ACT : desired_lines_for_decision(résultat)
+activate ACT
+ACT -> ACT : lit le plan produit par le moteur\n(repli de rang seulement s'il est absent)
+ACT --> VIEW : {line1:True, line2:False, line3:True}
+deactivate ACT
+
+VIEW -> DB : Decision + DecisionLine\n(si le code de décision a changé)
+note right of VIEW
+  Tracé AVANT d'agir, et `was_applied` reste
+  faux : à cet instant, rien n'est encore écrit
+  dans les relais. La différence entre DÉCIDER
+  et FAIRE est précisément ce que ce champ
+  enregistre.
+end note
+
+alt aucun changement d'état demandé
+  VIEW -> DB : efface toute proposition en attente
+
+else mode ASSISTÉ
+  VIEW -> DB : auto_pending_lines = état voulu\nauto_pending_since = maintenant
+  note right of VIEW
+    L'expert PROPOSE. Rien n'est coupé
+    sans accord humain explicite
+    (POST /api/houses/{id}/relays/ accept).
+  end note
+
+else mode AUTOMATIQUE — première apparition du candidat
+  VIEW -> DB : démarre le chrono de confirmation
+
+else mode AUTOMATIQUE — candidat inchangé depuis moins de 180 s
+  VIEW -> VIEW : patiente
+  note right of VIEW
+    On n'agit pas sur un déficit instantané.
+    Un nuage qui passe ne doit pas éteindre
+    une ligne.
+  end note
+
+else mode AUTOMATIQUE — condition soutenue au-delà de 180 s
+  VIEW -> ACT : apply_decision_to_relays()
+  activate ACT
+  ACT -> DB : RelayState.line1/2/3 = état voulu
+  ACT -> DB : LineState.desired_closed,\nDecisionLine.was_applied = vrai
+  deactivate ACT
+  VIEW -> DB : efface le chrono
+end
+
+VIEW --> ESP : « L1=1;L2=0;L3=1 »\n(texte brut)
+deactivate VIEW
+
+ESP -> ESP : applique sur GPIO 25, 26, 27
+
+note over ESP, DB
+  **Toute exception de l'évaluation est avalée.** Le nœud doit recevoir une
+  réponse valide en toute circonstance : un nœud sans consigne conserve
+  l'état précédent indéfiniment, y compris une ligne coupée.
+end note
+
+@enduml
