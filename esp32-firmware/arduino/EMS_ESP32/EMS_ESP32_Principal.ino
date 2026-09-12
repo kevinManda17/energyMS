@@ -1,15 +1,17 @@
 // ============================================================================
 //  EMS IoT — Nœud PRINCIPAL (AC)
 //  ----------------------------------------------------------------------------
-//  Rôle : mesurer 3 lignes AC (tension/courant) et commander 3 relais.
-//  Contrôle : MQTT (commande + état des relais) — plan de contrôle principal.
-//  Données : HTTP POST périodique vers le backend (télémétrie + décision).
+//  Rôle    : mesurer 3 lignes AC (tension/courant), commander 3 relais,
+//            recevoir les mesures DC du nœud secondaire par UART, et tout
+//            remonter au backend.
+//  Contrôle: MQTT (commande + état des relais) — plan de contrôle principal.
+//  Données : HTTP POST périodique (AC + DC) vers le backend -> système expert.
 //
 //  Cible   : ESP32 WROOM-32 (carte "ESP32 Dev Module").
 //  Dépend. : PubSubClient (Nick O'Leary). WiFi/HTTPClient : inclus dans le core.
 //
-//  Le dossier de la sketch DOIT s'appeler EMS_ESP32_Principal (contrainte
-//  Arduino) et contenir config.h + secrets.h à côté de ce fichier.
+//  Dossier de sketch : EMS_ESP32_Principal/  contenant en plus
+//                      config.h, secrets.h.
 // ============================================================================
 
 #include <WiFi.h>
@@ -30,12 +32,17 @@ const int  iPins[3]     = { PIN_I_L1, PIN_I_L2, PIN_I_L3 };
 const int  relayPins[3] = { PIN_RELAY_L1, PIN_RELAY_L2, PIN_RELAY_L3 };
 bool       lineOn[3]    = { false, false, false };
 
+// Mesures DC reçues du nœud secondaire par UART (dernières valeurs connues)
+struct DcData { float iPV, iBAT1, iBAT2, vPV, vREG, vBAT, tBAT1, tBAT2, tPV; };
+DcData   dc      = {};
+uint32_t dcLastMs = 0;
+bool     dcEver   = false;
+
 static const char* lineName(int i) { static const char* n[3] = {"L1","L2","L3"}; return n[i]; }
 
 // ---------------------------------------------------------------------------
-//  Relais
-//  Abstraction du niveau logique : on raisonne en "ligne alimentée / coupée",
-//  jamais en niveau électrique. RELAY_ACTIVE_LOW (config.h) fait la traduction.
+//  Relais — on raisonne en "ligne alimentée / coupée", jamais en niveau
+//  électrique. RELAY_ACTIVE_LOW (config.h) fait la traduction.
 // ---------------------------------------------------------------------------
 static inline int relayLevel(bool on) {
 #if RELAY_ACTIVE_LOW
@@ -45,10 +52,10 @@ static inline int relayLevel(bool on) {
 #endif
 }
 
-String topicLineBase() { return String(MQTT_TOPIC_PREFIX) + "/" + HOUSE_ID + "/lines/"; }
+String topicLineBase()   { return String(MQTT_TOPIC_PREFIX) + "/" + HOUSE_ID + "/lines/"; }
 String topicState(int i) { return topicLineBase() + lineName(i) + "/state"; }
-String topicSetWildcard() { return topicLineBase() + "+/set"; }
-String topicStatus() { return String(MQTT_TOPIC_PREFIX) + "/" + HOUSE_ID + "/node/principal/status"; }
+String topicSetWildcard(){ return topicLineBase() + "+/set"; }
+String topicStatus()     { return String(MQTT_TOPIC_PREFIX) + "/" + HOUSE_ID + "/node/principal/status"; }
 
 void publishLineState(int i) {
   if (!mqtt.connected()) return;
@@ -66,15 +73,13 @@ void setLine(int i, bool on) {
 //  MQTT
 // ---------------------------------------------------------------------------
 int lineIndexFromSetTopic(const String& t) {
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < 3; i++)
     if (t == topicLineBase() + lineName(i) + "/set") return i;
-  }
   return -1;
 }
 
 void onMqttMessage(char* topic, byte* payload, unsigned int len) {
-  String t(topic);
-  String msg;
+  String t(topic), msg;
   msg.reserve(len);
   for (unsigned int k = 0; k < len; k++) msg += (char)payload[k];
   msg.trim();
@@ -83,7 +88,7 @@ void onMqttMessage(char* topic, byte* payload, unsigned int len) {
   if (i < 0) return;
 
   bool on;
-  if (msg == "1" || msg.equalsIgnoreCase("on") || msg.equalsIgnoreCase("true"))  on = true;
+  if (msg == "1" || msg.equalsIgnoreCase("on")  || msg.equalsIgnoreCase("true"))  on = true;
   else if (msg == "0" || msg.equalsIgnoreCase("off") || msg.equalsIgnoreCase("false")) on = false;
   else if (msg.equalsIgnoreCase("toggle")) on = !lineOn[i];
   else { Serial.printf("[MQTT] payload ignoré sur %s : '%s'\n", topic, msg.c_str()); return; }
@@ -131,10 +136,7 @@ void wifiEnsureConnected() {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   uint32_t t0 = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - t0 < 15000) {
-    delay(250);
-    Serial.print(".");
-  }
+  while (WiFi.status() != WL_CONNECTED && millis() - t0 < 15000) { delay(250); Serial.print("."); }
   Serial.println();
 
   if (WiFi.status() == WL_CONNECTED)
@@ -144,9 +146,60 @@ void wifiEnsureConnected() {
 }
 
 // ---------------------------------------------------------------------------
-//  Mesure — valeur efficace de la composante alternative, en mV
+//  UART — réception des mesures DC du nœud secondaire
+//  Trame : $DC,i1,i2,i3,v1,v2,v3,t1,t2,t3*CK\n
+//  CK = XOR (hex) de tout ce qui est entre '$' et '*'.  LE FORMAT DOIT ÊTRE
+//  IDENTIQUE côté secondaire.
+// ---------------------------------------------------------------------------
+bool parseDcFrame(const String& line) {
+  if (!line.startsWith("$")) return false;
+  int star = line.indexOf('*');
+  if (star < 2) return false;
+
+  String payload = line.substring(1, star);
+  uint8_t ck = 0;
+  for (size_t i = 0; i < payload.length(); i++) ck ^= (uint8_t)payload[i];
+  uint8_t given = (uint8_t)strtol(line.substring(star + 1).c_str(), nullptr, 16);
+  if (ck != given) { Serial.println("[UART] checksum invalide, trame jetée"); return false; }
+
+  DcData d;
+  int n = sscanf(payload.c_str(), "DC,%f,%f,%f,%f,%f,%f,%f,%f,%f",
+                 &d.iPV, &d.iBAT1, &d.iBAT2, &d.vPV, &d.vREG, &d.vBAT,
+                 &d.tBAT1, &d.tBAT2, &d.tPV);
+  if (n != 9) return false;
+
+  dc = d; dcLastMs = millis(); dcEver = true;
+  return true;
+}
+
+void readUart() {
+  static char   buf[160];
+  static size_t len = 0;
+
+  while (Serial2.available()) {
+    char c = (char)Serial2.read();
+    if (c == '\n' || c == '\r') {
+      if (len > 0) {
+        buf[len] = '\0';
+        if (parseDcFrame(String(buf)))
+          Serial.printf("[UART] DC : Ipv=%.3f Ibat1=%.3f Ibat2=%.3f | "
+                        "Vpv=%.2f Vreg=%.2f Vbat=%.2f | Tbat1=%.1f Tbat2=%.1f Tpv=%.1f\n",
+                        dc.iPV, dc.iBAT1, dc.iBAT2, dc.vPV, dc.vREG, dc.vBAT,
+                        dc.tBAT1, dc.tBAT2, dc.tPV);
+        len = 0;
+      }
+    } else if (len < sizeof(buf) - 1) {
+      buf[len++] = c;
+    } else {
+      len = 0;   // trame trop longue : on repart proprement
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+//  Mesure AC — valeur efficace de la composante alternative, en mV.
 //  Passe unique : variance = E[x²] - E[x]²  ->  RMS_AC = sqrt(variance).
-//  analogReadMilliVolts() applique la calibration eFuse de l'ESP32.
+//  analogReadMilliVolts() applique la calibration eFuse.
 // ---------------------------------------------------------------------------
 float readRmsMilliVolts(int pin) {
   const uint32_t start = micros();
@@ -171,7 +224,7 @@ float lineVoltage(int i) { return readRmsMilliVolts(vPins[i]) * V_SCALE[i]; } //
 float lineCurrent(int i) { return readRmsMilliVolts(iPins[i]) * I_SCALE[i]; } // Irms
 
 // ---------------------------------------------------------------------------
-//  HTTP — une seule primitive pour POST / GET / PATCH / PUT
+//  HTTP — une primitive pour POST / GET / PATCH / PUT
 // ---------------------------------------------------------------------------
 String backendUrl(const char* path) {
   return String("http://") + BACKEND_HOST + ":" + String(BACKEND_PORT) + path;
@@ -206,24 +259,32 @@ void applyServerRelayResponse(const String& body) {
 void postDecisionCycle() {
   float v[3], iA[3];
   for (int i = 0; i < 3; i++) { v[i] = lineVoltage(i); iA[i] = lineCurrent(i); }
+  bool dcFresh = dcEver && (millis() - dcLastMs < DC_STALE_MS);
 
-  // TODO(Claude Code) : aligner ce corps JSON sur le serializer réel de
-  // EmsDecisionView (apps/devices). Ci-dessous une forme raisonnable, à confirmer.
-  char body[320];
+  // TODO(Claude Code) : aligner ce corps JSON (lignes AC + bloc DC) sur le
+  // serializer réel de EmsDecisionView (apps/devices).
+  char body[512];
   snprintf(body, sizeof(body),
-    "{\"house\":%s,\"lines\":["
+    "{\"house\":%s,"
+    "\"lines\":["
       "{\"name\":\"L1\",\"voltage\":%.1f,\"current\":%.3f,\"state\":%d},"
       "{\"name\":\"L2\",\"voltage\":%.1f,\"current\":%.3f,\"state\":%d},"
-      "{\"name\":\"L3\",\"voltage\":%.1f,\"current\":%.3f,\"state\":%d}]}",
+      "{\"name\":\"L3\",\"voltage\":%.1f,\"current\":%.3f,\"state\":%d}],"
+    "\"dc\":{\"fresh\":%s,"
+      "\"i_pv\":%.3f,\"i_bat1\":%.3f,\"i_bat2\":%.3f,"
+      "\"v_pv\":%.2f,\"v_reg\":%.2f,\"v_bat\":%.2f,"
+      "\"t_bat1\":%.1f,\"t_bat2\":%.1f,\"t_pv\":%.1f}}",
     HOUSE_ID,
     v[0], iA[0], lineOn[0] ? 1 : 0,
     v[1], iA[1], lineOn[1] ? 1 : 0,
-    v[2], iA[2], lineOn[2] ? 1 : 0);
+    v[2], iA[2], lineOn[2] ? 1 : 0,
+    dcFresh ? "true" : "false",
+    dc.iPV, dc.iBAT1, dc.iBAT2, dc.vPV, dc.vREG, dc.vBAT, dc.tBAT1, dc.tBAT2, dc.tPV);
 
-  String url = backendUrl(BACKEND_DECISION_PATH);
-  String resp;
+  String url = backendUrl(BACKEND_DECISION_PATH), resp;
   int code = httpSend("POST", url, String(body), resp);
-  Serial.printf("[HTTP] POST %s -> %d\n", url.c_str(), code);
+  Serial.printf("[HTTP] POST %s -> %d (DC %s)\n", url.c_str(), code,
+                dcFresh ? "frais" : "périmé/absent");
 
   if (code == 200 || code == 201) {
     Serial.printf("[HTTP] réponse : %s\n", resp.c_str());
@@ -248,9 +309,11 @@ void setup() {
     lineOn[i] = false;
   }
 
-  // ADC : 12 bits, atténuation 11 dB (fenêtre calibrée ~150–2450 mV).
   analogReadResolution(12);
   analogSetAttenuation(ADC_11db);
+
+  // UART2 vers le nœud secondaire (réception des mesures DC).
+  Serial2.begin(UART_BAUD, SERIAL_8N1, UART_RX_PIN, UART_TX_PIN);
 
   wifiEnsureConnected();
 
@@ -263,12 +326,10 @@ void loop() {
   wifiEnsureConnected();
   mqttEnsureConnected();
   mqtt.loop();
+  readUart();
 
 #if HTTP_TELEMETRY_ENABLED
   static uint32_t lastPost = 0;
-  if (millis() - lastPost >= POST_INTERVAL_MS) {
-    lastPost = millis();
-    postDecisionCycle();
-  }
+  if (millis() - lastPost >= POST_INTERVAL_MS) { lastPost = millis(); postDecisionCycle(); }
 #endif
 }
