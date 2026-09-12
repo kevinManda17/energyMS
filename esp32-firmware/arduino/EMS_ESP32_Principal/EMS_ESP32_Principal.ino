@@ -1,22 +1,21 @@
 // ============================================================================
-//  EMS IoT — Nœud PRINCIPAL (AC)
+//  EMS IoT — Nœud PRINCIPAL (AC) — version HTTP (sans MQTT)
 //  ----------------------------------------------------------------------------
-//  Rôle    : mesurer 3 lignes AC (tension/courant), commander 3 relais,
-//            recevoir les mesures DC du nœud secondaire par UART, et tout
-//            remonter au backend.
-//  Contrôle: MQTT (commande + état des relais) — plan de contrôle principal.
-//  Données : HTTP POST périodique (AC + DC) vers le backend -> système expert.
+//  Rôle    : mesurer 3 lignes AC, commander 3 relais, recevoir les mesures DC
+//            du nœud secondaire par UART, et sonder le backend.
+//  Contrôle: le backend renvoie "L1=..;L2=..;L3=.." (état décidé par l'app ou
+//            le système expert) ; l'ESP32 l'applique. Pas de MQTT : le worker
+//            MQTT du backend n'ingère que des mesures, il ne pilote aucun relais.
 //
-//  Cible   : ESP32 WROOM-32 (carte "ESP32 Dev Module").
-//  Dépend. : PubSubClient (Nick O'Leary). WiFi/HTTPClient : inclus dans le core.
+//  Cible   : ESP32 WROOM-32 ("ESP32 Dev Module").
+//  Dépend. : AUCUNE bibliothèque externe (WiFi/HTTPClient sont dans le core).
 //
-//  Dossier de sketch : EMS_ESP32_Principal/  contenant en plus
-//                      config.h, secrets.h.
+//  Dossier de sketch : EMS_ESP32_Principal/  avec config.h et secrets.h,
+//  et RIEN D'AUTRE (surtout pas un autre .ino).
 // ============================================================================
 
 #include <WiFi.h>
 #include <HTTPClient.h>
-#include <PubSubClient.h>
 
 #include "config.h"
 #include "secrets.h"
@@ -24,9 +23,6 @@
 // ---------------------------------------------------------------------------
 //  État global
 // ---------------------------------------------------------------------------
-WiFiClient   net;
-PubSubClient mqtt(net);
-
 const int  vPins[3]     = { PIN_V_L1, PIN_V_L2, PIN_V_L3 };
 const int  iPins[3]     = { PIN_I_L1, PIN_I_L2, PIN_I_L3 };
 const int  relayPins[3] = { PIN_RELAY_L1, PIN_RELAY_L2, PIN_RELAY_L3 };
@@ -34,7 +30,7 @@ bool       lineOn[3]    = { false, false, false };
 
 // Mesures DC reçues du nœud secondaire par UART (dernières valeurs connues)
 struct DcData { float iPV, iBAT1, iBAT2, vPV, vREG, vBAT, tBAT1, tBAT2, tPV; };
-DcData   dc      = {};
+DcData   dc       = {};
 uint32_t dcLastMs = 0;
 bool     dcEver   = false;
 
@@ -52,77 +48,10 @@ static inline int relayLevel(bool on) {
 #endif
 }
 
-String topicLineBase()   { return String(MQTT_TOPIC_PREFIX) + "/" + HOUSE_ID + "/lines/"; }
-String topicState(int i) { return topicLineBase() + lineName(i) + "/state"; }
-String topicSetWildcard(){ return topicLineBase() + "+/set"; }
-String topicStatus()     { return String(MQTT_TOPIC_PREFIX) + "/" + HOUSE_ID + "/node/principal/status"; }
-
-void publishLineState(int i) {
-  if (!mqtt.connected()) return;
-  mqtt.publish(topicState(i).c_str(), lineOn[i] ? "1" : "0", true /* retenu */);
-}
-
 void setLine(int i, bool on) {
   lineOn[i] = on;
   digitalWrite(relayPins[i], relayLevel(on));
   Serial.printf("[RELAIS] %s -> %s\n", lineName(i), on ? "ON" : "OFF");
-  publishLineState(i);
-}
-
-// ---------------------------------------------------------------------------
-//  MQTT
-// ---------------------------------------------------------------------------
-int lineIndexFromSetTopic(const String& t) {
-  for (int i = 0; i < 3; i++)
-    if (t == topicLineBase() + lineName(i) + "/set") return i;
-  return -1;
-}
-
-void onMqttMessage(char* topic, byte* payload, unsigned int len) {
-  String t(topic), msg;
-  msg.reserve(len);
-  for (unsigned int k = 0; k < len; k++) msg += (char)payload[k];
-  msg.trim();
-
-  int i = lineIndexFromSetTopic(t);
-  if (i < 0) return;
-
-  bool on;
-  if (msg == "1" || msg.equalsIgnoreCase("on")  || msg.equalsIgnoreCase("true"))  on = true;
-  else if (msg == "0" || msg.equalsIgnoreCase("off") || msg.equalsIgnoreCase("false")) on = false;
-  else if (msg.equalsIgnoreCase("toggle")) on = !lineOn[i];
-  else { Serial.printf("[MQTT] payload ignoré sur %s : '%s'\n", topic, msg.c_str()); return; }
-
-  Serial.printf("[MQTT] commande %s = %s\n", lineName(i), on ? "ON" : "OFF");
-  setLine(i, on);
-}
-
-void mqttEnsureConnected() {
-  if (mqtt.connected()) return;
-
-  static uint32_t lastTry = 0;
-  if (millis() - lastTry < 3000) return;   // ne pas marteler le broker
-  lastTry = millis();
-
-  String cid = String("ems-principal-") + HOUSE_ID + "-" +
-               String((uint32_t)ESP.getEfuseMac(), HEX);
-
-  bool ok;
-  if (strlen(MQTT_USER) > 0)
-    ok = mqtt.connect(cid.c_str(), MQTT_USER, MQTT_PASSWORD,
-                      topicStatus().c_str(), 0, true, "offline");
-  else
-    ok = mqtt.connect(cid.c_str(), nullptr, nullptr,
-                      topicStatus().c_str(), 0, true, "offline");
-
-  if (ok) {
-    Serial.println("[MQTT] connecté");
-    mqtt.publish(topicStatus().c_str(), "online", true);
-    mqtt.subscribe(topicSetWildcard().c_str());
-    for (int i = 0; i < 3; i++) publishLineState(i);   // état courant (retenu)
-  } else {
-    Serial.printf("[MQTT] échec (rc=%d), nouvel essai bientôt\n", mqtt.state());
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -131,7 +60,7 @@ void mqttEnsureConnected() {
 void wifiEnsureConnected() {
   if (WiFi.status() == WL_CONNECTED) return;
 
-  Serial.printf("[WiFi] connexion à \"%s\" ...\n", WIFI_SSID);
+  Serial.printf("[WiFi] connexion a \"%s\" ", WIFI_SSID);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
@@ -142,14 +71,12 @@ void wifiEnsureConnected() {
   if (WiFi.status() == WL_CONNECTED)
     Serial.printf("[WiFi] OK, IP = %s\n", WiFi.localIP().toString().c_str());
   else
-    Serial.println("[WiFi] échec (nouvel essai plus tard)");
+    Serial.println("[WiFi] echec (nouvel essai plus tard)");
 }
 
 // ---------------------------------------------------------------------------
 //  UART — réception des mesures DC du nœud secondaire
-//  Trame : $DC,i1,i2,i3,v1,v2,v3,t1,t2,t3*CK\n
-//  CK = XOR (hex) de tout ce qui est entre '$' et '*'.  LE FORMAT DOIT ÊTRE
-//  IDENTIQUE côté secondaire.
+//  Trame : $DC,i1,i2,i3,v1,v2,v3,t1,t2,t3*CK\n   (CK = XOR hex entre '$' et '*')
 // ---------------------------------------------------------------------------
 bool parseDcFrame(const String& line) {
   if (!line.startsWith("$")) return false;
@@ -160,7 +87,7 @@ bool parseDcFrame(const String& line) {
   uint8_t ck = 0;
   for (size_t i = 0; i < payload.length(); i++) ck ^= (uint8_t)payload[i];
   uint8_t given = (uint8_t)strtol(line.substring(star + 1).c_str(), nullptr, 16);
-  if (ck != given) { Serial.println("[UART] checksum invalide, trame jetée"); return false; }
+  if (ck != given) { Serial.println("[UART] checksum invalide, trame jetee"); return false; }
 
   DcData d;
   int n = sscanf(payload.c_str(), "DC,%f,%f,%f,%f,%f,%f,%f,%f,%f",
@@ -182,10 +109,9 @@ void readUart() {
       if (len > 0) {
         buf[len] = '\0';
         if (parseDcFrame(String(buf)))
-          Serial.printf("[UART] DC : Ipv=%.3f Ibat1=%.3f Ibat2=%.3f | "
-                        "Vpv=%.2f Vreg=%.2f Vbat=%.2f | Tbat1=%.1f Tbat2=%.1f Tpv=%.1f\n",
-                        dc.iPV, dc.iBAT1, dc.iBAT2, dc.vPV, dc.vREG, dc.vBAT,
-                        dc.tBAT1, dc.tBAT2, dc.tPV);
+          Serial.printf("[UART] DC : Ipv=%.3f Ibat1=%.3f Ibat2=%.3f | Vbat=%.2f | "
+                        "Tbat1=%.1f Tpv=%.1f\n",
+                        dc.iPV, dc.iBAT1, dc.iBAT2, dc.vBAT, dc.tBAT1, dc.tPV);
         len = 0;
       }
     } else if (len < sizeof(buf) - 1) {
@@ -199,7 +125,6 @@ void readUart() {
 // ---------------------------------------------------------------------------
 //  Mesure AC — valeur efficace de la composante alternative, en mV.
 //  Passe unique : variance = E[x²] - E[x]²  ->  RMS_AC = sqrt(variance).
-//  analogReadMilliVolts() applique la calibration eFuse.
 // ---------------------------------------------------------------------------
 float readRmsMilliVolts(int pin) {
   const uint32_t start = micros();
@@ -220,9 +145,6 @@ float readRmsMilliVolts(int pin) {
   return (float)sqrt(var);
 }
 
-float lineVoltage(int i) { return readRmsMilliVolts(vPins[i]) * V_SCALE[i]; } // Vrms secteur
-float lineCurrent(int i) { return readRmsMilliVolts(iPins[i]) * I_SCALE[i]; } // Irms
-
 // ---------------------------------------------------------------------------
 //  HTTP — une primitive pour POST / GET / PATCH / PUT
 // ---------------------------------------------------------------------------
@@ -236,7 +158,7 @@ int httpSend(const char* method, const String& url, const String& body, String& 
   HTTPClient http;
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-Device-Token", DEVICE_TOKEN);   // correctif d'authentification
+  http.addHeader("X-Device-Token", DEVICE_TOKEN);   // authentification du nœud
 
   int code = http.sendRequest(method, body);
   if (code > 0) out = http.getString();
@@ -281,8 +203,7 @@ void postDecisionCycle() {
 
   // Bloc DC (nœud secondaire), seulement s'il est frais. Le matériel a deux
   // batteries en parallèle mais le backend n'en modélise qu'une : on somme les
-  // courants et on prend tension/température du parc. batteryCurrent est signé
-  // (+ = charge).
+  // courants et on prend tension/température du parc. batteryCurrent est signé.
   if (dcFresh && n > 0 && n < (int)sizeof(body)) {
     snprintf(body + n, sizeof(body) - n,
       ",\"dc\":{"
@@ -315,7 +236,7 @@ void postDecisionCycle() {
 void setup() {
   Serial.begin(115200);
   delay(200);
-  Serial.println("\n=== EMS — Nœud PRINCIPAL (AC) ===");
+  Serial.println("\n=== EMS - Noeud PRINCIPAL (AC) - HTTP ===");
 
   // Relais à l'état repos AVANT tout, pour limiter un collage au démarrage.
   for (int i = 0; i < 3; i++) {
@@ -331,16 +252,10 @@ void setup() {
   Serial2.begin(UART_BAUD, SERIAL_8N1, UART_RX_PIN, UART_TX_PIN);
 
   wifiEnsureConnected();
-
-  mqtt.setServer(MQTT_HOST, MQTT_PORT);
-  mqtt.setCallback(onMqttMessage);
-  mqttEnsureConnected();
 }
 
 void loop() {
   wifiEnsureConnected();
-  mqttEnsureConnected();
-  mqtt.loop();
   readUart();
 
 #if HTTP_TELEMETRY_ENABLED
