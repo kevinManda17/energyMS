@@ -62,7 +62,10 @@ static const float I_SCALE[3] = { 0.010f, 0.010f, 0.010f };
 //  Liaison HTTP (télémétrie AC+DC + décision serveur — flux existant)
 // ---------------------------------------------------------------------------
 #define HTTP_TELEMETRY_ENABLED       1        // POST périodique des mesures
-#define APPLY_SERVER_RELAY_DECISION  0        // 1 = la réponse backend pilote aussi les relais
+// Avec CE backend, c'est le sondage HTTP qui pilote les relais : l'app fait
+// PATCH /api/houses/<id>/relays/, et l'ESP32 applique la réponse "L1=..;L2=..;
+// L3=.." à son POST suivant. Laisser à 1 pour que les lampes suivent l'app/expert.
+#define APPLY_SERVER_RELAY_DECISION  1
 #define POST_INTERVAL_MS             10000    // période d'envoi (ms)
 #define BACKEND_DECISION_PATH        "/api/ems/decision/"
 //  Réponse attendue du backend, format texte : "L1=1;L2=0;L3=1"

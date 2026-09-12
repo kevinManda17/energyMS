@@ -257,40 +257,55 @@ void applyServerRelayResponse(const String& body) {
 }
 
 void postDecisionCycle() {
-  float v[3], iA[3];
-  for (int i = 0; i < 3; i++) { v[i] = lineVoltage(i); iA[i] = lineCurrent(i); }
+  float rawV[3], rawI[3], v[3], iA[3];
+  for (int i = 0; i < 3; i++) {
+    rawV[i] = readRmsMilliVolts(vPins[i]);   // mV efficaces bruts (utile calibration)
+    rawI[i] = readRmsMilliVolts(iPins[i]);
+    v[i]    = rawV[i] * V_SCALE[i];           // Vrms secteur
+    iA[i]   = rawI[i] * I_SCALE[i];           // Irms
+  }
   bool dcFresh = dcEver && (millis() - dcLastMs < DC_STALE_MS);
 
-  // TODO(Claude Code) : aligner ce corps JSON (lignes AC + bloc DC) sur le
-  // serializer réel de EmsDecisionView (apps/devices).
-  char body[512];
-  snprintf(body, sizeof(body),
-    "{\"house\":%s,"
-    "\"lines\":["
-      "{\"name\":\"L1\",\"voltage\":%.1f,\"current\":%.3f,\"state\":%d},"
-      "{\"name\":\"L2\",\"voltage\":%.1f,\"current\":%.3f,\"state\":%d},"
-      "{\"name\":\"L3\",\"voltage\":%.1f,\"current\":%.3f,\"state\":%d}],"
-    "\"dc\":{\"fresh\":%s,"
-      "\"i_pv\":%.3f,\"i_bat1\":%.3f,\"i_bat2\":%.3f,"
-      "\"v_pv\":%.2f,\"v_reg\":%.2f,\"v_bat\":%.2f,"
-      "\"t_bat1\":%.1f,\"t_bat2\":%.1f,\"t_pv\":%.1f}}",
-    HOUSE_ID,
-    v[0], iA[0], lineOn[0] ? 1 : 0,
-    v[1], iA[1], lineOn[1] ? 1 : 0,
-    v[2], iA[2], lineOn[2] ? 1 : 0,
-    dcFresh ? "true" : "false",
-    dc.iPV, dc.iBAT1, dc.iBAT2, dc.vPV, dc.vREG, dc.vBAT, dc.tBAT1, dc.tBAT2, dc.tPV);
+  // Corps attendu par EmsDecisionView : clés line1/line2/line3 (+ bloc dc).
+  // La maison N'EST PAS envoyée : le backend la déduit du jeton d'appareil.
+  // La puissance n'est pas envoyée : le backend calcule lui-même P = V x I.
+  char body[640];
+  int n = snprintf(body, sizeof(body),
+    "{"
+      "\"line1\":{\"voltage\":%.1f,\"current\":%.3f,\"vSensorRms\":%.1f,\"iSensorRms\":%.1f},"
+      "\"line2\":{\"voltage\":%.1f,\"current\":%.3f,\"vSensorRms\":%.1f,\"iSensorRms\":%.1f},"
+      "\"line3\":{\"voltage\":%.1f,\"current\":%.3f,\"vSensorRms\":%.1f,\"iSensorRms\":%.1f}",
+    v[0], iA[0], rawV[0], rawI[0],
+    v[1], iA[1], rawV[1], rawI[1],
+    v[2], iA[2], rawV[2], rawI[2]);
+
+  // Bloc DC (nœud secondaire), seulement s'il est frais. Le matériel a deux
+  // batteries en parallèle mais le backend n'en modélise qu'une : on somme les
+  // courants et on prend tension/température du parc. batteryCurrent est signé
+  // (+ = charge).
+  if (dcFresh && n > 0 && n < (int)sizeof(body)) {
+    snprintf(body + n, sizeof(body) - n,
+      ",\"dc\":{"
+        "\"batteryVoltage\":%.2f,\"batteryCurrent\":%.3f,\"batteryTemp\":%.1f,"
+        "\"pvVoltage\":%.2f,\"pvCurrent\":%.3f,\"panelTemp\":%.1f}}",
+      dc.vBAT, dc.iBAT1 + dc.iBAT2, dc.tBAT1,
+      dc.vPV, dc.iPV, dc.tPV);
+  } else {
+    strncat(body, "}", sizeof(body) - strlen(body) - 1);
+  }
 
   String url = backendUrl(BACKEND_DECISION_PATH), resp;
   int code = httpSend("POST", url, String(body), resp);
   Serial.printf("[HTTP] POST %s -> %d (DC %s)\n", url.c_str(), code,
-                dcFresh ? "frais" : "périmé/absent");
+                dcFresh ? "frais" : "absent");
 
   if (code == 200 || code == 201) {
-    Serial.printf("[HTTP] réponse : %s\n", resp.c_str());
+    Serial.printf("[HTTP] reponse : %s\n", resp.c_str());
 #if APPLY_SERVER_RELAY_DECISION
-    applyServerRelayResponse(resp);
+    applyServerRelayResponse(resp);   // le backend renvoie "L1=..;L2=..;L3=.."
 #endif
+  } else if (code == 403) {
+    Serial.printf("[HTTP] 403 (%s) — verifie DEVICE_TOKEN dans secrets.h\n", resp.c_str());
   }
 }
 
