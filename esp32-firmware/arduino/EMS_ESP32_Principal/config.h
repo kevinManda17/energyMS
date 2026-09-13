@@ -47,5 +47,10 @@ static const float I_SCALE[3] = { 0.010f, 0.010f, 0.010f };  // A / mV
 // Le backend renvoie "L1=..;L2=..;L3=.." ; l'ESP32 l'applique. C'est ainsi que
 // les lampes suivent l'app (PATCH /api/houses/<id>/relays/). Laisser à 1.
 #define APPLY_SERVER_RELAY_DECISION  1
-#define POST_INTERVAL_MS             10000
+// Cadence de sondage : 3 s, la cadence nominale du systeme. Le backend, lui,
+// n'archive les mesures et n'evalue le systeme expert que toutes les 30 s
+// (MEASUREMENT_STORE_INTERVAL_S) : sonder plus vite ne sature donc pas la base,
+// cela rend seulement l'application plus reactive -- une commande passee dans
+// l'interface atteint les relais en 3 s au lieu de 10.
+#define POST_INTERVAL_MS             3000
 #define BACKEND_DECISION_PATH        "/api/ems/decision/"

@@ -190,16 +190,28 @@ void postDecisionCycle() {
 
   // Corps attendu par EmsDecisionView : clés line1/line2/line3 (+ bloc dc).
   // La maison N'EST PAS envoyée : le backend la déduit du jeton d'appareil.
-  // La puissance n'est pas envoyée : le backend calcule lui-même P = V x I.
+  // La puissance EST envoyée, ligne par ligne. Le backend sait la recalculer
+  // pour le détail (LineReading), mais son agrégat `load_power_w` — celui que
+  // lit le système expert — n'est construit QUE depuis cette clé. Sans elle, la
+  // consommation reste inconnue, la qualité des données ne vaut jamais GOOD, et
+  // la cascade de décision ne sort jamais en mode AUTOMATIC.
+  //
+  // P = U x I, sans déphasage mesuré : c'est la puissance APPARENTE en VA,
+  // assimilée à de l'actif. Exact sur des lampes résistives, optimiste sur un
+  // chargeur à découpage. Même calcul que le backend, donc aucune divergence
+  // possible entre le détail par ligne et l'agrégat.
   char body[640];
   int n = snprintf(body, sizeof(body),
     "{"
-      "\"line1\":{\"voltage\":%.1f,\"current\":%.3f,\"vSensorRms\":%.1f,\"iSensorRms\":%.1f},"
-      "\"line2\":{\"voltage\":%.1f,\"current\":%.3f,\"vSensorRms\":%.1f,\"iSensorRms\":%.1f},"
-      "\"line3\":{\"voltage\":%.1f,\"current\":%.3f,\"vSensorRms\":%.1f,\"iSensorRms\":%.1f}",
-    v[0], iA[0], rawV[0], rawI[0],
-    v[1], iA[1], rawV[1], rawI[1],
-    v[2], iA[2], rawV[2], rawI[2]);
+      "\"line1\":{\"voltage\":%.1f,\"current\":%.3f,\"power\":%.2f,"
+                      "\"vSensorRms\":%.1f,\"iSensorRms\":%.1f},"
+      "\"line2\":{\"voltage\":%.1f,\"current\":%.3f,\"power\":%.2f,"
+                      "\"vSensorRms\":%.1f,\"iSensorRms\":%.1f},"
+      "\"line3\":{\"voltage\":%.1f,\"current\":%.3f,\"power\":%.2f,"
+                      "\"vSensorRms\":%.1f,\"iSensorRms\":%.1f}",
+    v[0], iA[0], v[0]*iA[0], rawV[0], rawI[0],
+    v[1], iA[1], v[1]*iA[1], rawV[1], rawI[1],
+    v[2], iA[2], v[2]*iA[2], rawV[2], rawI[2]);
 
   // Bloc DC (nœud secondaire), seulement s'il est frais. Le matériel a deux
   // batteries en parallèle mais le backend n'en modélise qu'une : on somme les

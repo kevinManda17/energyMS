@@ -1,12 +1,35 @@
 #pragma once
-// Copier ce fichier en "secrets.h" (NON versionné) et remplir les valeurs.
+// ============================================================================
+//  EMS IoT — Nœud PRINCIPAL — IDENTIFIANTS.
+//
+//  CE FICHIER NE DOIT JAMAIS PARTIR SUR GITHUB. Le .gitignore du dossier l'en
+//  empêche désormais. Un identifiant poussé une fois reste dans l'historique :
+//  le retirer ensuite ne l'efface pas, il faut le changer à la source.
+// ============================================================================
 
-#define WIFI_SSID      "TON_WIFI"
-#define WIFI_PASSWORD  "TON_MOT_DE_PASSE"
+// --- WiFi -------------------------------------------------------------------
+//  Partage de connexion du téléphone. Réseau OUVERT : mot de passe vide, ce que
+//  le pilote interprète comme « pas d'authentification ». Le nom contient une
+//  espace, c'est normal et sans effet.
+#define WIFI_SSID      "itel A50C"
+#define WIFI_PASSWORD  ""
 
-// Jeton de l'appareil, à lire dans l'admin Django (RelayState.device_token).
-#define DEVICE_TOKEN   "COLLER_LE_JETON_ICI"
+// --- Authentification du nœud auprès du backend -----------------------------
+//  À LIRE DANS /admin/ : modèle RelayState, champ device_token, de TA maison.
+//
+//  L'ancien jeton a été publié sur GitHub le 12/09 : régénère-le avant de
+//  t'en servir (Django admin > Relay states > ton micro-réseau > device token).
+//  Sans le bon jeton, le backend répond 403 et les lampes ne suivent pas l'app.
+#define DEVICE_TOKEN   "COLLE_ICI_LE_NOUVEAU_JETON"
 
-// Serveur : IP RÉELLE de la machine sur le WiFi (pas la VM ni Docker).
-#define BACKEND_HOST   "192.168.1.50"
+// --- Backend HTTP -----------------------------------------------------------
+//  ADRESSE DE LA MACHINE QUI FAIT TOURNER DJANGO, VUE DEPUIS LE PARTAGE DE
+//  CONNEXION. Ni « localhost » (qui désignerait l'ESP32 lui-même), ni l'adresse
+//  d'une VM ou d'un conteneur Docker.
+//
+//  Le PC et l'ESP32 doivent être connectés au MÊME réseau — ici le partage de
+//  connexion « itel A50C ». Vérifier l'adresse avant de téléverser :
+//      Windows : ipconfig        -> « Carte réseau sans fil Wi-Fi », IPv4
+//      Linux   : ip addr show    -> l'interface wlan
+#define BACKEND_HOST   "192.168.111.117"
 #define BACKEND_PORT   8000
