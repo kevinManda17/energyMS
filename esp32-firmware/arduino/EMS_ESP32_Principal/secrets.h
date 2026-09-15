@@ -20,7 +20,7 @@
 //  L'ancien jeton a été publié sur GitHub le 12/09 : régénère-le avant de
 //  t'en servir (Django admin > Relay states > ton micro-réseau > device token).
 //  Sans le bon jeton, le backend répond 403 et les lampes ne suivent pas l'app.
-#define DEVICE_TOKEN   "COLLE_ICI_LE_NOUVEAU_JETON"
+#define DEVICE_TOKEN   "_B9RU0WP-hSr_x4OlccnIml50ehpxjzS"
 
 // --- Backend HTTP -----------------------------------------------------------
 //  ADRESSE DE LA MACHINE QUI FAIT TOURNER DJANGO, VUE DEPUIS LE PARTAGE DE
@@ -31,5 +31,5 @@
 //  connexion « itel A50C ». Vérifier l'adresse avant de téléverser :
 //      Windows : ipconfig        -> « Carte réseau sans fil Wi-Fi », IPv4
 //      Linux   : ip addr show    -> l'interface wlan
-#define BACKEND_HOST   "192.168.111.117"
+#define BACKEND_HOST   "192.168.159.117"
 #define BACKEND_PORT   8000
